@@ -1,0 +1,12 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/hgvs-lens",
+  "py-hgvs-lens"
+]
+
+[workspace.package]
+name = "hgvs-lens"
+version = "0.1.0"
+edition = "2021"
+
