@@ -1,0 +1,16 @@
+[package]
+name = "tinyhgvs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+description = "Lightweight Rust library for parsing HGVS variants."
+readme = "../../README.md"
+keywords = ["bioinformatics", "genomics", "hgvs", "parser", "variants"]
+categories = ["parser-implementations", "science"]
+
+[dependencies]
+nom = "8.0.0"
