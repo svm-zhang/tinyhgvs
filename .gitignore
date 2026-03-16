@@ -1,1 +1,14 @@
 /target
+.venv/
+py-tinyhgvs/.venv/
+.pytest_cache/
+.coverage
+coverage.xml
+dist/
+py-tinyhgvs/dist/
+__pycache__/
+*.py[oc]
+*.so
+*.log
+.DS_Store
+site/
