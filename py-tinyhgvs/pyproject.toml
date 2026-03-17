@@ -1,0 +1,49 @@
+[project]
+name = "tinyhgvs"
+version = "0.1.0"
+description = "Hybrid Rust/Python library for parsing HGVS variants."
+readme = "README.md"
+requires-python = ">= 3.10"
+license = "MIT"
+keywords = ["bioinformatics", "genomics", "hgvs", "parser", "variants"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+
+[project.urls]
+Homepage = "https://github.com/svm-zhang/tinyhgvs"
+Repository = "https://github.com/svm-zhang/tinyhgvs"
+Documentation = "https://svm-zhang.github.io/tinyhgvs"
+Issues = "https://github.com/svm-zhang/tinyhgvs/issues"
+
+[dependency-groups]
+dev = [
+    "maturin>=1.7.8,<2.0",
+    "pytest>=8.3.4",
+    "pytest-cov>=5.0.0",
+]
+docs = [
+    "mkdocstrings[python]>=0.29.1",
+    "zensical>=0.0.24,<0.1",
+]
+
+[build-system]
+requires = ["maturin>=1.7.8,<2.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+module-name = "tinyhgvs._tinyhgvs"
+python-source = "python"
+manifest-path = "Cargo.toml"
