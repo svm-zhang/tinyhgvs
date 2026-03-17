@@ -1,0 +1,20 @@
+[package]
+name = "py-tinyhgvs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+description = "PyO3 extension crate backing the tinyhgvs Python package."
+readme = "README.md"
+publish = false
+
+[lib]
+name = "_tinyhgvs"
+crate-type = ["cdylib"]
+
+[dependencies]
+tinyhgvs = { path = "../crates/tinyhgvs" }
+pyo3 = { version = "0.23.3", features = ["extension-module"] }
