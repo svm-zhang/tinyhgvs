@@ -8,13 +8,14 @@ Type Aliases:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Literal, TypeAlias
 
-from .shared import Range
+from .shared import Interval
 
 
 @dataclass(frozen=True, slots=True)
-class ProteinPosition:
+class ProteinCoordinate:
     """Protein position written as residue symbol plus ordinal.
 
     Attributes:
@@ -39,7 +40,7 @@ class ProteinPosition:
 
 @dataclass(frozen=True, slots=True)
 class ProteinSequence:
-    """Ordered amino-acid payload used by insertions and deletion-insertions.
+    """Ordered amino-acid sequence used by insertions and deletion-insertions.
 
     Attributes:
         residues: Ordered tuple of amino-acid symbols.
@@ -56,40 +57,32 @@ class ProteinSequence:
     residues: tuple[str, ...]
 
 
-@dataclass(frozen=True, slots=True)
-class ProteinUnknownEdit:
-    """Model describing an unknown protein edit at a known location.
+class ProteinSequenceOmittedEdit(str, Enum):
+    """Protein edits whose altered amino-acid sequence is not written explicitly.
 
     Attributes:
-        kind: Edit kind.
+        UNKNOWN: A protein change is expected, but the exact consequence is not known.
+        NO_CHANGE: No protein change, written as ``=``.
+        DELETION: Deletion of the stated amino-acid interval.
+        DUPLICATION: Duplication of the stated amino-acid interval.
 
     Examples:
-        The protein position is known, but the exact consequence is unknown.
-        >>> from tinyhgvs import parse_hgvs
+        A predicted but unspecified consequence at Met1:
+        >>> from tinyhgvs import ProteinSequenceOmittedEdit, parse_hgvs
         >>> variant = parse_hgvs("LRG_199p1:p.(Met1?)")
-        >>> variant.description.effect.edit.kind
-        'unknown'
-    """
+        >>> variant.description.effect.edit is ProteinSequenceOmittedEdit.UNKNOWN
+        True
 
-    kind: Literal["unknown"] = field(init=False, default="unknown")
-
-
-@dataclass(frozen=True, slots=True)
-class ProteinNoChangeEdit:
-    """Model describing no protein change.
-
-    Attributes:
-        kind: Edit kind.
-
-    Examples:
-        A protein residue is explicitly reported as unchanged.
-        >>> from tinyhgvs import parse_hgvs
+        An explicitly unchanged residue:
         >>> variant = parse_hgvs("NP_003997.1:p.Cys188=")
-        >>> variant.description.effect.edit.kind
-        'no_change'
+        >>> variant.description.effect.edit
+        <ProteinSequenceOmittedEdit.NO_CHANGE: 'no_change'>
     """
 
-    kind: Literal["no_change"] = field(init=False, default="no_change")
+    UNKNOWN = "unknown"
+    NO_CHANGE = "no_change"
+    DELETION = "deletion"
+    DUPLICATION = "duplication"
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,42 +106,6 @@ class ProteinSubstitutionEdit:
 
     to: str
     kind: Literal["substitution"] = field(init=False, default="substitution")
-
-
-@dataclass(frozen=True, slots=True)
-class ProteinDeletionEdit:
-    """Model describing protein deletion.
-
-    Attributes:
-        kind: Edit kind.
-
-    Examples:
-        An amino-acid interval is deleted from the protein product.
-        >>> from tinyhgvs import parse_hgvs
-        >>> variant = parse_hgvs("NP_003997.2:p.Lys23_Val25del")
-        >>> variant.description.effect.edit.kind
-        'deletion'
-    """
-
-    kind: Literal["deletion"] = field(init=False, default="deletion")
-
-
-@dataclass(frozen=True, slots=True)
-class ProteinDuplicationEdit:
-    """Model describing protein duplication.
-
-    Attributes:
-        kind: Edit kind.
-
-    Examples:
-        A single amino acid is duplicated.
-        >>> from tinyhgvs import parse_hgvs
-        >>> variant = parse_hgvs("NP_003997.2:p.Val7dup")
-        >>> variant.description.effect.edit.kind
-        'duplication'
-    """
-
-    kind: Literal["duplication"] = field(init=False, default="duplication")
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,23 +156,16 @@ class ProteinDeletionInsertionEdit:
         default="deletion_insertion",
     )
 
-
 ProteinEdit: TypeAlias = (
-    ProteinUnknownEdit
-    | ProteinNoChangeEdit
+    ProteinSequenceOmittedEdit
     | ProteinSubstitutionEdit
-    | ProteinDeletionEdit
-    | ProteinDuplicationEdit
     | ProteinInsertionEdit
     | ProteinDeletionInsertionEdit
 )
 """Tagged union for supported protein edit models:
 
-- [`ProteinUnknownEdit`][tinyhgvs.models.protein.ProteinUnknownEdit]
-- [`ProteinNoChangeEdit`][tinyhgvs.models.protein.ProteinNoChangeEdit]
+- [`ProteinSequenceOmittedEdit`][tinyhgvs.models.protein.ProteinSequenceOmittedEdit]
 - [`ProteinSubstitutionEdit`][tinyhgvs.models.protein.ProteinSubstitutionEdit]
-- [`ProteinDeletionEdit`][tinyhgvs.models.protein.ProteinDeletionEdit]
-- [`ProteinDuplicationEdit`][tinyhgvs.models.protein.ProteinDuplicationEdit]
 - [`ProteinInsertionEdit`][tinyhgvs.models.protein.ProteinInsertionEdit]
 - [`ProteinDeletionInsertionEdit`][tinyhgvs.models.protein.ProteinDeletionInsertionEdit]
 """
@@ -272,18 +222,18 @@ class ProteinEditEffect:
     Examples:
         A deletion spanning residues Lys23 to Val25 is represented by a protein
         location and a protein deletion edit.
-        >>> from tinyhgvs import parse_hgvs
+        >>> from tinyhgvs import ProteinSequenceOmittedEdit, parse_hgvs
         >>> variant = parse_hgvs("NP_003997.2:p.Lys23_Val25del")
         >>> effect = variant.description.effect
         >>> effect.location.start.residue
         'Lys'
         >>> effect.location.end.residue
         'Val'
-        >>> effect.edit.kind
-        'deletion'
+        >>> effect.edit is ProteinSequenceOmittedEdit.DELETION
+        True
     """
 
-    location: Range[ProteinPosition]
+    location: Interval[ProteinCoordinate]
     edit: ProteinEdit
     kind: Literal["edit"] = field(init=False, default="edit")
 
@@ -322,20 +272,20 @@ class ProteinVariant:
     effect: ProteinEffect
 
 
+ProteinPosition = ProteinCoordinate
+
+
 __all__ = [
-    "ProteinDeletionEdit",
+    "ProteinCoordinate",
     "ProteinDeletionInsertionEdit",
-    "ProteinDuplicationEdit",
     "ProteinEdit",
     "ProteinEditEffect",
     "ProteinEffect",
     "ProteinInsertionEdit",
-    "ProteinNoChangeEdit",
     "ProteinNoProteinProducedEffect",
-    "ProteinPosition",
     "ProteinSequence",
+    "ProteinSequenceOmittedEdit",
     "ProteinSubstitutionEdit",
-    "ProteinUnknownEdit",
     "ProteinUnknownEffect",
     "ProteinVariant",
 ]
