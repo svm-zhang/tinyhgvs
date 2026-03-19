@@ -1,7 +1,7 @@
 use tinyhgvs::{
-    parse_hgvs, CoordinateSystem, NucleotideEdit, NucleotidePosition, NucleotidePositionAnchor,
-    NucleotideSequenceComponent, NucleotideSequenceSegment, ProteinEdit, ProteinEffect,
-    SequenceKind, SequenceSource, VariantDescription,
+    parse_hgvs, CoordinateSystem, CopiedSequenceItem, LiteralSequenceItem, NucleotideAnchor,
+    NucleotideCoordinate, NucleotideEdit, NucleotideSequenceItem, ProteinEdit, ProteinEffect,
+    RepeatSequenceItem, VariantDescription,
 };
 
 fn parse_variant(example: &str) -> tinyhgvs::HgvsVariant {
@@ -18,8 +18,8 @@ fn parses_nucleotide_substitution_variants() {
 
     assert_eq!(variant.coordinate_system, CoordinateSystem::CodingDna);
     assert_eq!(
-        variant.reference.as_ref().unwrap().primary.kind,
-        SequenceKind::RefSeqGeneRegion
+        variant.reference.as_ref().unwrap().primary.id,
+        "NG_012232.1"
     );
     assert_eq!(
         variant
@@ -29,10 +29,10 @@ fn parses_nucleotide_substitution_variants() {
             .context
             .as_ref()
             .unwrap()
-            .kind,
-        SequenceKind::RefSeqCodingTranscript
+            .id,
+        "NM_004006.2"
     );
-    assert_eq!(description.location.start.position, Some(93));
+    assert_eq!(description.location.start.coordinate, 93);
     assert_eq!(description.location.start.offset, 1);
     assert_eq!(
         description.edit,
@@ -57,7 +57,7 @@ fn parses_nucleotide_no_change_and_deletion_variants() {
 
     match deletion.description {
         VariantDescription::Nucleotide(value) => {
-            assert_eq!(value.location.start.position, Some(5697));
+            assert_eq!(value.location.start.coordinate, 5697);
             assert_eq!(value.edit, NucleotideEdit::Deletion);
         }
         other => panic!("expected nucleotide variant, found {other:?}"),
@@ -73,8 +73,8 @@ fn parses_nucleotide_duplication_and_inversion_variants() {
 
     match duplication.description {
         VariantDescription::Nucleotide(value) => {
-            assert_eq!(value.location.start.position, Some(1234));
-            assert_eq!(value.location.end.as_ref().unwrap().position, Some(2345));
+            assert_eq!(value.location.start.coordinate, 1234);
+            assert_eq!(value.location.end.as_ref().unwrap().coordinate, 2345);
             assert_eq!(value.edit, NucleotideEdit::Duplication);
         }
         other => panic!("expected nucleotide variant, found {other:?}"),
@@ -82,11 +82,8 @@ fn parses_nucleotide_duplication_and_inversion_variants() {
 
     match inversion.description {
         VariantDescription::Nucleotide(value) => {
-            assert_eq!(value.location.start.position, Some(32361330));
-            assert_eq!(
-                value.location.end.as_ref().unwrap().position,
-                Some(32361333)
-            );
+            assert_eq!(value.location.start.coordinate, 32361330);
+            assert_eq!(value.location.end.as_ref().unwrap().coordinate, 32361333);
             assert_eq!(value.edit, NucleotideEdit::Inversion);
         }
         other => panic!("expected nucleotide variant, found {other:?}"),
@@ -94,32 +91,33 @@ fn parses_nucleotide_duplication_and_inversion_variants() {
 }
 
 #[test]
-fn parses_nucleotide_insertion_sequence_components() {
+fn parses_nucleotide_insertion_sequence_items() {
     let current_reference = parse_variant("LRG_199t1:c.419_420ins[T;450_470;AGGG]");
     let remote_reference =
         parse_variant("NC_000002.11:g.47643464_47643465ins[NC_000022.10:g.35788169_35788352]");
 
     match current_reference.description {
         VariantDescription::Nucleotide(value) => {
-            let NucleotideEdit::Insertion { sequence } = value.edit else {
+            let NucleotideEdit::Insertion { items } = value.edit else {
                 panic!("expected insertion edit");
             };
 
-            assert_eq!(sequence.components.len(), 3);
+            assert_eq!(items.len(), 3);
             assert!(matches!(
-                &sequence.components[0],
-                NucleotideSequenceComponent::Literal(value) if value == "T"
+                &items[0],
+                NucleotideSequenceItem::Literal(LiteralSequenceItem { value }) if value == "T"
             ));
             assert!(matches!(
-                &sequence.components[1],
-                NucleotideSequenceComponent::Segment(NucleotideSequenceSegment {
-                    source: SequenceSource::CurrentReference,
+                &items[1],
+                NucleotideSequenceItem::Copied(CopiedSequenceItem {
+                    source_reference: None,
+                    source_coordinate_system: None,
                     ..
                 })
             ));
             assert!(matches!(
-                &sequence.components[2],
-                NucleotideSequenceComponent::Literal(value) if value == "AGGG"
+                &items[2],
+                NucleotideSequenceItem::Literal(LiteralSequenceItem { value }) if value == "AGGG"
             ));
         }
         other => panic!("expected nucleotide variant, found {other:?}"),
@@ -127,28 +125,25 @@ fn parses_nucleotide_insertion_sequence_components() {
 
     match remote_reference.description {
         VariantDescription::Nucleotide(value) => {
-            let NucleotideEdit::Insertion { sequence } = value.edit else {
+            let NucleotideEdit::Insertion { items } = value.edit else {
                 panic!("expected insertion edit");
             };
 
-            assert_eq!(sequence.components.len(), 1);
-            match &sequence.components[0] {
-                NucleotideSequenceComponent::Segment(NucleotideSequenceSegment {
-                    source:
-                        SequenceSource::OtherReference {
-                            reference,
-                            coordinate_system,
-                        },
-                    location,
+            assert_eq!(items.len(), 1);
+            match &items[0] {
+                NucleotideSequenceItem::Copied(CopiedSequenceItem {
+                    source_reference: Some(reference),
+                    source_coordinate_system: Some(coordinate_system),
+                    source_location,
                     is_inverted,
                 }) => {
-                    assert_eq!(reference.primary.kind, SequenceKind::RefSeqChromosome);
+                    assert_eq!(reference.primary.id, "NC_000022.10");
                     assert_eq!(*coordinate_system, CoordinateSystem::Genomic);
-                    assert_eq!(location.start.position, Some(35788169));
-                    assert_eq!(location.end.as_ref().unwrap().position, Some(35788352));
+                    assert_eq!(source_location.start.coordinate, 35788169);
+                    assert_eq!(source_location.end.as_ref().unwrap().coordinate, 35788352);
                     assert!(!is_inverted);
                 }
-                other => panic!("expected remote segment, found {other:?}"),
+                other => panic!("expected remote copied item, found {other:?}"),
             }
         }
         other => panic!("expected nucleotide variant, found {other:?}"),
@@ -162,14 +157,15 @@ fn parses_nucleotide_delins_sequence_forms() {
 
     match local_segment.description {
         VariantDescription::Nucleotide(value) => {
-            let NucleotideEdit::DeletionInsertion { sequence } = value.edit else {
+            let NucleotideEdit::DeletionInsertion { items } = value.edit else {
                 panic!("expected deletion-insertion edit");
             };
 
             assert!(matches!(
-                sequence.components.first().unwrap(),
-                NucleotideSequenceComponent::Segment(NucleotideSequenceSegment {
-                    source: SequenceSource::CurrentReference,
+                items.first().unwrap(),
+                NucleotideSequenceItem::Copied(CopiedSequenceItem {
+                    source_reference: None,
+                    source_coordinate_system: None,
                     ..
                 })
             ));
@@ -179,13 +175,13 @@ fn parses_nucleotide_delins_sequence_forms() {
 
     match repeat.description {
         VariantDescription::Nucleotide(value) => {
-            let NucleotideEdit::DeletionInsertion { sequence } = value.edit else {
+            let NucleotideEdit::DeletionInsertion { items } = value.edit else {
                 panic!("expected deletion-insertion edit");
             };
 
             assert!(matches!(
-                sequence.components.first().unwrap(),
-                NucleotideSequenceComponent::Repeat { unit, count }
+                items.first().unwrap(),
+                NucleotideSequenceItem::Repeat(RepeatSequenceItem { unit, count })
                     if unit == "N" && *count == 12
             ));
         }
@@ -321,26 +317,26 @@ fn parses_protein_deletion_duplication_insertion_and_delins_variants() {
 }
 
 #[test]
-fn normalizes_intronic_and_utr_relative_positions() {
-    let intronic = NucleotidePosition {
-        anchor: NucleotidePositionAnchor::Coordinate,
-        position: Some(93),
+fn normalizes_intronic_and_utr_relative_coordinates() {
+    let intronic = NucleotideCoordinate {
+        anchor: NucleotideAnchor::Absolute,
+        coordinate: 93,
         offset: 1,
     };
-    let upstream_intronic = NucleotidePosition {
-        anchor: NucleotidePositionAnchor::Coordinate,
-        position: Some(264),
+    let upstream_intronic = NucleotideCoordinate {
+        anchor: NucleotideAnchor::Absolute,
+        coordinate: 264,
         offset: -2,
     };
-    let five_prime_utr = NucleotidePosition {
-        anchor: NucleotidePositionAnchor::CdsStart,
-        position: Some(0),
-        offset: -81,
+    let five_prime_utr = NucleotideCoordinate {
+        anchor: NucleotideAnchor::RelativeCdsStart,
+        coordinate: -81,
+        offset: 0,
     };
-    let three_prime_utr = NucleotidePosition {
-        anchor: NucleotidePositionAnchor::CdsEnd,
-        position: None,
-        offset: 1,
+    let three_prime_utr = NucleotideCoordinate {
+        anchor: NucleotideAnchor::RelativeCdsEnd,
+        coordinate: 1,
+        offset: 0,
     };
 
     assert!(intronic.is_intronic());
@@ -358,7 +354,7 @@ fn normalizes_intronic_and_utr_relative_positions() {
 }
 
 #[test]
-fn parses_trimmed_inputs_and_utr_positions() {
+fn parses_trimmed_inputs_and_utr_coordinates() {
     let five_prime = parse_variant("  NM_007373.4:c.-1C>T  ");
     let three_prime = parse_variant("NM_001272071.2:c.*1C>T");
     let upstream_intronic = parse_variant("NG_012232.1(NM_004006.2):c.264-2A>G");
@@ -368,29 +364,29 @@ fn parses_trimmed_inputs_and_utr_positions() {
     };
     assert_eq!(
         five_prime.location.start.anchor,
-        NucleotidePositionAnchor::CdsStart
+        NucleotideAnchor::RelativeCdsStart
     );
-    assert_eq!(five_prime.location.start.position, Some(0));
-    assert_eq!(five_prime.location.start.offset, -1);
+    assert_eq!(five_prime.location.start.coordinate, -1);
+    assert_eq!(five_prime.location.start.offset, 0);
 
     let VariantDescription::Nucleotide(three_prime) = three_prime.description else {
         panic!("expected nucleotide variant");
     };
     assert_eq!(
         three_prime.location.start.anchor,
-        NucleotidePositionAnchor::CdsEnd
+        NucleotideAnchor::RelativeCdsEnd
     );
-    assert_eq!(three_prime.location.start.position, None);
-    assert_eq!(three_prime.location.start.offset, 1);
+    assert_eq!(three_prime.location.start.coordinate, 1);
+    assert_eq!(three_prime.location.start.offset, 0);
 
     let VariantDescription::Nucleotide(upstream_intronic) = upstream_intronic.description else {
         panic!("expected nucleotide variant");
     };
     assert_eq!(
         upstream_intronic.location.start.anchor,
-        NucleotidePositionAnchor::Coordinate
+        NucleotideAnchor::Absolute
     );
-    assert_eq!(upstream_intronic.location.start.position, Some(264));
+    assert_eq!(upstream_intronic.location.start.coordinate, 264);
     assert_eq!(upstream_intronic.location.start.offset, -2);
 }
 
