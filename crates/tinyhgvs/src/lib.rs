@@ -32,15 +32,15 @@
 //! A substitution crossing exon/intron border (intronic):
 //!
 //! ```rust
-//! use tinyhgvs::{NucleotideEdit, NucleotidePositionAnchor, VariantDescription, parse_hgvs};
+//! use tinyhgvs::{NucleotideAnchor, NucleotideEdit, VariantDescription, parse_hgvs};
 //!
 //! let variant = parse_hgvs("NM_004006.2:c.357+1G>A").unwrap();
 //! let description = variant.description;
 //!
 //! match description {
 //!     VariantDescription::Nucleotide(nucleotide) => {
-//!         assert_eq!(nucleotide.location.start.anchor, NucleotidePositionAnchor::Coordinate);
-//!         assert_eq!(nucleotide.location.start.position, Some(357));
+//!         assert_eq!(nucleotide.location.start.anchor, NucleotideAnchor::Absolute);
+//!         assert_eq!(nucleotide.location.start.coordinate, 357);
 //!         assert_eq!(nucleotide.location.start.offset, 1);
 //!         assert!(matches!(
 //!             nucleotide.edit,
@@ -85,9 +85,9 @@ mod parser;
 
 pub use error::{ParseHgvsError, ParseHgvsErrorKind};
 pub use model::{
-    CoordinateSystem, HgvsVariant, NucleotideEdit, NucleotidePosition, NucleotidePositionAnchor,
-    NucleotideSequence, NucleotideSequenceComponent, NucleotideSequenceSegment, NucleotideVariant,
-    ProteinEdit, ProteinEffect, ProteinPosition, ProteinSequence, ProteinVariant, Range,
-    ReferenceSpec, SequenceId, SequenceKind, SequenceSource, VariantDescription,
+    Accession, CoordinateSystem, CopiedSequenceItem, HgvsVariant, Interval, LiteralSequenceItem,
+    NucleotideAnchor, NucleotideCoordinate, NucleotideEdit, NucleotideSequenceItem,
+    NucleotideVariant, ProteinCoordinate, ProteinEdit, ProteinEffect, ProteinSequence,
+    ProteinVariant, ReferenceSpec, RepeatSequenceItem, VariantDescription,
 };
 pub use parser::parse_hgvs;
