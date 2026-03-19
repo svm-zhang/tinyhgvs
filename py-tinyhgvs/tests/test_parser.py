@@ -1,38 +1,36 @@
 import pytest
 
 from tinyhgvs import (
+    Accession,
     CoordinateSystem,
-    CurrentReferenceSource,
-    LiteralSequenceComponent,
-    NucleotideDeletionEdit,
+    CopiedSequenceItem,
+    HgvsVariant,
+    Interval,
+    LiteralSequenceItem,
+    NucleotideAnchor,
+    NucleotideCoordinate,
     NucleotideDeletionInsertionEdit,
-    NucleotideDuplicationEdit,
     NucleotideInsertionEdit,
-    NucleotideInversionEdit,
-    NucleotideNoChangeEdit,
-    NucleotidePosition,
-    NucleotidePositionAnchor,
+    NucleotideSequenceOmittedEdit,
     NucleotideSubstitutionEdit,
-    OtherReferenceSource,
-    ProteinDeletionEdit,
+    NucleotideVariant,
+    ParseHgvsErrorKind,
+    ProteinCoordinate,
     ProteinDeletionInsertionEdit,
-    ProteinDuplicationEdit,
     ProteinEditEffect,
     ProteinInsertionEdit,
-    ProteinNoChangeEdit,
     ProteinNoProteinProducedEffect,
     ProteinSequence,
+    ProteinSequenceOmittedEdit,
     ProteinSubstitutionEdit,
-    ProteinUnknownEdit,
     ProteinUnknownEffect,
     ProteinVariant,
-    ParseHgvsErrorKind,
-    RepeatSequenceComponent,
-    SegmentSequenceComponent,
-    SequenceKind,
+    ReferenceSpec,
+    RepeatSequenceItem,
     TinyHGVSError,
     parse_hgvs,
 )
+from tinyhgvs._tinyhgvs import _roundtrip_variant
 
 
 def test_parses_nucleotide_substitution_variants():
@@ -40,10 +38,10 @@ def test_parses_nucleotide_substitution_variants():
 
     assert variant.coordinate_system is CoordinateSystem.CODING_DNA
     assert variant.reference is not None
-    assert variant.reference.primary.kind is SequenceKind.REFSEQ_GENE_REGION
+    assert variant.reference.primary.id == "NG_012232.1"
     assert variant.reference.context is not None
-    assert variant.reference.context.kind is SequenceKind.REFSEQ_CODING_TRANSCRIPT
-    assert variant.description.location.start.position == 93
+    assert variant.reference.context.id == "NM_004006.2"
+    assert variant.description.location.start.coordinate == 93
     assert variant.description.location.start.offset == 1
     assert variant.description.edit == NucleotideSubstitutionEdit(
         reference="G",
@@ -58,9 +56,9 @@ def test_parses_nucleotide_no_change_and_deletion_variants():
     no_change = parse_hgvs("NM_004006.2:c.123=")
     deletion = parse_hgvs("NM_004006.2:c.5697del")
 
-    assert no_change.description.edit == NucleotideNoChangeEdit()
-    assert deletion.description.location.start.position == 5697
-    assert deletion.description.edit == NucleotideDeletionEdit()
+    assert no_change.description.edit is NucleotideSequenceOmittedEdit.NO_CHANGE
+    assert deletion.description.location.start.coordinate == 5697
+    assert deletion.description.edit is NucleotideSequenceOmittedEdit.DELETION
 
     with pytest.raises(TinyHGVSError) as exc_info:
         parse_hgvs("NM_004006.2:c.5697delA")
@@ -73,18 +71,18 @@ def test_parses_nucleotide_duplication_and_inversion_variants():
     duplication = parse_hgvs("NC_000001.11:g.1234_2345dup")
     inversion = parse_hgvs("NC_000023.10:g.32361330_32361333inv")
 
-    assert duplication.description.location.start.position == 1234
+    assert duplication.description.location.start.coordinate == 1234
     assert duplication.description.location.end is not None
-    assert duplication.description.location.end.position == 2345
-    assert duplication.description.edit == NucleotideDuplicationEdit()
+    assert duplication.description.location.end.coordinate == 2345
+    assert duplication.description.edit is NucleotideSequenceOmittedEdit.DUPLICATION
 
-    assert inversion.description.location.start.position == 32361330
+    assert inversion.description.location.start.coordinate == 32361330
     assert inversion.description.location.end is not None
-    assert inversion.description.location.end.position == 32361333
-    assert inversion.description.edit == NucleotideInversionEdit()
+    assert inversion.description.location.end.coordinate == 32361333
+    assert inversion.description.edit is NucleotideSequenceOmittedEdit.INVERSION
 
 
-def test_parses_nucleotide_insertion_sequence_components():
+def test_parses_nucleotide_insertion_sequence_items():
     current_reference = parse_hgvs("LRG_199t1:c.419_420ins[T;450_470;AGGG]")
     remote_reference = parse_hgvs(
         "NC_000002.11:g.47643464_47643465ins[NC_000022.10:g.35788169_35788352]"
@@ -92,31 +90,26 @@ def test_parses_nucleotide_insertion_sequence_components():
 
     current_edit = current_reference.description.edit
     assert isinstance(current_edit, NucleotideInsertionEdit)
-    assert len(current_edit.sequence.components) == 3
-    assert current_edit.sequence.components[0] == LiteralSequenceComponent(value="T")
-    assert isinstance(current_edit.sequence.components[1], SegmentSequenceComponent)
-    assert isinstance(
-        current_edit.sequence.components[1].segment.source,
-        CurrentReferenceSource,
-    )
-    assert current_edit.sequence.components[2] == LiteralSequenceComponent(value="AGGG")
+    assert len(current_edit.items) == 3
+    assert current_edit.items[0] == LiteralSequenceItem(value="T")
+    assert isinstance(current_edit.items[1], CopiedSequenceItem)
+    assert current_edit.items[1].is_from_same_reference is True
+    assert current_edit.items[2] == LiteralSequenceItem(value="AGGG")
 
     remote_edit = remote_reference.description.edit
     assert isinstance(remote_edit, NucleotideInsertionEdit)
-    assert len(remote_edit.sequence.components) == 1
+    assert len(remote_edit.items) == 1
 
-    remote_component = remote_edit.sequence.components[0]
-    assert isinstance(remote_component, SegmentSequenceComponent)
-    assert isinstance(remote_component.segment.source, OtherReferenceSource)
-    assert (
-        remote_component.segment.source.reference.primary.kind
-        is SequenceKind.REFSEQ_CHROMOSOME
-    )
-    assert remote_component.segment.source.coordinate_system is CoordinateSystem.GENOMIC
-    assert remote_component.segment.location.start.position == 35788169
-    assert remote_component.segment.location.end is not None
-    assert remote_component.segment.location.end.position == 35788352
-    assert remote_component.segment.is_inverted is False
+    remote_item = remote_edit.items[0]
+    assert isinstance(remote_item, CopiedSequenceItem)
+    assert remote_item.source_reference is not None
+    assert remote_item.source_reference.primary.id == "NC_000022.10"
+    assert remote_item.source_coordinate_system is CoordinateSystem.GENOMIC
+    assert remote_item.source_location.start.coordinate == 35788169
+    assert remote_item.source_location.end is not None
+    assert remote_item.source_location.end.coordinate == 35788352
+    assert remote_item.is_inverted is False
+    assert remote_item.is_from_same_reference is False
 
 
 def test_parses_nucleotide_delins_sequence_forms():
@@ -125,18 +118,12 @@ def test_parses_nucleotide_delins_sequence_forms():
 
     local_edit = local_segment.description.edit
     assert isinstance(local_edit, NucleotideDeletionInsertionEdit)
-    assert isinstance(local_edit.sequence.components[0], SegmentSequenceComponent)
-    assert isinstance(
-        local_edit.sequence.components[0].segment.source,
-        CurrentReferenceSource,
-    )
+    assert isinstance(local_edit.items[0], CopiedSequenceItem)
+    assert local_edit.items[0].is_from_same_reference is True
 
     repeat_edit = repeat.description.edit
     assert isinstance(repeat_edit, NucleotideDeletionInsertionEdit)
-    assert repeat_edit.sequence.components[0] == RepeatSequenceComponent(
-        unit="N",
-        count=12,
-    )
+    assert repeat_edit.items[0] == RepeatSequenceItem(unit="N", count=12)
 
 
 def test_parses_protein_substitution_and_no_change_variants():
@@ -151,7 +138,7 @@ def test_parses_protein_substitution_and_no_change_variants():
     assert substitution.description.effect.edit == ProteinSubstitutionEdit(to="Ter")
 
     assert isinstance(no_change.description.effect, ProteinEditEffect)
-    assert no_change.description.effect.edit == ProteinNoChangeEdit()
+    assert no_change.description.effect.edit is ProteinSequenceOmittedEdit.NO_CHANGE
 
 
 def test_parses_protein_unknown_and_predicted_effects():
@@ -167,7 +154,7 @@ def test_parses_protein_unknown_and_predicted_effects():
     assert predicted.description.is_predicted is True
     assert predicted.description.effect.location.start.residue == "Met"
     assert predicted.description.effect.location.start.ordinal == 1
-    assert predicted.description.effect.edit == ProteinUnknownEdit()
+    assert predicted.description.effect.edit is ProteinSequenceOmittedEdit.UNKNOWN
 
     assert absent.description.effect == ProteinNoProteinProducedEffect()
 
@@ -182,10 +169,10 @@ def test_parses_protein_deletion_duplication_insertion_and_delins_variants():
     assert deletion.description.effect.location.start.residue == "Lys"
     assert deletion.description.effect.location.end is not None
     assert deletion.description.effect.location.end.residue == "Val"
-    assert deletion.description.effect.edit == ProteinDeletionEdit()
+    assert deletion.description.effect.edit is ProteinSequenceOmittedEdit.DELETION
 
     assert isinstance(duplication.description.effect, ProteinEditEffect)
-    assert duplication.description.effect.edit == ProteinDuplicationEdit()
+    assert duplication.description.effect.edit is ProteinSequenceOmittedEdit.DUPLICATION
 
     assert isinstance(insertion.description.effect, ProteinEditEffect)
     assert insertion.description.effect.edit == ProteinInsertionEdit(
@@ -198,26 +185,26 @@ def test_parses_protein_deletion_duplication_insertion_and_delins_variants():
     )
 
 
-def test_distinguishes_intronic_and_utr_relative_positions():
-    intronic = NucleotidePosition(
-        anchor=NucleotidePositionAnchor.COORDINATE,
-        position=93,
+def test_distinguishes_intronic_and_utr_relative_coordinates():
+    intronic = NucleotideCoordinate(
+        anchor=NucleotideAnchor.ABSOLUTE,
+        coordinate=93,
         offset=1,
     )
-    upstream_intronic = NucleotidePosition(
-        anchor=NucleotidePositionAnchor.COORDINATE,
-        position=264,
+    upstream_intronic = NucleotideCoordinate(
+        anchor=NucleotideAnchor.ABSOLUTE,
+        coordinate=264,
         offset=-2,
     )
-    five_prime_utr = NucleotidePosition(
-        anchor=NucleotidePositionAnchor.CDS_START,
-        position=0,
-        offset=-81,
+    five_prime_utr = NucleotideCoordinate(
+        anchor=NucleotideAnchor.RELATIVE_CDS_START,
+        coordinate=-81,
+        offset=0,
     )
-    three_prime_utr = NucleotidePosition(
-        anchor=NucleotidePositionAnchor.CDS_END,
-        position=None,
-        offset=1,
+    three_prime_utr = NucleotideCoordinate(
+        anchor=NucleotideAnchor.RELATIVE_CDS_END,
+        coordinate=1,
+        offset=0,
     )
 
     assert intronic.is_intronic is True
@@ -234,24 +221,99 @@ def test_distinguishes_intronic_and_utr_relative_positions():
     assert three_prime_utr.is_three_prime_utr is True
 
 
-def test_parses_utr_and_upstream_intronic_positions_with_normalized_offsets():
+def test_parses_utr_and_upstream_intronic_coordinates():
     five_prime = parse_hgvs("NM_007373.4:c.-1C>T")
     three_prime = parse_hgvs("NM_001272071.2:c.*1C>T")
     upstream_intronic = parse_hgvs("NG_012232.1(NM_004006.2):c.264-2A>G")
 
-    assert five_prime.description.location.start.anchor is NucleotidePositionAnchor.CDS_START
-    assert five_prime.description.location.start.position == 0
-    assert five_prime.description.location.start.offset == -1
+    assert five_prime.description.location.start.anchor is NucleotideAnchor.RELATIVE_CDS_START
+    assert five_prime.description.location.start.coordinate == -1
+    assert five_prime.description.location.start.offset == 0
 
-    assert three_prime.description.location.start.anchor is NucleotidePositionAnchor.CDS_END
-    assert three_prime.description.location.start.position is None
-    assert three_prime.description.location.start.offset == 1
+    assert three_prime.description.location.start.anchor is NucleotideAnchor.RELATIVE_CDS_END
+    assert three_prime.description.location.start.coordinate == 1
+    assert three_prime.description.location.start.offset == 0
 
-    assert upstream_intronic.description.location.start.anchor is (
-        NucleotidePositionAnchor.COORDINATE
-    )
-    assert upstream_intronic.description.location.start.position == 264
+    assert upstream_intronic.description.location.start.anchor is NucleotideAnchor.ABSOLUTE
+    assert upstream_intronic.description.location.start.coordinate == 264
     assert upstream_intronic.description.location.start.offset == -2
+
+
+def test_roundtrips_parsed_variant_through_python_to_rust_and_back():
+    parsed = parse_hgvs("LRG_199t1:c.419_420ins[T;450_470;AGGG]")
+    roundtripped = _roundtrip_variant(parsed)
+
+    assert roundtripped == parsed
+
+    utr = parse_hgvs("NM_007373.4:c.-1C>T")
+    assert _roundtrip_variant(utr) == utr
+
+
+def test_roundtrips_manually_constructed_nucleotide_variant():
+    variant = HgvsVariant(
+        reference=ReferenceSpec(
+            primary=Accession(id="LRG_199t1", version=None),
+            context=None,
+        ),
+        coordinate_system=CoordinateSystem.CODING_DNA,
+        description=NucleotideVariant(
+            location=Interval(
+                start=NucleotideCoordinate(
+                    anchor=NucleotideAnchor.ABSOLUTE,
+                    coordinate=419,
+                ),
+                end=NucleotideCoordinate(
+                    anchor=NucleotideAnchor.ABSOLUTE,
+                    coordinate=420,
+                ),
+            ),
+            edit=NucleotideInsertionEdit(
+                items=(
+                    LiteralSequenceItem(value="T"),
+                    CopiedSequenceItem(
+                        source_reference=None,
+                        source_coordinate_system=None,
+                        source_location=Interval(
+                            start=NucleotideCoordinate(
+                                anchor=NucleotideAnchor.ABSOLUTE,
+                                coordinate=450,
+                            ),
+                            end=NucleotideCoordinate(
+                                anchor=NucleotideAnchor.ABSOLUTE,
+                                coordinate=470,
+                            ),
+                        ),
+                        is_inverted=False,
+                    ),
+                    LiteralSequenceItem(value="AGGG"),
+                ),
+            ),
+        ),
+    )
+
+    assert _roundtrip_variant(variant) == variant
+
+
+def test_roundtrips_manually_constructed_protein_variant():
+    variant = HgvsVariant(
+        reference=ReferenceSpec(
+            primary=Accession(id="NP_003997.1", version=1),
+            context=None,
+        ),
+        coordinate_system=CoordinateSystem.PROTEIN,
+        description=ProteinVariant(
+            is_predicted=False,
+            effect=ProteinEditEffect(
+                location=Interval(
+                    start=ProteinCoordinate(residue="Trp", ordinal=24),
+                    end=None,
+                ),
+                edit=ProteinSubstitutionEdit(to="Ter"),
+            ),
+        ),
+    )
+
+    assert _roundtrip_variant(variant) == variant
 
 
 def test_rejects_examples_deferred_to_future_work():
