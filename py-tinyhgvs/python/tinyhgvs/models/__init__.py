@@ -3,11 +3,11 @@
 The package is split into:
 
 - :mod:`tinyhgvs.models.shared` for shared reference and coordinate models
-- :mod:`tinyhgvs.models.nucleotide` for nucleotide positions, edits, and variants
-- :mod:`tinyhgvs.models.protein` for protein positions, effects, and variants
+- :mod:`tinyhgvs.models.nucleotide` for nucleotide coordinates, edits, and variants
+- :mod:`tinyhgvs.models.protein` for protein coordinates, effects, and variants
 
 Type Aliases:
-    VariantDescription: Tagged union for supported top-level variant payloads.
+    VariantDescription: Tagged union for supported top-level variant models.
 """
 
 from __future__ import annotations
@@ -16,50 +16,38 @@ from dataclasses import dataclass
 from typing import TypeAlias
 
 from .nucleotide import (
-    LiteralSequenceComponent,
-    NucleotideDeletionEdit,
+    CopiedSequenceItem,
     NucleotideDeletionInsertionEdit,
-    NucleotideDuplicationEdit,
+    NucleotideAnchor,
+    NucleotideCoordinate,
     NucleotideEdit,
     NucleotideInsertionEdit,
-    NucleotideInversionEdit,
-    NucleotideNoChangeEdit,
-    NucleotidePosition,
-    NucleotidePositionAnchor,
-    NucleotideSequence,
-    NucleotideSequenceComponent,
-    NucleotideSequenceSegment,
+    NucleotideSequenceItem,
+    NucleotideSequenceOmittedEdit,
     NucleotideSubstitutionEdit,
     NucleotideVariant,
-    RepeatSequenceComponent,
-    SegmentSequenceComponent,
+    LiteralSequenceItem,
+    RepeatSequenceItem,
 )
 from .protein import (
-    ProteinDeletionEdit,
     ProteinDeletionInsertionEdit,
-    ProteinDuplicationEdit,
+    ProteinCoordinate,
     ProteinEdit,
     ProteinEditEffect,
     ProteinEffect,
     ProteinInsertionEdit,
-    ProteinNoChangeEdit,
     ProteinNoProteinProducedEffect,
-    ProteinPosition,
     ProteinSequence,
+    ProteinSequenceOmittedEdit,
     ProteinSubstitutionEdit,
-    ProteinUnknownEdit,
     ProteinUnknownEffect,
     ProteinVariant,
 )
 from .shared import (
+    Accession,
     CoordinateSystem,
-    CurrentReferenceSource,
-    OtherReferenceSource,
-    Range,
+    Interval,
     ReferenceSpec,
-    SequenceId,
-    SequenceKind,
-    SequenceSource,
 )
 
 VariantDescription: TypeAlias = NucleotideVariant | ProteinVariant
@@ -87,23 +75,30 @@ class HgvsVariant:
         and edit models:
         >>> from tinyhgvs import parse_hgvs
         >>> variant = parse_hgvs("NM_004006.2:c.357+1G>A")
-        >>> variant.reference.primary.raw
+        >>> variant.reference.primary.id
         'NM_004006.2'
         >>> variant.coordinate_system.value
         'c'
         >>> variant_description = variant.description
         >>> variant_location = variant_description.location
-        >>> variant_location.start.position
+        >>> variant_location.start.coordinate
         357
         >>> variant_location.start.offset
         1
         >>> variant_location.start.anchor
-        <NucleotidePositionAnchor.COORDINATE: 'coordinate'>
+        <NucleotideAnchor.ABSOLUTE: 'absolute'>
         >>> variant_location.end is None
         True
         >>> variant_edit = variant_description.edit
         >>> variant_edit
         NucleotideSubstitutionEdit(reference='G', alternate='A', kind='substitution')
+
+        A 5' UTR substitution keeps the signed coordinate from the HGVS string:
+        >>> utr = parse_hgvs("NM_007373.4:c.-1C>T")
+        >>> utr.description.location.start.coordinate
+        -1
+        >>> utr.description.location.start.is_five_prime_utr
+        True
     """
 
     reference: ReferenceSpec | None
@@ -112,46 +107,34 @@ class HgvsVariant:
 
 
 __all__ = [
+    "Accession",
+    "CopiedSequenceItem",
     "CoordinateSystem",
-    "CurrentReferenceSource",
     "HgvsVariant",
-    "LiteralSequenceComponent",
-    "NucleotideDeletionEdit",
+    "Interval",
+    "LiteralSequenceItem",
     "NucleotideDeletionInsertionEdit",
-    "NucleotideDuplicationEdit",
+    "NucleotideAnchor",
+    "NucleotideCoordinate",
     "NucleotideEdit",
     "NucleotideInsertionEdit",
-    "NucleotideInversionEdit",
-    "NucleotideNoChangeEdit",
-    "NucleotidePosition",
-    "NucleotidePositionAnchor",
-    "NucleotideSequence",
-    "NucleotideSequenceComponent",
-    "NucleotideSequenceSegment",
+    "NucleotideSequenceItem",
+    "NucleotideSequenceOmittedEdit",
     "NucleotideSubstitutionEdit",
     "NucleotideVariant",
-    "OtherReferenceSource",
-    "ProteinDeletionEdit",
+    "ProteinCoordinate",
     "ProteinDeletionInsertionEdit",
-    "ProteinDuplicationEdit",
     "ProteinEdit",
     "ProteinEditEffect",
     "ProteinEffect",
     "ProteinInsertionEdit",
-    "ProteinNoChangeEdit",
     "ProteinNoProteinProducedEffect",
-    "ProteinPosition",
     "ProteinSequence",
+    "ProteinSequenceOmittedEdit",
     "ProteinSubstitutionEdit",
-    "ProteinUnknownEdit",
     "ProteinUnknownEffect",
     "ProteinVariant",
-    "Range",
     "ReferenceSpec",
-    "RepeatSequenceComponent",
-    "SegmentSequenceComponent",
-    "SequenceId",
-    "SequenceKind",
-    "SequenceSource",
+    "RepeatSequenceItem",
     "VariantDescription",
 ]
