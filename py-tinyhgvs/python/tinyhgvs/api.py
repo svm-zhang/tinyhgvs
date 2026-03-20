@@ -29,12 +29,20 @@ def parse_hgvs(input: str) -> HgvsVariant:
         >>> variant = parse_hgvs("NM_004006.2:c.357+1G>A")
         >>> variant.coordinate_system.value
         'c'
-        >>> variant.description.location.start.position
+        >>> variant.description.location.start.coordinate
         357
         >>> variant.description.location.start.offset
         1
         >>> variant.description.edit
         NucleotideSubstitutionEdit(reference='G', alternate='A', kind='substitution')
+
+        A 5' UTR substitution keeps its signed coordinate:
+
+        >>> utr = parse_hgvs("NM_007373.4:c.-1C>T")
+        >>> utr.description.location.start.coordinate
+        -1
+        >>> utr.description.location.start.is_five_prime_utr
+        True
 
         A predicted protein consequence:
 

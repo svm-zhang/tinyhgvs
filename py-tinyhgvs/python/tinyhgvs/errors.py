@@ -82,7 +82,7 @@ class TinyHGVSError(ValueError):
         fragment: str | None,
         parser_version: str,
     ) -> None:
-        """Build a Python exception instance from the Rust diagnostic payload.
+        """Build a Python exception instance from Rust diagnostic details.
 
         Args:
             kind: Broad error kind.
