@@ -1,0 +1,43 @@
+@font-face {
+  font-family: "DejaVu Sans Mono";
+  src: url("../assets/fonts/DejaVuSansMono.ttf") format("truetype");
+}
+
+:root {
+  --md-code-font: "DejaVu Sans Mono";
+}
+
+.md-nav__link {
+  white-space: normal;
+}
+
+@media screen and (min-width: 76.25em) {
+  .md-sidebar {
+    width: 18rem;
+  }
+}
+
+@media screen and (max-width: 76.234375em) {
+  [dir="ltr"] .md-sidebar--primary {
+    left: -18rem;
+  }
+
+  [dir="rtl"] .md-sidebar--primary {
+    right: -18rem;
+  }
+
+  .md-sidebar--primary {
+    width: 18rem;
+  }
+
+  [data-md-toggle="drawer"]:checked ~ .md-container .md-sidebar--primary {
+    transform: translateX(18.4rem);
+  }
+
+  [dir="rtl"]
+    [data-md-toggle="drawer"]:checked
+    ~ .md-container
+    .md-sidebar--primary {
+    transform: translateX(-18.4rem);
+  }
+}
