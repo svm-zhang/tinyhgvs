@@ -13,14 +13,15 @@ pip install tinyhgvs
 
 ## Quick start
 
-- An intronic substitution crossing exon/intron boundary:
+- An splicing-site substitution crossing exon/intron boundary:
 
 ```python
 from tinyhgvs import parse_hgvs
 
 variant = parse_hgvs("NM_004006.2:c.357+1G>A")
-print(variant.reference.sequence_id.value)
+print(variant.reference.primary.id)
 print(variant.coordinate_system.value)
+print(variant.description.location.start.coordinate)
 print(variant.description.location.start.offset)
 ```
 
