@@ -1,14 +1,42 @@
-/target
-.venv/
-py-tinyhgvs/.venv/
+# python generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+*.so
+*.log
+
+# pytest
 .pytest_cache/
 .coverage
 coverage.xml
-dist/
-py-tinyhgvs/dist/
-__pycache__/
-*.py[oc]
-*.so
-*.log
-.DS_Store
+
+# mypy
+.mypy_cache
+
+# venv
+.venv
+
+# pyo3
+*dylib*/
+
+# rust doc
+/target
+
+# python doc
 site/
+
+# mac
+.DS_Store
+
+# .venv/
+# py-tinyhgvs/.venv/
+# .pytest_cache/
+# dist/
+# py-tinyhgvs/dist/
+# __pycache__/
+# *.py[oc]
+# *.so
+# *.log
