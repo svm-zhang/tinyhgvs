@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/**"
+      - "py-tinyhgvs/**"
+      - "docs/**"
+      - ".github/workflows/ci.yml"
+      - "*.md"
+      - "zensical.toml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/**"
+      - "py-tinyhgvs/**"
+      - "docs/**"
+      - ".github/workflows/ci.yml"
+      - "*.md"
+      - "zensical.toml"
+  workflow_dispatch:
+
+jobs:
+  rust:
+    name: Rust checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Run doctests
+        run: cargo test --doc -p tinyhgvs
+
+      - name: Verify crate packaging
+        run: cargo package -p tinyhgvs --locked
+
+  python:
+    name: Python checks (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Sync development dependencies
+        working-directory: py-tinyhgvs
+        run: uv sync --group dev
+
+      - name: Build extension locally
+        working-directory: py-tinyhgvs
+        run: env -u CONDA_PREFIX uv run maturin develop
+
+      - name: Run pytest
+        working-directory: py-tinyhgvs
+        run: env -u CONDA_PREFIX uv run pytest
