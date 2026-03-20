@@ -7,7 +7,6 @@ on:
     paths:
       - "docs/**"
       - "py-tinyhgvs/python/**"
-      - "py-tinyhgvs/README.md"
       - "py-tinyhgvs/pyproject.toml"
       - "zensical.toml"
       - "*.md"
@@ -18,7 +17,6 @@ on:
     paths:
       - "docs/**"
       - "py-tinyhgvs/python/**"
-      - "py-tinyhgvs/README.md"
       - "py-tinyhgvs/pyproject.toml"
       - "zensical.toml"
       - "*.md"
