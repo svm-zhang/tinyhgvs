@@ -7,6 +7,8 @@ The package exports:
 - :class:`TinyHGVSError` and related error enums from :mod:`tinyhgvs.errors`
 """
 
+from importlib.metadata import PackageNotFoundError, version
+
 from .api import parse_hgvs
 from .errors import ParseHgvsErrorKind, TinyHGVSError
 from .models import (
@@ -42,6 +44,11 @@ from .models import (
     VariantDescription,
 )
 
+try:
+    __version__ = version("tinyhgvs")
+except PackageNotFoundError:
+    __version__ = "0+unknown"
+
 __all__ = [
     "Accession",
     "CopiedSequenceItem",
@@ -75,5 +82,6 @@ __all__ = [
     "RepeatSequenceItem",
     "TinyHGVSError",
     "VariantDescription",
+    "__version__",
     "parse_hgvs",
 ]
