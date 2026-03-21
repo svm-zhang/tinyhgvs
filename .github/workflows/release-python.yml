@@ -5,6 +5,12 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      rehearsal:
+        description: "Build release artifacts without publishing to package registries"
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -67,7 +73,7 @@ jobs:
 
   publish-testpypi:
     name: Publish to TestPyPI
-    if: github.ref_type == 'tag'
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     needs:
       - build-wheels
       - build-sdist
@@ -97,7 +103,7 @@ jobs:
 
   publish-pypi:
     name: Publish to PyPI
-    if: github.ref_type == 'tag'
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     needs: publish-testpypi
     runs-on: ubuntu-latest
     environment:

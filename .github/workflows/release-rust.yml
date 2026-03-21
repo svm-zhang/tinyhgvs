@@ -5,10 +5,16 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      rehearsal:
+        description: "Run tests and cargo publish --dry-run without uploading to crates.io"
+        required: false
+        type: boolean
+        default: true
 
 jobs:
-  publish:
-    name: Publish crate
+  verify:
+    name: Rehearse crate release
     runs-on: ubuntu-latest
 
     steps:
@@ -20,6 +26,22 @@ jobs:
 
       - name: Run tests
         run: cargo test
+
+      - name: Run publish dry run
+        run: cargo publish --dry-run -p tinyhgvs --locked
+
+  publish:
+    name: Publish crate
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: verify
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Publish tinyhgvs to crates.io
         env:
