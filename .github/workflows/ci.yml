@@ -86,4 +86,8 @@ jobs:
 
       - name: Run pytest
         working-directory: py-tinyhgvs
-        run: env -u CONDA_PREFIX uv run pytest
+        run: env -u CONDA_PREFIX uv run --group dev python -m pytest
+
+      - name: Run mypy
+        working-directory: py-tinyhgvs
+        run: env -u CONDA_PREFIX uv run --group dev python -m mypy
