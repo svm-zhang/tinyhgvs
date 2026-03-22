@@ -44,6 +44,16 @@ def parse_hgvs(input: str) -> HgvsVariant:
         >>> utr.description.location.start.is_five_prime_utr
         True
 
+        An exact RNA repeat:
+
+        >>> repeat = parse_hgvs("NM_004006.3:r.-124_-123[14]")
+        >>> len(repeat.description.edit.blocks)
+        1
+        >>> repeat.description.edit.blocks[0].count
+        14
+        >>> repeat.description.edit.blocks[0].unit is None
+        True
+
         A predicted protein consequence:
 
         >>> protein = parse_hgvs("NP_003997.1:p.(Trp24Ter)")

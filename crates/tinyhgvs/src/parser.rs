@@ -9,7 +9,7 @@ use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while1};
 use nom::character::complete::{char, digit1};
 use nom::combinator::{all_consuming, map, map_res, opt, value};
-use nom::multi::{many1, separated_list1};
+use nom::multi::{many0, many1, separated_list1};
 use nom::sequence::{delimited, pair, preceded};
 use nom::{IResult, Parser};
 
@@ -17,9 +17,9 @@ use crate::diagnostics::classify_parse_failure;
 use crate::error::ParseHgvsError;
 use crate::model::{
     Accession, CoordinateSystem, CopiedSequenceItem, HgvsVariant, Interval, LiteralSequenceItem,
-    NucleotideAnchor, NucleotideCoordinate, NucleotideEdit, NucleotideSequenceItem,
-    NucleotideVariant, ProteinCoordinate, ProteinEdit, ProteinEffect, ProteinSequence,
-    ProteinVariant, ReferenceSpec, RepeatSequenceItem, VariantDescription,
+    NucleotideAnchor, NucleotideCoordinate, NucleotideEdit, NucleotideRepeatBlock,
+    NucleotideSequenceItem, NucleotideVariant, ProteinCoordinate, ProteinEdit, ProteinEffect,
+    ProteinSequence, ProteinVariant, ReferenceSpec, RepeatSequenceItem, VariantDescription,
 };
 
 type ParseResult<'a, T> = IResult<&'a str, T>;
@@ -97,6 +97,25 @@ const PROTEIN_SYMBOLS: &[&str] = &[
 /// }
 /// ```
 ///
+/// An exact repeated sequence is returned as a repeat edit:
+///
+/// ```rust
+/// use tinyhgvs::{NucleotideEdit, VariantDescription, parse_hgvs};
+///
+/// let variant = parse_hgvs("NM_004006.3:r.-124_-123[14]").unwrap();
+///
+/// match variant.description {
+///     VariantDescription::Nucleotide(nucleotide) => {
+///         let NucleotideEdit::Repeat { blocks } = nucleotide.edit else {
+///             unreachable!("expected repeat edit");
+///         };
+///         assert_eq!(blocks[0].count, 14);
+///         assert_eq!(blocks[0].unit, None);
+///     }
+///     _ => unreachable!("expected nucleotide variant"),
+/// }
+/// ```
+///
 /// Unsupported syntax is reported as a structured [`crate::ParseHgvsError`]:
 ///
 /// ```rust
@@ -171,7 +190,7 @@ fn variant_description(
     if coordinate_system.is_protein() {
         protein_description(input)
     } else {
-        nucleotide_description(input)
+        nucleotide_description(coordinate_system, input)
     }
 }
 
@@ -212,12 +231,26 @@ fn coordinate_system(input: &str) -> ParseResult<'_, CoordinateSystem> {
 }
 
 /// Parses nucleotide description composed of location plus edit.
-fn nucleotide_description(input: &str) -> ParseResult<'_, VariantDescription> {
-    map(
-        pair(nucleotide_interval, nucleotide_edit),
-        |(location, edit)| VariantDescription::Nucleotide(NucleotideVariant { location, edit }),
-    )
-    .parse(input)
+fn nucleotide_description(
+    coordinate_system: CoordinateSystem,
+    input: &str,
+) -> ParseResult<'_, VariantDescription> {
+    let (input, initial_location) = nucleotide_interval(input)?;
+    let (input, edit) = nucleotide_edit(input)?;
+
+    if !is_valid_nucleotide_repeat(coordinate_system, &initial_location, &edit) {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Verify,
+        )));
+    }
+
+    let location = resolved_nucleotide_location(&initial_location, &edit);
+
+    Ok((
+        input,
+        VariantDescription::Nucleotide(NucleotideVariant { location, edit }),
+    ))
 }
 
 /// Parses nucleotide location as a single position/coordinate or an interval
@@ -294,6 +327,8 @@ fn nucleotide_edit(input: &str) -> ParseResult<'_, NucleotideEdit> {
         ),
         value(NucleotideEdit::Deletion, tag("del")),
         value(NucleotideEdit::Duplication, tag("dup")),
+        nucleotide_repeat_without_sequence,
+        nucleotide_repeat_with_sequence,
         map(preceded(tag("ins"), nucleotide_sequence_items), |items| {
             NucleotideEdit::Insertion { items }
         }),
@@ -306,6 +341,29 @@ fn nucleotide_edit(input: &str) -> ParseResult<'_, NucleotideEdit> {
             },
         ),
     ))
+    .parse(input)
+}
+
+/// Parses repeated-sequence syntax where only copy counts are written after
+/// the top-level location.
+fn nucleotide_repeat_without_sequence(input: &str) -> ParseResult<'_, NucleotideEdit> {
+    map(
+        pair(repeat_count_only_block, many0(repeat_located_count_block)),
+        |(first, rest)| {
+            let mut blocks = Vec::with_capacity(rest.len() + 1);
+            blocks.push(first);
+            blocks.extend(rest);
+            NucleotideEdit::Repeat { blocks }
+        },
+    )
+    .parse(input)
+}
+
+/// Parses repeated-sequence syntax where the repeated unit is written explicitly.
+fn nucleotide_repeat_with_sequence(input: &str) -> ParseResult<'_, NucleotideEdit> {
+    map(many1(repeat_sequence_block), |blocks| {
+        NucleotideEdit::Repeat { blocks }
+    })
     .parse(input)
 }
 
@@ -345,6 +403,50 @@ fn sequence_repeat(input: &str) -> ParseResult<'_, RepeatSequenceItem> {
             delimited(char('['), parse_usize, char(']')),
         ),
         |(unit, count)| RepeatSequenceItem { unit, count },
+    )
+    .parse(input)
+}
+
+/// Parses one top-level repeat block with an explicit sequence unit.
+fn repeat_sequence_block(input: &str) -> ParseResult<'_, NucleotideRepeatBlock> {
+    map(
+        pair(
+            nucleotide_literal,
+            delimited(char('['), parse_usize, char(']')),
+        ),
+        |(unit, count)| NucleotideRepeatBlock {
+            count,
+            unit: Some(unit),
+            location: None,
+        },
+    )
+    .parse(input)
+}
+
+/// Parses the first count-only top-level repeat block after the main location.
+fn repeat_count_only_block(input: &str) -> ParseResult<'_, NucleotideRepeatBlock> {
+    map(delimited(char('['), parse_usize, char(']')), |count| {
+        NucleotideRepeatBlock {
+            count,
+            unit: None,
+            location: None,
+        }
+    })
+    .parse(input)
+}
+
+/// Parses an additional located count-only repeat block used by composite repeats.
+fn repeat_located_count_block(input: &str) -> ParseResult<'_, NucleotideRepeatBlock> {
+    map(
+        pair(
+            nucleotide_interval,
+            delimited(char('['), parse_usize, char(']')),
+        ),
+        |(location, count)| NucleotideRepeatBlock {
+            count,
+            unit: None,
+            location: Some(location),
+        },
     )
     .parse(input)
 }
@@ -466,6 +568,9 @@ fn protein_edit(input: &str) -> ParseResult<'_, ProteinEdit> {
         }),
         value(ProteinEdit::Deletion, tag("del")),
         value(ProteinEdit::Duplication, tag("dup")),
+        map(delimited(char('['), parse_usize, char(']')), |count| {
+            ProteinEdit::Repeat { count }
+        }),
         map(preceded(tag("ins"), protein_sequence), |sequence| {
             ProteinEdit::Insertion { sequence }
         }),
@@ -494,6 +599,65 @@ fn protein_symbol(input: &str) -> ParseResult<'_, String> {
         input,
         nom::error::ErrorKind::Tag,
     )))
+}
+
+/// Returns the top-level nucleotide location to expose on the parsed variant.
+fn resolved_nucleotide_location(
+    initial_location: &Interval<NucleotideCoordinate>,
+    edit: &NucleotideEdit,
+) -> Interval<NucleotideCoordinate> {
+    let NucleotideEdit::Repeat { blocks } = edit else {
+        return initial_location.clone();
+    };
+
+    let Some(last_location) = blocks
+        .iter()
+        .filter_map(|block| block.location.as_ref())
+        .last()
+    else {
+        return initial_location.clone();
+    };
+
+    Interval {
+        start: initial_location.start.clone(),
+        end: last_location
+            .end
+            .clone()
+            .or_else(|| Some(last_location.start.clone())),
+    }
+}
+
+/// Validates molecule-specific rules for repeated-sequence descriptions.
+fn is_valid_nucleotide_repeat(
+    coordinate_system: CoordinateSystem,
+    initial_location: &Interval<NucleotideCoordinate>,
+    edit: &NucleotideEdit,
+) -> bool {
+    let NucleotideEdit::Repeat { blocks } = edit else {
+        return true;
+    };
+
+    let all_have_units = blocks.iter().all(|block| block.unit.is_some());
+    let none_have_units = blocks.iter().all(|block| block.unit.is_none());
+    let any_have_locations = blocks.iter().any(|block| block.location.is_some());
+
+    match coordinate_system {
+        CoordinateSystem::Rna => {
+            if none_have_units {
+                true
+            } else if all_have_units {
+                blocks.len() == 1 && !any_have_locations && initial_location.end.is_none()
+            } else {
+                false
+            }
+        }
+        CoordinateSystem::Genomic
+        | CoordinateSystem::CircularGenomic
+        | CoordinateSystem::Mitochondrial
+        | CoordinateSystem::CodingDna
+        | CoordinateSystem::NonCodingDna => all_have_units && !any_have_locations,
+        CoordinateSystem::Protein => false,
+    }
 }
 
 #[cfg(test)]
@@ -555,6 +719,14 @@ mod tests {
         assert!(matches!(
             all_consuming(nucleotide_edit).parse("delinsT").unwrap().1,
             NucleotideEdit::DeletionInsertion { .. }
+        ));
+        assert!(matches!(
+            all_consuming(nucleotide_edit).parse("[4]").unwrap().1,
+            NucleotideEdit::Repeat { .. }
+        ));
+        assert!(matches!(
+            all_consuming(nucleotide_edit).parse("CAG[23]").unwrap().1,
+            NucleotideEdit::Repeat { .. }
         ));
     }
 
@@ -619,6 +791,13 @@ mod tests {
             all_consuming(protein_effect).parse("Trp24Ter").unwrap().1,
             ProteinEffect::Edit {
                 edit: ProteinEdit::Substitution { .. },
+                ..
+            }
+        ));
+        assert!(matches!(
+            all_consuming(protein_effect).parse("Ala2[10]").unwrap().1,
+            ProteinEffect::Edit {
+                edit: ProteinEdit::Repeat { count: 10 },
                 ..
             }
         ));

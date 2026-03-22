@@ -11,6 +11,8 @@ from tinyhgvs import (
     NucleotideCoordinate,
     NucleotideDeletionInsertionEdit,
     NucleotideInsertionEdit,
+    NucleotideRepeatBlock,
+    NucleotideRepeatEdit,
     NucleotideSequenceOmittedEdit,
     NucleotideSubstitutionEdit,
     NucleotideVariant,
@@ -20,6 +22,7 @@ from tinyhgvs import (
     ProteinEditEffect,
     ProteinInsertionEdit,
     ProteinNoProteinProducedEffect,
+    ProteinRepeatEdit,
     ProteinSequence,
     ProteinSequenceOmittedEdit,
     ProteinSubstitutionEdit,
@@ -126,6 +129,84 @@ def test_parses_nucleotide_delins_sequence_forms():
     assert repeat_edit.items[0] == RepeatSequenceItem(unit="N", count=12)
 
 
+def test_parses_nucleotide_repeat_variants():
+    dna_repeat = parse_hgvs("NC_000014.8:g.123CAG[23]")
+    dna_mixed = parse_hgvs("NC_000014.8:g.123_191CAG[19]CAA[4]")
+    rna_position_only = parse_hgvs("NM_004006.3:r.-124_-123[14]")
+    rna_sequence_given = parse_hgvs("NM_004006.3:r.-110gcu[6]")
+    rna_composite = parse_hgvs("NM_004006.3:r.456_465[4]466_489[9]490_499[3]")
+
+    dna_edit = dna_repeat.description.edit
+    assert isinstance(dna_edit, NucleotideRepeatEdit)
+    assert dna_repeat.description.location.start.coordinate == 123
+    assert dna_edit.blocks == (
+        NucleotideRepeatBlock(count=23, unit="CAG", location=None),
+    )
+
+    mixed_edit = dna_mixed.description.edit
+    assert isinstance(mixed_edit, NucleotideRepeatEdit)
+    assert dna_mixed.description.location.end is not None
+    assert dna_mixed.description.location.end.coordinate == 191
+    assert mixed_edit.blocks == (
+        NucleotideRepeatBlock(count=19, unit="CAG", location=None),
+        NucleotideRepeatBlock(count=4, unit="CAA", location=None),
+    )
+
+    position_only_edit = rna_position_only.description.edit
+    assert isinstance(position_only_edit, NucleotideRepeatEdit)
+    assert rna_position_only.description.location.start.coordinate == -124
+    assert rna_position_only.description.location.end is not None
+    assert rna_position_only.description.location.end.coordinate == -123
+    assert position_only_edit.blocks == (
+        NucleotideRepeatBlock(count=14, unit=None, location=None),
+    )
+
+    sequence_given_edit = rna_sequence_given.description.edit
+    assert isinstance(sequence_given_edit, NucleotideRepeatEdit)
+    assert rna_sequence_given.description.location.start.coordinate == -110
+    assert rna_sequence_given.description.location.end is None
+    assert sequence_given_edit.blocks == (
+        NucleotideRepeatBlock(count=6, unit="gcu", location=None),
+    )
+
+    composite_edit = rna_composite.description.edit
+    assert isinstance(composite_edit, NucleotideRepeatEdit)
+    assert rna_composite.description.location.start.coordinate == 456
+    assert rna_composite.description.location.end is not None
+    assert rna_composite.description.location.end.coordinate == 499
+    assert composite_edit.blocks == (
+        NucleotideRepeatBlock(count=4, unit=None, location=None),
+        NucleotideRepeatBlock(
+            count=9,
+            unit=None,
+            location=Interval(
+                start=NucleotideCoordinate(
+                    anchor=NucleotideAnchor.ABSOLUTE,
+                    coordinate=466,
+                ),
+                end=NucleotideCoordinate(
+                    anchor=NucleotideAnchor.ABSOLUTE,
+                    coordinate=489,
+                ),
+            ),
+        ),
+        NucleotideRepeatBlock(
+            count=3,
+            unit=None,
+            location=Interval(
+                start=NucleotideCoordinate(
+                    anchor=NucleotideAnchor.ABSOLUTE,
+                    coordinate=490,
+                ),
+                end=NucleotideCoordinate(
+                    anchor=NucleotideAnchor.ABSOLUTE,
+                    coordinate=499,
+                ),
+            ),
+        ),
+    )
+
+
 def test_parses_protein_substitution_and_no_change_variants():
     substitution = parse_hgvs("NP_003997.1:p.Trp24Ter")
     no_change = parse_hgvs("NP_003997.1:p.Cys188=")
@@ -183,6 +264,18 @@ def test_parses_protein_deletion_duplication_insertion_and_delins_variants():
     assert delins.description.effect.edit == ProteinDeletionInsertionEdit(
         sequence=ProteinSequence(residues=("Trp", "Val")),
     )
+
+
+def test_parses_protein_repeat_variants():
+    repeat = parse_hgvs("NP_0123456.1:p.Arg65_Ser67[12]")
+
+    assert isinstance(repeat.description.effect, ProteinEditEffect)
+    assert repeat.description.effect.location.start.residue == "Arg"
+    assert repeat.description.effect.location.start.ordinal == 65
+    assert repeat.description.effect.location.end is not None
+    assert repeat.description.effect.location.end.residue == "Ser"
+    assert repeat.description.effect.location.end.ordinal == 67
+    assert repeat.description.effect.edit == ProteinRepeatEdit(count=12)
 
 
 def test_distinguishes_intronic_and_utr_relative_coordinates():
@@ -294,6 +387,61 @@ def test_roundtrips_manually_constructed_nucleotide_variant():
     assert _roundtrip_variant(variant) == variant
 
 
+def test_roundtrips_manually_constructed_nucleotide_repeat_variant():
+    variant = HgvsVariant(
+        reference=ReferenceSpec(
+            primary=Accession(id="NM_004006.3", version=3),
+            context=None,
+        ),
+        coordinate_system=CoordinateSystem.RNA,
+        description=NucleotideVariant(
+            location=Interval(
+                start=NucleotideCoordinate(
+                    anchor=NucleotideAnchor.ABSOLUTE,
+                    coordinate=456,
+                ),
+                end=NucleotideCoordinate(
+                    anchor=NucleotideAnchor.ABSOLUTE,
+                    coordinate=499,
+                ),
+            ),
+            edit=NucleotideRepeatEdit(
+                blocks=(
+                    NucleotideRepeatBlock(count=4),
+                    NucleotideRepeatBlock(
+                        count=9,
+                        location=Interval(
+                            start=NucleotideCoordinate(
+                                anchor=NucleotideAnchor.ABSOLUTE,
+                                coordinate=466,
+                            ),
+                            end=NucleotideCoordinate(
+                                anchor=NucleotideAnchor.ABSOLUTE,
+                                coordinate=489,
+                            ),
+                        ),
+                    ),
+                    NucleotideRepeatBlock(
+                        count=3,
+                        location=Interval(
+                            start=NucleotideCoordinate(
+                                anchor=NucleotideAnchor.ABSOLUTE,
+                                coordinate=490,
+                            ),
+                            end=NucleotideCoordinate(
+                                anchor=NucleotideAnchor.ABSOLUTE,
+                                coordinate=499,
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    assert _roundtrip_variant(variant) == variant
+
+
 def test_roundtrips_manually_constructed_protein_variant():
     variant = HgvsVariant(
         reference=ReferenceSpec(
@@ -309,6 +457,28 @@ def test_roundtrips_manually_constructed_protein_variant():
                     end=None,
                 ),
                 edit=ProteinSubstitutionEdit(to="Ter"),
+            ),
+        ),
+    )
+
+    assert _roundtrip_variant(variant) == variant
+
+
+def test_roundtrips_manually_constructed_protein_repeat_variant():
+    variant = HgvsVariant(
+        reference=ReferenceSpec(
+            primary=Accession(id="NP_0123456.1", version=1),
+            context=None,
+        ),
+        coordinate_system=CoordinateSystem.PROTEIN,
+        description=ProteinVariant(
+            is_predicted=False,
+            effect=ProteinEditEffect(
+                location=Interval(
+                    start=ProteinCoordinate(residue="Arg", ordinal=65),
+                    end=ProteinCoordinate(residue="Ser", ordinal=67),
+                ),
+                edit=ProteinRepeatEdit(count=12),
             ),
         ),
     )
@@ -342,10 +512,10 @@ def test_rejects_examples_deferred_to_future_work():
             "(",
         ),
         (
-            "NC_000014.8:g.123CAG[23]",
-            "unsupported.dna_repeat",
+            "r.-124_-123[14];[18]",
+            "unsupported.allele",
             ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
-            "[23]",
+            "];[",
         ),
         (
             "NC_000023.11:g.pter_qtersup",
@@ -378,10 +548,10 @@ def test_rejects_examples_deferred_to_future_work():
             "r.(...)",
         ),
         (
-            "NM_004006.3:r.9495_9497[4]",
-            "unsupported.rna_repeat",
+            "r.-128_-126[(600_800)]",
+            "unsupported.uncertain_range",
             ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
-            "[4]",
+            "[(...)]",
         ),
         (
             "NC_000023.11(NM_004006.2):r.[897u>g,832_960del]",
@@ -408,10 +578,10 @@ def test_rejects_examples_deferred_to_future_work():
             "ext",
         ),
         (
-            "NP_0123456.1:p.Ala2[10]",
-            "unsupported.protein_repeat",
+            "p.(Gln18)[(70_80)]",
+            "unsupported.protein_uncertain_consequence",
             ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
-            "[10]",
+            "[(...)]",
         ),
         (
             "p.Arg78_Gly79insXaa[23]",

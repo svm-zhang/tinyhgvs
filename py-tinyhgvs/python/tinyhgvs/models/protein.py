@@ -156,11 +156,35 @@ class ProteinDeletionInsertionEdit:
         default="deletion_insertion",
     )
 
+
+@dataclass(frozen=True, slots=True)
+class ProteinRepeatEdit:
+    """Model describing a top-level protein repeat variant.
+
+    Attributes:
+        count: Number of repeated amino-acid units.
+        kind: Edit kind.
+
+    Examples:
+        A protein repeat variant with repeat unit coming from an interval:
+        >>> from tinyhgvs import parse_hgvs
+        >>> variant = parse_hgvs("NP_0123456.1:p.Arg65_Ser67[12]")
+        >>> variant.description.effect.edit.count
+        12
+        >>> variant.description.effect.edit.kind
+        'repeat'
+    """
+
+    count: int
+    kind: Literal["repeat"] = field(init=False, default="repeat")
+
+
 ProteinEdit: TypeAlias = (
     ProteinSequenceOmittedEdit
     | ProteinSubstitutionEdit
     | ProteinInsertionEdit
     | ProteinDeletionInsertionEdit
+    | ProteinRepeatEdit
 )
 """Tagged union for supported protein edit models:
 
@@ -168,6 +192,7 @@ ProteinEdit: TypeAlias = (
 - [`ProteinSubstitutionEdit`][tinyhgvs.models.protein.ProteinSubstitutionEdit]
 - [`ProteinInsertionEdit`][tinyhgvs.models.protein.ProteinInsertionEdit]
 - [`ProteinDeletionInsertionEdit`][tinyhgvs.models.protein.ProteinDeletionInsertionEdit]
+- [`ProteinRepeatEdit`][tinyhgvs.models.protein.ProteinRepeatEdit]
 """
 
 
@@ -283,6 +308,7 @@ __all__ = [
     "ProteinEffect",
     "ProteinInsertionEdit",
     "ProteinNoProteinProducedEffect",
+    "ProteinRepeatEdit",
     "ProteinSequence",
     "ProteinSequenceOmittedEdit",
     "ProteinSubstitutionEdit",

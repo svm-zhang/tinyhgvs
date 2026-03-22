@@ -22,13 +22,6 @@ fn classifies_supported_diagnostic_codes() {
             Some("("),
         ),
         (
-            "NC_000014.8:g.123CAG[23]",
-            "unsupported.dna_repeat",
-            ParseHgvsErrorKind::UnsupportedSyntax,
-            "DNA repeated-sequence syntax is not supported yet",
-            Some("[23]"),
-        ),
-        (
             "NC_000023.11:g.pter_qtersup",
             "unsupported.telomeric_position",
             ParseHgvsErrorKind::UnsupportedSyntax,
@@ -57,13 +50,6 @@ fn classifies_supported_diagnostic_codes() {
             Some("r.(...)"),
         ),
         (
-            "NM_004006.3:r.9495_9497[4]",
-            "unsupported.rna_repeat",
-            ParseHgvsErrorKind::UnsupportedSyntax,
-            "RNA repeated-sequence syntax is not supported yet",
-            Some("[4]"),
-        ),
-        (
             "NC_000023.11(NM_004006.2):r.[897u>g,832_960del]",
             "unsupported.rna_splicing_outcome",
             ParseHgvsErrorKind::UnsupportedSyntax,
@@ -76,6 +62,20 @@ fn classifies_supported_diagnostic_codes() {
             ParseHgvsErrorKind::UnsupportedSyntax,
             "RNA adjoined transcript syntax is not supported yet",
             Some("::"),
+        ),
+        (
+            "r.-124_-123[14];[18]",
+            "unsupported.allele",
+            ParseHgvsErrorKind::UnsupportedSyntax,
+            "allele syntax is not supported yet",
+            Some("];["),
+        ),
+        (
+            "r.-128_-126[(600_800)]",
+            "unsupported.uncertain_range",
+            ParseHgvsErrorKind::UnsupportedSyntax,
+            "uncertain HGVS ranges are not supported yet",
+            Some("[(...)]"),
         ),
         (
             "p.(Gln576SerfsTer21)",
@@ -92,13 +92,6 @@ fn classifies_supported_diagnostic_codes() {
             Some("ext"),
         ),
         (
-            "NP_0123456.1:p.Ala2[10]",
-            "unsupported.protein_repeat",
-            ParseHgvsErrorKind::UnsupportedSyntax,
-            "protein repeated-sequence syntax is not supported yet",
-            Some("[10]"),
-        ),
-        (
             "p.Arg78_Gly79insXaa[23]",
             "unsupported.protein_insertion_payload",
             ParseHgvsErrorKind::UnsupportedSyntax,
@@ -111,6 +104,13 @@ fn classifies_supported_diagnostic_codes() {
             ParseHgvsErrorKind::UnsupportedSyntax,
             "uncertain protein consequence syntax is not supported yet",
             Some("^"),
+        ),
+        (
+            "p.(Gln18)[(70_80)]",
+            "unsupported.protein_uncertain_consequence",
+            ParseHgvsErrorKind::UnsupportedSyntax,
+            "uncertain protein consequence syntax is not supported yet",
+            Some("[(...)]"),
         ),
         (
             "NM_001385026.1:c.-666+629C>T",

@@ -248,6 +248,47 @@ class RepeatSequenceItem:
     count: int
 
 
+@dataclass(frozen=True, slots=True)
+class NucleotideRepeatBlock:
+    """One repeat block/unit in a nucleotide repeat description.
+
+    Attributes:
+        count: Number of repeated units.
+        unit: Literal base(s) repeat unit. None when repeat unit is described
+            in the form of `location[count]`.
+        location: Location per repeat block. None when repeat unit is described
+            in the form of `unit[count]`.
+
+    Examples:
+        A literal 3bp bases repeat with 23 units:
+        >>> from tinyhgvs import parse_hgvs
+        >>> variant = parse_hgvs("NC_000014.8:g.123CAG[23]")
+        >>> block = variant.description.edit.blocks[0]
+        >>> block.unit
+        'CAG'
+        >>> block.count
+        23
+        >>> block.location is None
+        True
+
+        A RNA repeat variant composed of consecutive repeat units, each
+        described in the form `location[count]`, rather than `unit[count]`:
+        a repetitive unit from a location:
+        >>> variant = parse_hgvs("NM_004006.3:r.456_465[4]466_489[9]490_499[3]")
+        >>> block = variant.description.edit.blocks[1]
+        >>> block.unit is None
+        True
+        >>> block.location.start.coordinate
+        466
+        >>> block.location.end.coordinate
+        489
+    """
+
+    count: int
+    unit: str | None = None
+    location: Interval[NucleotideCoordinate] | None = None
+
+
 NucleotideSequenceItem: TypeAlias = (
     LiteralSequenceItem | RepeatSequenceItem | CopiedSequenceItem
 )
@@ -391,11 +432,45 @@ class NucleotideDeletionInsertionEdit:
         default="deletion_insertion",
     )
 
+
+@dataclass(frozen=True, slots=True)
+class NucleotideRepeatEdit:
+    """Model describing a top-level nucleotide repeat variant.
+
+    Attributes:
+        blocks: Repeat blocks/units written in the HGVS description.
+        kind: Edit kind.
+
+    Examples:
+        A DNA repeat variant with explicit repeat unit:
+        >>> from tinyhgvs import parse_hgvs
+        >>> variant = parse_hgvs("NC_000014.8:g.123CAG[23]")
+        >>> variant_edit = variant.description.edit
+        >>> variant_edit.blocks[0].unit
+        'CAG'
+        >>> variant_edit.blocks[0].count
+        23
+
+        A RNA repeat variant composed of consecutive blocks/units, each
+        represented as a location span:
+        >>> variant = parse_hgvs("NM_004006.3:r.456_465[4]466_489[9]490_499[3]")
+        >>> variant_edit = variant.description.edit
+        >>> len(variant_edit.blocks)
+        3
+        >>> variant_edit.blocks[2].count
+        3
+    """
+
+    blocks: tuple[NucleotideRepeatBlock, ...]
+    kind: Literal["repeat"] = field(init=False, default="repeat")
+
+
 NucleotideEdit: TypeAlias = (
     NucleotideSequenceOmittedEdit
     | NucleotideSubstitutionEdit
     | NucleotideInsertionEdit
     | NucleotideDeletionInsertionEdit
+    | NucleotideRepeatEdit
 )
 """Tagged union for supported nucleotide edit models:
 
@@ -403,6 +478,7 @@ NucleotideEdit: TypeAlias = (
 - [`NucleotideSubstitutionEdit`][tinyhgvs.models.nucleotide.NucleotideSubstitutionEdit]
 - [`NucleotideInsertionEdit`][tinyhgvs.models.nucleotide.NucleotideInsertionEdit]
 - [`NucleotideDeletionInsertionEdit`][tinyhgvs.models.nucleotide.NucleotideDeletionInsertionEdit]
+- [`NucleotideRepeatEdit`][tinyhgvs.models.nucleotide.NucleotideRepeatEdit]
 """
 
 
@@ -440,6 +516,8 @@ __all__ = [
     "NucleotideCoordinate",
     "NucleotideEdit",
     "NucleotideInsertionEdit",
+    "NucleotideRepeatBlock",
+    "NucleotideRepeatEdit",
     "NucleotideSequenceItem",
     "NucleotideSequenceOmittedEdit",
     "NucleotideSubstitutionEdit",

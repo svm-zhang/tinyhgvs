@@ -86,8 +86,8 @@ mod parser;
 pub use error::{ParseHgvsError, ParseHgvsErrorKind};
 pub use model::{
     Accession, CoordinateSystem, CopiedSequenceItem, HgvsVariant, Interval, LiteralSequenceItem,
-    NucleotideAnchor, NucleotideCoordinate, NucleotideEdit, NucleotideSequenceItem,
-    NucleotideVariant, ProteinCoordinate, ProteinEdit, ProteinEffect, ProteinSequence,
-    ProteinVariant, ReferenceSpec, RepeatSequenceItem, VariantDescription,
+    NucleotideAnchor, NucleotideCoordinate, NucleotideEdit, NucleotideRepeatBlock,
+    NucleotideSequenceItem, NucleotideVariant, ProteinCoordinate, ProteinEdit, ProteinEffect,
+    ProteinSequence, ProteinVariant, ReferenceSpec, RepeatSequenceItem, VariantDescription,
 };
 pub use parser::parse_hgvs;
