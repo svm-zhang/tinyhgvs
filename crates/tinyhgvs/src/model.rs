@@ -322,6 +322,11 @@ pub enum NucleotideEdit {
     Deletion,
     // "dup"
     Duplication,
+    /// Top-level repeated sequence such as `g.123CAG[23]` or
+    /// `r.456_465[4]466_489[9]490_499[3]`.
+    Repeat {
+        blocks: Vec<NucleotideRepeatBlock>,
+    },
     Insertion {
         items: Vec<NucleotideSequenceItem>,
     },
@@ -351,6 +356,36 @@ pub struct LiteralSequenceItem {
 pub struct RepeatSequenceItem {
     pub unit: String,
     pub count: usize,
+}
+
+/// One repeated block/unit in a nucleotide repeat variant description.
+///
+/// # Examples
+///
+/// ```rust
+/// use tinyhgvs::{NucleotideEdit, VariantDescription, parse_hgvs};
+///
+/// let variant = parse_hgvs("NC_000014.8:g.123CAG[23]").unwrap();
+///
+/// match variant.description {
+///     VariantDescription::Nucleotide(description) => {
+///         let NucleotideEdit::Repeat { blocks } = description.edit else {
+///             unreachable!("expected nucleotide repeat");
+///         };
+///         assert_eq!(blocks[0].unit.as_deref(), Some("CAG"));
+///         assert_eq!(blocks[0].count, 23);
+///     }
+///     VariantDescription::Protein(_) => unreachable!("expected nucleotide variant"),
+/// }
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NucleotideRepeatBlock {
+    /// Total number of copies reported for the repeated unit.
+    pub count: usize,
+    /// Explicit repeat unit.
+    pub unit: Option<String>,
+    /// Repeat unit described as an interval.
+    pub location: Option<Interval<NucleotideCoordinate>>,
 }
 
 /// Sequence copied from the same or another reference.
@@ -403,11 +438,22 @@ impl CopiedSequenceItem {
 pub enum ProteinEdit {
     Unknown,
     NoChange,
-    Substitution { to: String },
+    Substitution {
+        to: String,
+    },
     Deletion,
     Duplication,
-    Insertion { sequence: ProteinSequence },
-    DeletionInsertion { sequence: ProteinSequence },
+    /// Top-level repeated sequence such as `p.Ala2[10]` or
+    /// `p.Arg65_Ser67[12]`.
+    Repeat {
+        count: usize,
+    },
+    Insertion {
+        sequence: ProteinSequence,
+    },
+    DeletionInsertion {
+        sequence: ProteinSequence,
+    },
 }
 
 /// Ordered protein insertion or replacement sequence.

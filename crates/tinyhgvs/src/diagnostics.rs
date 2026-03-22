@@ -61,12 +61,6 @@ const UNSUPPORTED_MATCHERS: &[DiagnosticMatcher] = &[
         message: "quantified or terminal protein insertion payloads are not supported yet",
         detect: protein_insertion_payload_fragment,
     },
-    // Example: `NP_0123456.1:p.Ala2[10]`
-    DiagnosticMatcher {
-        code: "unsupported.protein_repeat",
-        message: "protein repeated-sequence syntax is not supported yet",
-        detect: protein_repeat_fragment,
-    },
     // Example: `p.(Gly719Ala^Ser)`
     DiagnosticMatcher {
         code: "unsupported.protein_uncertain_consequence",
@@ -85,23 +79,11 @@ const UNSUPPORTED_MATCHERS: &[DiagnosticMatcher] = &[
         message: "RNA consequence states such as r.spl, r.?, and r.0 are not supported yet",
         detect: rna_special_state_fragment,
     },
-    // Example: `NM_004006.3:r.9495_9497[4]`
-    DiagnosticMatcher {
-        code: "unsupported.rna_repeat",
-        message: "RNA repeated-sequence syntax is not supported yet",
-        detect: rna_repeat_fragment,
-    },
     // Examples: `NM_001385026.1:c.-666+629C>T`, `...:c.*24-12888C>T`
     DiagnosticMatcher {
         code: "unsupported.cdna_offset_anchor",
         message: "coding-DNA positions anchored to CDS start/end with additional offsets are not supported yet",
         detect: cdna_offset_anchor_fragment,
-    },
-    // Example: `NC_000014.8:g.123CAG[23]`
-    DiagnosticMatcher {
-        code: "unsupported.dna_repeat",
-        message: "DNA repeated-sequence syntax is not supported yet",
-        detect: dna_repeat_fragment,
     },
     // Examples: `g.(?_234567)_(345678_?)del`, `g.(33038277_33038278)C>T`
     DiagnosticMatcher {
@@ -210,20 +192,16 @@ fn protein_insertion_payload_fragment(input: &str) -> Option<String> {
     }
 }
 
-/// Detects primary protein repeat syntax such as `p.Ala2[10]`.
-fn protein_repeat_fragment(input: &str) -> Option<String> {
-    let description = protein_description_fragment(input)?;
-    if description.contains("ins") || description.contains("delins") {
-        return None;
-    }
-
-    primary_repeat_fragment(description)
-}
-
 /// Detects uncertain protein consequences written with `^`.
 fn protein_uncertain_consequence_fragment(input: &str) -> Option<String> {
     let description = protein_description_fragment(input)?;
-    description.contains('^').then(|| "^".to_string())
+    if description.contains('^') {
+        Some("^".to_string())
+    } else if description.contains("[(") {
+        Some("[(...)]".to_string())
+    } else {
+        None
+    }
 }
 
 /// Detects RNA edits with uncertain positions such as `r.(222_226)insg`.
@@ -258,16 +236,6 @@ fn rna_special_state_fragment(input: &str) -> Option<String> {
     }
 }
 
-/// Detects primary RNA repeat syntax.
-fn rna_repeat_fragment(input: &str) -> Option<String> {
-    let description = coordinate_description_fragment(input, "r.")?;
-    if description.contains("ins") || description.contains("delins") {
-        return None;
-    }
-
-    primary_repeat_fragment(description)
-}
-
 // This catches CDS-start/CDS-end anchored positions with additional offsets,
 // which are valid HGVS patterns but not representable by the current position type.
 /// Detects unsupported CDS-start or CDS-end anchored offsets.
@@ -285,27 +253,6 @@ fn cdna_offset_anchor_fragment(input: &str) -> Option<String> {
         .and_then(|(_, end)| anchored_offset_position_fragment(end))
 }
 
-// Repeated-sequence syntax is already supported inside inserted payloads, but
-// not yet as a primary description such as `g.123CAG[23]`.
-/// Detects primary DNA repeat syntax across DNA coordinate systems.
-fn dna_repeat_fragment(input: &str) -> Option<String> {
-    for marker in ["g.", "o.", "m.", "c.", "n."] {
-        let Some(description) = coordinate_description_fragment(input, marker) else {
-            continue;
-        };
-
-        if description.contains("ins") || description.contains("delins") {
-            continue;
-        }
-
-        if let Some(fragment) = primary_repeat_fragment(description) {
-            return Some(fragment);
-        }
-    }
-
-    None
-}
-
 // This remains deliberately broad until uncertainty gets its own richer model.
 /// Detects uncertainty wrappers and range forms handled by the broad fallback.
 fn uncertain_range_fragment(input: &str) -> Option<String> {
@@ -313,6 +260,8 @@ fn uncertain_range_fragment(input: &str) -> Option<String> {
 
     if description.contains('^') {
         Some("^".to_string())
+    } else if description.contains("[(") {
+        Some("[(...)]".to_string())
     } else if description.contains("(?") || description.contains("?)") {
         Some("(?)".to_string())
     } else if description.starts_with('(') || description.contains("_(") {
@@ -377,20 +326,6 @@ fn anchored_offset_position_fragment(position: &str) -> Option<String> {
     }
 
     (end > offset_start + 1).then(|| position[..end].to_string())
-}
-
-fn primary_repeat_fragment(description: &str) -> Option<String> {
-    let open_index = description.rfind('[')?;
-    if !description.ends_with(']') {
-        return None;
-    }
-
-    let count = &description[open_index + 1..description.len() - 1];
-    if count.is_empty() || !count.chars().all(|character| character.is_ascii_digit()) {
-        return None;
-    }
-
-    Some(description[open_index..].to_string())
 }
 
 fn protein_description_fragment(input: &str) -> Option<&str> {

@@ -1,7 +1,7 @@
 use tinyhgvs::{
     parse_hgvs, CoordinateSystem, CopiedSequenceItem, LiteralSequenceItem, NucleotideAnchor,
-    NucleotideCoordinate, NucleotideEdit, NucleotideSequenceItem, ProteinEdit, ProteinEffect,
-    RepeatSequenceItem, VariantDescription,
+    NucleotideCoordinate, NucleotideEdit, NucleotideRepeatBlock, NucleotideSequenceItem,
+    ProteinEdit, ProteinEffect, RepeatSequenceItem, VariantDescription,
 };
 
 fn parse_variant(example: &str) -> tinyhgvs::HgvsVariant {
@@ -190,6 +190,138 @@ fn parses_nucleotide_delins_sequence_forms() {
 }
 
 #[test]
+fn parses_nucleotide_repeat_variants() {
+    let dna_repeat = parse_variant("NC_000014.8:g.123CAG[23]");
+    let dna_mixed = parse_variant("NC_000014.8:g.123_191CAG[19]CAA[4]");
+    let rna_position_only = parse_variant("NM_004006.3:r.-124_-123[14]");
+    let rna_sequence_given = parse_variant("NM_004006.3:r.-110gcu[6]");
+    let rna_composite = parse_variant("NM_004006.3:r.456_465[4]466_489[9]490_499[3]");
+
+    match dna_repeat.description {
+        VariantDescription::Nucleotide(value) => {
+            assert_eq!(value.location.start.coordinate, 123);
+            let NucleotideEdit::Repeat { blocks } = value.edit else {
+                panic!("expected repeat edit");
+            };
+            assert_eq!(
+                blocks,
+                vec![NucleotideRepeatBlock {
+                    count: 23,
+                    unit: Some("CAG".to_string()),
+                    location: None,
+                }]
+            );
+        }
+        other => panic!("expected nucleotide variant, found {other:?}"),
+    }
+
+    match dna_mixed.description {
+        VariantDescription::Nucleotide(value) => {
+            assert_eq!(value.location.start.coordinate, 123);
+            assert_eq!(value.location.end.as_ref().unwrap().coordinate, 191);
+            let NucleotideEdit::Repeat { blocks } = value.edit else {
+                panic!("expected repeat edit");
+            };
+            assert_eq!(
+                blocks,
+                vec![
+                    NucleotideRepeatBlock {
+                        count: 19,
+                        unit: Some("CAG".to_string()),
+                        location: None,
+                    },
+                    NucleotideRepeatBlock {
+                        count: 4,
+                        unit: Some("CAA".to_string()),
+                        location: None,
+                    },
+                ]
+            );
+        }
+        other => panic!("expected nucleotide variant, found {other:?}"),
+    }
+
+    match rna_position_only.description {
+        VariantDescription::Nucleotide(value) => {
+            assert_eq!(value.location.start.coordinate, -124);
+            assert_eq!(value.location.end.as_ref().unwrap().coordinate, -123);
+            let NucleotideEdit::Repeat { blocks } = value.edit else {
+                panic!("expected repeat edit");
+            };
+            assert_eq!(
+                blocks,
+                vec![NucleotideRepeatBlock {
+                    count: 14,
+                    unit: None,
+                    location: None,
+                }]
+            );
+        }
+        other => panic!("expected nucleotide variant, found {other:?}"),
+    }
+
+    match rna_sequence_given.description {
+        VariantDescription::Nucleotide(value) => {
+            assert_eq!(value.location.start.coordinate, -110);
+            assert!(value.location.end.is_none());
+            let NucleotideEdit::Repeat { blocks } = value.edit else {
+                panic!("expected repeat edit");
+            };
+            assert_eq!(
+                blocks,
+                vec![NucleotideRepeatBlock {
+                    count: 6,
+                    unit: Some("gcu".to_string()),
+                    location: None,
+                }]
+            );
+        }
+        other => panic!("expected nucleotide variant, found {other:?}"),
+    }
+
+    match rna_composite.description {
+        VariantDescription::Nucleotide(value) => {
+            assert_eq!(value.location.start.coordinate, 456);
+            assert_eq!(value.location.end.as_ref().unwrap().coordinate, 499);
+            let NucleotideEdit::Repeat { blocks } = value.edit else {
+                panic!("expected repeat edit");
+            };
+            assert_eq!(blocks.len(), 3);
+            assert_eq!(blocks[0].count, 4);
+            assert_eq!(blocks[0].unit, None);
+            assert_eq!(blocks[0].location, None);
+            assert_eq!(blocks[1].count, 9);
+            assert_eq!(blocks[1].location.as_ref().unwrap().start.coordinate, 466);
+            assert_eq!(
+                blocks[1]
+                    .location
+                    .as_ref()
+                    .unwrap()
+                    .end
+                    .as_ref()
+                    .unwrap()
+                    .coordinate,
+                489
+            );
+            assert_eq!(blocks[2].count, 3);
+            assert_eq!(blocks[2].location.as_ref().unwrap().start.coordinate, 490);
+            assert_eq!(
+                blocks[2]
+                    .location
+                    .as_ref()
+                    .unwrap()
+                    .end
+                    .as_ref()
+                    .unwrap()
+                    .coordinate,
+                499
+            );
+        }
+        other => panic!("expected nucleotide variant, found {other:?}"),
+    }
+}
+
+#[test]
 fn parses_protein_substitution_and_no_change_variants() {
     let substitution = parse_variant("NP_003997.1:p.Trp24Ter");
     let no_change = parse_variant("NP_003997.1:p.Cys188=");
@@ -266,6 +398,7 @@ fn parses_protein_deletion_duplication_insertion_and_delins_variants() {
     let duplication = parse_variant("NP_003997.2:p.Val7dup");
     let insertion = parse_variant("p.Lys2_Gly3insGlnSerLys");
     let delins = parse_variant("p.Cys28delinsTrpVal");
+    let repeat = parse_variant("NP_0123456.1:p.Arg65_Ser67[12]");
 
     match deletion.description {
         VariantDescription::Protein(value) => match value.effect {
@@ -309,6 +442,18 @@ fn parses_protein_deletion_duplication_insertion_and_delins_variants() {
                     panic!("expected deletion-insertion edit");
                 };
                 assert_eq!(sequence.residues, vec!["Trp", "Val"]);
+            }
+            other => panic!("expected protein edit, found {other:?}"),
+        },
+        other => panic!("expected protein variant, found {other:?}"),
+    }
+
+    match repeat.description {
+        VariantDescription::Protein(value) => match value.effect {
+            ProteinEffect::Edit { edit, location } => {
+                assert_eq!(location.start.residue, "Arg");
+                assert_eq!(location.end.as_ref().unwrap().residue, "Ser");
+                assert_eq!(edit, ProteinEdit::Repeat { count: 12 });
             }
             other => panic!("expected protein edit, found {other:?}"),
         },
