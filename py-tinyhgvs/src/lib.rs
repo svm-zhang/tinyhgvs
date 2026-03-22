@@ -3,7 +3,7 @@ use pyo3::types::{PyModule, PyTuple};
 use tinyhgvs::{
     parse_hgvs as parse_hgvs_core, Accession, CoordinateSystem, CopiedSequenceItem,
     HgvsVariant as CoreHgvsVariant, Interval, LiteralSequenceItem, NucleotideAnchor,
-    NucleotideCoordinate, NucleotideEdit, NucleotideSequenceItem,
+    NucleotideCoordinate, NucleotideEdit, NucleotideRepeatBlock, NucleotideSequenceItem,
     ParseHgvsError as CoreParseHgvsError, ParseHgvsErrorKind, ProteinCoordinate, ProteinEdit,
     ProteinEffect, ProteinSequence, ProteinVariant, ReferenceSpec, RepeatSequenceItem,
     VariantDescription,
@@ -320,6 +320,58 @@ impl<'py> PyModelCodec<'py> {
         Ok(items)
     }
 
+    fn nucleotide_repeat_block(
+        &self,
+        value: &NucleotideRepeatBlock,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let location = value
+            .location
+            .as_ref()
+            .map(|location| self.nucleotide_interval(location))
+            .transpose()?;
+
+        self.class("NucleotideRepeatBlock")?
+            .call1((value.count, value.unit.as_deref(), location))
+    }
+
+    fn nucleotide_repeat_block_from_py(
+        &self,
+        value: &Bound<'py, PyAny>,
+    ) -> PyResult<NucleotideRepeatBlock> {
+        let location = value.getattr("location")?;
+        Ok(NucleotideRepeatBlock {
+            count: value.getattr("count")?.extract()?,
+            unit: value.getattr("unit")?.extract()?,
+            location: if location.is_none() {
+                None
+            } else {
+                Some(self.nucleotide_interval_from_py(&location)?)
+            },
+        })
+    }
+
+    fn nucleotide_repeat_blocks_tuple(
+        &self,
+        value: &[NucleotideRepeatBlock],
+    ) -> PyResult<Bound<'py, PyTuple>> {
+        let items = value
+            .iter()
+            .map(|item| self.nucleotide_repeat_block(item))
+            .collect::<PyResult<Vec<_>>>()?;
+        PyTuple::new(self.py, items)
+    }
+
+    fn nucleotide_repeat_blocks_from_py(
+        &self,
+        value: &Bound<'py, PyAny>,
+    ) -> PyResult<Vec<NucleotideRepeatBlock>> {
+        let mut items = Vec::new();
+        for item in value.try_iter()? {
+            items.push(self.nucleotide_repeat_block_from_py(&item?)?);
+        }
+        Ok(items)
+    }
+
     fn protein_sequence(&self, value: &ProteinSequence) -> PyResult<Bound<'py, PyAny>> {
         let residues = PyTuple::new(self.py, &value.residues)?;
         self.class("ProteinSequence")?.call1((residues,))
@@ -340,7 +392,7 @@ impl<'py> PyModelCodec<'py> {
             NucleotideEdit::Deletion => "deletion",
             NucleotideEdit::Duplication => "duplication",
             NucleotideEdit::Inversion => "inversion",
-            _ => unreachable!("nucleotide_sequence_omitted_edit called for payload edit"),
+            _ => unreachable!("nucleotide_sequence_omitted_edit called for non-enum edit"),
         };
         self.class("NucleotideSequenceOmittedEdit")?.call1((name,))
     }
@@ -378,6 +430,9 @@ impl<'py> PyModelCodec<'py> {
             NucleotideEdit::DeletionInsertion { items } => self
                 .class("NucleotideDeletionInsertionEdit")?
                 .call1((self.nucleotide_items_tuple(items)?,)),
+            NucleotideEdit::Repeat { blocks } => self
+                .class("NucleotideRepeatEdit")?
+                .call1((self.nucleotide_repeat_blocks_tuple(blocks)?,)),
         }
     }
 
@@ -394,6 +449,9 @@ impl<'py> PyModelCodec<'py> {
             "NucleotideDeletionInsertionEdit" => Ok(NucleotideEdit::DeletionInsertion {
                 items: self.nucleotide_items_from_py(&value.getattr("items")?)?,
             }),
+            "NucleotideRepeatEdit" => Ok(NucleotideEdit::Repeat {
+                blocks: self.nucleotide_repeat_blocks_from_py(&value.getattr("blocks")?)?,
+            }),
             other => Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!(
                 "unsupported nucleotide edit type: {other}"
             ))),
@@ -406,7 +464,7 @@ impl<'py> PyModelCodec<'py> {
             ProteinEdit::NoChange => "no_change",
             ProteinEdit::Deletion => "deletion",
             ProteinEdit::Duplication => "duplication",
-            _ => unreachable!("protein_sequence_omitted_edit called for payload edit"),
+            _ => unreachable!("protein_sequence_omitted_edit called for non-enum edit"),
         };
         self.class("ProteinSequenceOmittedEdit")?.call1((name,))
     }
@@ -439,6 +497,7 @@ impl<'py> PyModelCodec<'py> {
             ProteinEdit::DeletionInsertion { sequence } => self
                 .class("ProteinDeletionInsertionEdit")?
                 .call1((self.protein_sequence(sequence)?,)),
+            ProteinEdit::Repeat { count } => self.class("ProteinRepeatEdit")?.call1((count,)),
         }
     }
 
@@ -453,6 +512,9 @@ impl<'py> PyModelCodec<'py> {
             }),
             "ProteinDeletionInsertionEdit" => Ok(ProteinEdit::DeletionInsertion {
                 sequence: self.protein_sequence_from_py(&value.getattr("sequence")?)?,
+            }),
+            "ProteinRepeatEdit" => Ok(ProteinEdit::Repeat {
+                count: value.getattr("count")?.extract()?,
             }),
             other => Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!(
                 "unsupported protein edit type: {other}"
