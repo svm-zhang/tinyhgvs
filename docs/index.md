@@ -27,7 +27,7 @@ For local development of the Python package:
 
 ```bash
 cd py-tinyhgvs
-env -u CONDA_PREFIX uv run maturin develop
+uv run maturin develop
 ```
 
 
