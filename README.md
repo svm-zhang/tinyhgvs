@@ -43,6 +43,16 @@ print(variant.description.edit.blocks[0].unit)
 print(variant.description.edit.blocks[0].count)
 ```
 
+- A protein frameshift variant:
+
+```python
+from tinyhgvs import parse_hgvs
+
+variant = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23")
+print(variant.description.effect.edit.to_residue)
+print(variant.description.effect.edit.stop.ordinal)
+```
+
 - Known but unsupported HGVS syntax raises `TinyHGVSError` with a diagnostic code:
 
 ```python
