@@ -91,7 +91,7 @@ the collapsible sections below each table.
 | Diagnostic code category | Biology category | Representative example | Supported since |
 | --- | --- | --- | --- |
 | `allele` | Protein allele | `NP_003997.1:p.Val7=/del` | `-` |
-| `protein_frameshift` | Protein frameshift | `NP_0123456.1:p.Arg97fs` | `-` |
+| `protein_frameshift` | Protein frameshift | `NP_0123456.1:p.Arg97fs` | `0.3.0` |
 | `protein_extension` | Protein extension | `NP_003997.2:p.Met1ext-5` | `-` |
 | `protein_repeat` | Protein repeated sequence | `NP_0123456.1:p.Ala2[10]` | `0.2.0` |
 | `protein_insertion_payload` | Unknown/truncating protein insertion | `p.Arg78_Gly79insXaa[23]` | `-` |
@@ -104,11 +104,6 @@ the collapsible sections below each table.
 
         - `LRG_199p1:p.Trp24=/Cys`
         - `NP_003997.1:p.[(Ser73Arg;Asn103del)]`
-
-    === "protein_frameshift"
-
-        - `p.(Gln576SerfsTer21)`
-        - `p.(Lys210GlnfsTer11)`
 
     === "protein_extension"
 
