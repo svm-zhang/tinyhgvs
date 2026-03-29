@@ -61,6 +61,16 @@ def parse_hgvs(input: str) -> HgvsVariant:
         True
         >>> protein.description.effect.location.start.residue
         'Trp'
+
+        A protein frameshift keeps the first new residue and downstream stop
+        together in the returned edit model:
+
+        >>> frameshift = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23")
+        >>> frameshift_edit = frameshift.description.effect.edit
+        >>> frameshift_edit.to_residue
+        'Pro'
+        >>> frameshift_edit.stop.ordinal
+        23
     """
     from ._tinyhgvs import parse_hgvs as _parse_hgvs
 

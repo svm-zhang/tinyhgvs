@@ -105,6 +105,12 @@ class HgvsVariant:
         -1
         >>> utr.description.location.start.is_five_prime_utr
         True
+
+        A protein frameshift is still exposed through the same top-level
+        variant container:
+        >>> protein = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23")
+        >>> protein.description.effect.edit.kind
+        'frameshift'
     """
 
     reference: ReferenceSpec | None
