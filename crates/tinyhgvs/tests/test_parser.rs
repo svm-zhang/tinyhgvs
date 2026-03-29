@@ -1,7 +1,8 @@
 use tinyhgvs::{
     parse_hgvs, CoordinateSystem, CopiedSequenceItem, LiteralSequenceItem, NucleotideAnchor,
     NucleotideCoordinate, NucleotideEdit, NucleotideRepeatBlock, NucleotideSequenceItem,
-    ProteinEdit, ProteinEffect, RepeatSequenceItem, VariantDescription,
+    ProteinEdit, ProteinEffect, ProteinFrameshiftStop, ProteinFrameshiftStopKind,
+    RepeatSequenceItem, VariantDescription,
 };
 
 fn parse_variant(example: &str) -> tinyhgvs::HgvsVariant {
@@ -458,6 +459,160 @@ fn parses_protein_deletion_duplication_insertion_and_delins_variants() {
             other => panic!("expected protein edit, found {other:?}"),
         },
         other => panic!("expected protein variant, found {other:?}"),
+    }
+}
+
+#[test]
+fn parses_protein_frameshift_variants() {
+    let short = parse_variant("NP_0123456.1:p.Arg97fs");
+    let long = parse_variant("NP_0123456.1:p.Arg97ProfsTer23");
+    let symbolic_stop = parse_variant("NP_0123456.1:p.Arg97Profs*23");
+    let unknown_stop = parse_variant("NP_0123456.1:p.Ile327Argfs*?");
+    let unknown_stop_ter = parse_variant("NP_0123456.1:p.Arg97ProfsTer?");
+    let predicted = parse_variant("p.(Arg97fs)");
+
+    match short.description {
+        VariantDescription::Protein(value) => match value.effect {
+            ProteinEffect::Edit { location, edit } => {
+                assert!(!value.is_predicted);
+                assert_eq!(location.start.residue, "Arg");
+                assert_eq!(location.start.ordinal, 97);
+                assert_eq!(
+                    edit,
+                    ProteinEdit::Frameshift {
+                        to_residue: None,
+                        stop: ProteinFrameshiftStop {
+                            ordinal: None,
+                            kind: ProteinFrameshiftStopKind::Omitted,
+                        },
+                    }
+                );
+            }
+            other => panic!("expected protein edit, found {other:?}"),
+        },
+        other => panic!("expected protein variant, found {other:?}"),
+    }
+
+    match long.description {
+        VariantDescription::Protein(value) => match value.effect {
+            ProteinEffect::Edit { edit, .. } => {
+                assert_eq!(
+                    edit,
+                    ProteinEdit::Frameshift {
+                        to_residue: Some("Pro".to_string()),
+                        stop: ProteinFrameshiftStop {
+                            ordinal: Some(23),
+                            kind: ProteinFrameshiftStopKind::Known,
+                        },
+                    }
+                );
+            }
+            other => panic!("expected protein edit, found {other:?}"),
+        },
+        other => panic!("expected protein variant, found {other:?}"),
+    }
+
+    match symbolic_stop.description {
+        VariantDescription::Protein(value) => match value.effect {
+            ProteinEffect::Edit { edit, .. } => {
+                assert_eq!(
+                    edit,
+                    ProteinEdit::Frameshift {
+                        to_residue: Some("Pro".to_string()),
+                        stop: ProteinFrameshiftStop {
+                            ordinal: Some(23),
+                            kind: ProteinFrameshiftStopKind::Known,
+                        },
+                    }
+                );
+            }
+            other => panic!("expected protein edit, found {other:?}"),
+        },
+        other => panic!("expected protein variant, found {other:?}"),
+    }
+
+    match unknown_stop.description {
+        VariantDescription::Protein(value) => match value.effect {
+            ProteinEffect::Edit { location, edit } => {
+                assert_eq!(location.start.residue, "Ile");
+                assert_eq!(location.start.ordinal, 327);
+                assert_eq!(
+                    edit,
+                    ProteinEdit::Frameshift {
+                        to_residue: Some("Arg".to_string()),
+                        stop: ProteinFrameshiftStop {
+                            ordinal: None,
+                            kind: ProteinFrameshiftStopKind::Unknown,
+                        },
+                    }
+                );
+            }
+            other => panic!("expected protein edit, found {other:?}"),
+        },
+        other => panic!("expected protein variant, found {other:?}"),
+    }
+
+    match unknown_stop_ter.description {
+        VariantDescription::Protein(value) => match value.effect {
+            ProteinEffect::Edit { edit, .. } => {
+                assert_eq!(
+                    edit,
+                    ProteinEdit::Frameshift {
+                        to_residue: Some("Pro".to_string()),
+                        stop: ProteinFrameshiftStop {
+                            ordinal: None,
+                            kind: ProteinFrameshiftStopKind::Unknown,
+                        },
+                    }
+                );
+            }
+            other => panic!("expected protein edit, found {other:?}"),
+        },
+        other => panic!("expected protein variant, found {other:?}"),
+    }
+
+    match predicted.description {
+        VariantDescription::Protein(value) => {
+            assert!(value.is_predicted);
+            match value.effect {
+                ProteinEffect::Edit { edit, .. } => {
+                    assert_eq!(
+                        edit,
+                        ProteinEdit::Frameshift {
+                            to_residue: None,
+                            stop: ProteinFrameshiftStop {
+                                ordinal: None,
+                                kind: ProteinFrameshiftStopKind::Omitted,
+                            },
+                        }
+                    );
+                }
+                other => panic!("expected protein edit, found {other:?}"),
+            }
+        }
+        other => panic!("expected protein variant, found {other:?}"),
+    }
+}
+
+#[test]
+fn rejects_malformed_protein_frameshift_variants() {
+    let malformed = [
+        "p.Arg97fsTer23",
+        "p.Arg97fs*23",
+        "p.Arg97fs*?",
+        "p.Arg97Profs",
+        "p.Arg97ProfsTer",
+        "p.Arg97Profs23",
+        "p.Ter97fsTer23",
+    ];
+
+    for example in malformed {
+        let error = parse_hgvs(example).unwrap_err();
+        assert_eq!(
+            error.code(),
+            "invalid.syntax",
+            "unexpected code for {example}"
+        );
     }
 }
 

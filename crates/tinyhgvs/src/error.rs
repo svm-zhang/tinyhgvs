@@ -46,10 +46,10 @@ use std::fmt::{self, Display, Formatter};
 /// ```rust
 /// use tinyhgvs::{ParseHgvsErrorKind, parse_hgvs};
 ///
-/// let error = parse_hgvs("p.(Gln576SerfsTer21)").unwrap_err();
+/// let error = parse_hgvs("p.(Ter157Lysext*90)").unwrap_err();
 /// assert_eq!(error.kind(), ParseHgvsErrorKind::UnsupportedSyntax);
-/// assert_eq!(error.code(), "unsupported.protein_frameshift");
-/// assert_eq!(error.fragment(), Some("fs"));
+/// assert_eq!(error.code(), "unsupported.protein_extension");
+/// assert_eq!(error.fragment(), Some("ext"));
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseHgvsError {

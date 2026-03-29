@@ -78,13 +78,6 @@ fn classifies_supported_diagnostic_codes() {
             Some("[(...)]"),
         ),
         (
-            "p.(Gln576SerfsTer21)",
-            "unsupported.protein_frameshift",
-            ParseHgvsErrorKind::UnsupportedSyntax,
-            "protein frameshift syntax is not supported yet",
-            Some("fs"),
-        ),
-        (
             "p.(Ter157Lysext*90)",
             "unsupported.protein_extension",
             ParseHgvsErrorKind::UnsupportedSyntax,
@@ -162,11 +155,11 @@ fn falls_back_to_invalid_syntax_for_unclassified_failures() {
 
 #[test]
 fn displays_machine_code_message_and_version() {
-    let error = parse_error("p.(Gln576SerfsTer21)");
+    let error = parse_error("p.(Ter157Lysext*90)");
     let rendered = error.to_string();
 
-    assert!(rendered.contains("[unsupported.protein_frameshift]"));
-    assert!(rendered.contains("protein frameshift syntax is not supported yet"));
-    assert!(rendered.contains("`p.(Gln576SerfsTer21)`"));
+    assert!(rendered.contains("[unsupported.protein_extension]"));
+    assert!(rendered.contains("protein extension syntax is not supported yet"));
+    assert!(rendered.contains("`p.(Ter157Lysext*90)`"));
     assert!(rendered.contains(env!("CARGO_PKG_VERSION")));
 }

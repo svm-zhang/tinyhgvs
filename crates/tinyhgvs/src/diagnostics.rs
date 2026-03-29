@@ -43,12 +43,6 @@ const UNSUPPORTED_MATCHERS: &[DiagnosticMatcher] = &[
         message: "epigenetic edit syntax is not supported yet",
         detect: epigenetic_edit_fragment,
     },
-    // Examples: `p.(Gln576SerfsTer21)`, `NP_0123456.1:p.Arg97fs`
-    DiagnosticMatcher {
-        code: "unsupported.protein_frameshift",
-        message: "protein frameshift syntax is not supported yet",
-        detect: protein_frameshift_fragment,
-    },
     // Examples: `p.(Ter157Lysext*90)`, `NP_003997.2:p.Met1ext-5`
     DiagnosticMatcher {
         code: "unsupported.protein_extension",
@@ -162,12 +156,6 @@ fn epigenetic_edit_fragment(input: &str) -> Option<String> {
     description
         .split_once('|')
         .map(|(_, modifier)| format!("|{modifier}"))
-}
-
-/// Detects protein frameshift notation containing `fs`.
-fn protein_frameshift_fragment(input: &str) -> Option<String> {
-    let description = protein_description_fragment(input)?;
-    description.contains("fs").then(|| "fs".to_string())
 }
 
 /// Detects protein extension notation containing `ext`.

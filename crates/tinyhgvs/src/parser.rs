@@ -19,7 +19,8 @@ use crate::model::{
     Accession, CoordinateSystem, CopiedSequenceItem, HgvsVariant, Interval, LiteralSequenceItem,
     NucleotideAnchor, NucleotideCoordinate, NucleotideEdit, NucleotideRepeatBlock,
     NucleotideSequenceItem, NucleotideVariant, ProteinCoordinate, ProteinEdit, ProteinEffect,
-    ProteinSequence, ProteinVariant, ReferenceSpec, RepeatSequenceItem, VariantDescription,
+    ProteinFrameshiftStop, ProteinFrameshiftStopKind, ProteinSequence, ProteinVariant,
+    ReferenceSpec, RepeatSequenceItem, VariantDescription,
 };
 
 type ParseResult<'a, T> = IResult<&'a str, T>;
@@ -571,12 +572,75 @@ fn protein_edit(input: &str) -> ParseResult<'_, ProteinEdit> {
         map(delimited(char('['), parse_usize, char(']')), |count| {
             ProteinEdit::Repeat { count }
         }),
+        protein_frameshift_edit,
         map(preceded(tag("ins"), protein_sequence), |sequence| {
             ProteinEdit::Insertion { sequence }
         }),
         map(protein_symbol, |to| ProteinEdit::Substitution { to }),
     ))
     .parse(input)
+}
+
+/// Parses short and long protein frameshift syntax.
+fn protein_frameshift_edit(input: &str) -> ParseResult<'_, ProteinEdit> {
+    alt((
+        map(
+            pair(
+                protein_frameshift_residue,
+                pair(tag("fs"), protein_frameshift_stop),
+            ),
+            |(to_residue, (_, stop))| ProteinEdit::Frameshift {
+                to_residue: Some(to_residue),
+                stop,
+            },
+        ),
+        value(
+            ProteinEdit::Frameshift {
+                to_residue: None,
+                stop: ProteinFrameshiftStop {
+                    ordinal: None,
+                    kind: ProteinFrameshiftStopKind::Omitted,
+                },
+            },
+            tag("fs"),
+        ),
+    ))
+    .parse(input)
+}
+
+/// Parses the explicit stop-state in long protein frameshift notation.
+fn protein_frameshift_stop(input: &str) -> ParseResult<'_, ProteinFrameshiftStop> {
+    alt((
+        value(
+            ProteinFrameshiftStop {
+                ordinal: None,
+                kind: ProteinFrameshiftStopKind::Unknown,
+            },
+            pair(alt((tag("Ter"), tag("*"))), char('?')),
+        ),
+        map(
+            preceded(alt((tag("Ter"), tag("*"))), parse_usize),
+            |ordinal| ProteinFrameshiftStop {
+                ordinal: Some(ordinal),
+                kind: ProteinFrameshiftStopKind::Known,
+            },
+        ),
+    ))
+    .parse(input)
+}
+
+/// Parses the explicitly written first residue in long protein frameshift syntax.
+fn protein_frameshift_residue(input: &str) -> ParseResult<'_, String> {
+    let (input, residue) = protein_symbol(input)?;
+
+    if matches!(residue.as_str(), "Ter" | "*") {
+        Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Verify,
+        )))
+    } else {
+        Ok((input, residue))
+    }
 }
 
 /// Parses a contiguous protein sequence.
@@ -801,5 +865,85 @@ mod tests {
                 ..
             }
         ));
+        assert!(matches!(
+            all_consuming(protein_effect).parse("Arg97fs").unwrap().1,
+            ProteinEffect::Edit {
+                edit: ProteinEdit::Frameshift {
+                    to_residue: None,
+                    stop: ProteinFrameshiftStop {
+                        ordinal: None,
+                        kind: ProteinFrameshiftStopKind::Omitted,
+                    },
+                },
+                ..
+            }
+        ));
+        assert!(matches!(
+            all_consuming(protein_effect)
+                .parse("Arg97ProfsTer23")
+                .unwrap()
+                .1,
+            ProteinEffect::Edit {
+                edit: ProteinEdit::Frameshift {
+                    to_residue: Some(_),
+                    stop: ProteinFrameshiftStop {
+                        ordinal: Some(23),
+                        kind: ProteinFrameshiftStopKind::Known,
+                    },
+                },
+                ..
+            }
+        ));
+        assert!(matches!(
+            all_consuming(protein_effect)
+                .parse("Ile327Argfs*?")
+                .unwrap()
+                .1,
+            ProteinEffect::Edit {
+                edit: ProteinEdit::Frameshift {
+                    to_residue: Some(_),
+                    stop: ProteinFrameshiftStop {
+                        ordinal: None,
+                        kind: ProteinFrameshiftStopKind::Unknown,
+                    },
+                },
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn parses_protein_frameshift_branches() {
+        assert_eq!(
+            all_consuming(protein_edit).parse("fs").unwrap().1,
+            ProteinEdit::Frameshift {
+                to_residue: None,
+                stop: ProteinFrameshiftStop {
+                    ordinal: None,
+                    kind: ProteinFrameshiftStopKind::Omitted,
+                },
+            }
+        );
+        assert_eq!(
+            all_consuming(protein_edit).parse("ProfsTer23").unwrap().1,
+            ProteinEdit::Frameshift {
+                to_residue: Some("Pro".to_string()),
+                stop: ProteinFrameshiftStop {
+                    ordinal: Some(23),
+                    kind: ProteinFrameshiftStopKind::Known,
+                },
+            }
+        );
+        assert_eq!(
+            all_consuming(protein_edit).parse("Argfs*?").unwrap().1,
+            ProteinEdit::Frameshift {
+                to_residue: Some("Arg".to_string()),
+                stop: ProteinFrameshiftStop {
+                    ordinal: None,
+                    kind: ProteinFrameshiftStopKind::Unknown,
+                },
+            }
+        );
+        assert!(all_consuming(protein_edit).parse("TerfsTer2").is_err());
     }
 }

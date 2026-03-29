@@ -184,6 +184,21 @@ pub enum ProteinEffect {
     },
 }
 
+/// Stop-state marker for a protein frameshift consequence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProteinFrameshiftStopKind {
+    Omitted,
+    Unknown,
+    Known,
+}
+
+/// Stop-state information carried by a protein frameshift edit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProteinFrameshiftStop {
+    pub ordinal: Option<usize>,
+    pub kind: ProteinFrameshiftStopKind,
+}
+
 /// Inclusive interval used for nucleotide and protein locations.
 ///
 /// # Examples
@@ -447,6 +462,10 @@ pub enum ProteinEdit {
     /// `p.Arg65_Ser67[12]`.
     Repeat {
         count: usize,
+    },
+    Frameshift {
+        to_residue: Option<String>,
+        stop: ProteinFrameshiftStop,
     },
     Insertion {
         sequence: ProteinSequence,
