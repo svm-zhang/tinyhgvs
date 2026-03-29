@@ -179,12 +179,38 @@ class ProteinRepeatEdit:
     kind: Literal["repeat"] = field(init=False, default="repeat")
 
 
+class ProteinFrameshiftStopKind(str, Enum):
+    """Stop-state marker used by protein frameshift variants."""
+
+    OMITTED = "omitted"
+    UNKNOWN = "unknown"
+    KNOWN = "known"
+
+
+@dataclass(frozen=True, slots=True)
+class ProteinFrameshiftStop:
+    """Stop-state information for a protein frameshift variant."""
+
+    ordinal: int | None
+    kind: ProteinFrameshiftStopKind
+
+
+@dataclass(frozen=True, slots=True)
+class ProteinFrameshiftEdit:
+    """Model describing a protein frameshift consequence."""
+
+    to_residue: str | None
+    stop: ProteinFrameshiftStop
+    kind: Literal["frameshift"] = field(init=False, default="frameshift")
+
+
 ProteinEdit: TypeAlias = (
     ProteinSequenceOmittedEdit
     | ProteinSubstitutionEdit
     | ProteinInsertionEdit
     | ProteinDeletionInsertionEdit
     | ProteinRepeatEdit
+    | ProteinFrameshiftEdit
 )
 """Tagged union for supported protein edit models:
 
@@ -306,6 +332,9 @@ __all__ = [
     "ProteinEdit",
     "ProteinEditEffect",
     "ProteinEffect",
+    "ProteinFrameshiftEdit",
+    "ProteinFrameshiftStop",
+    "ProteinFrameshiftStopKind",
     "ProteinInsertionEdit",
     "ProteinNoProteinProducedEffect",
     "ProteinRepeatEdit",

@@ -20,6 +20,9 @@ from tinyhgvs import (
     ProteinCoordinate,
     ProteinDeletionInsertionEdit,
     ProteinEditEffect,
+    ProteinFrameshiftEdit,
+    ProteinFrameshiftStop,
+    ProteinFrameshiftStopKind,
     ProteinInsertionEdit,
     ProteinNoProteinProducedEffect,
     ProteinRepeatEdit,
@@ -278,6 +281,74 @@ def test_parses_protein_repeat_variants():
     assert repeat.description.effect.edit == ProteinRepeatEdit(count=12)
 
 
+def test_parses_protein_frameshift_variants():
+    short = parse_hgvs("NP_0123456.1:p.Arg97fs")
+    long = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23")
+    symbolic_stop = parse_hgvs("NP_0123456.1:p.Arg97Profs*23")
+    unknown_stop = parse_hgvs("NP_0123456.1:p.Ile327Argfs*?")
+    unknown_stop_ter = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer?")
+    predicted = parse_hgvs("p.(Arg97fs)")
+
+    assert isinstance(short.description.effect, ProteinEditEffect)
+    assert short.description.effect.location.start.residue == "Arg"
+    assert short.description.effect.location.start.ordinal == 97
+    assert short.description.effect.edit == ProteinFrameshiftEdit(
+        to_residue=None,
+        stop=ProteinFrameshiftStop(
+            ordinal=None,
+            kind=ProteinFrameshiftStopKind.OMITTED,
+        ),
+    )
+
+    assert isinstance(long.description.effect, ProteinEditEffect)
+    assert long.description.effect.edit == ProteinFrameshiftEdit(
+        to_residue="Pro",
+        stop=ProteinFrameshiftStop(
+            ordinal=23,
+            kind=ProteinFrameshiftStopKind.KNOWN,
+        ),
+    )
+
+    assert isinstance(symbolic_stop.description.effect, ProteinEditEffect)
+    assert symbolic_stop.description.effect.edit == ProteinFrameshiftEdit(
+        to_residue="Pro",
+        stop=ProteinFrameshiftStop(
+            ordinal=23,
+            kind=ProteinFrameshiftStopKind.KNOWN,
+        ),
+    )
+
+    assert isinstance(unknown_stop.description.effect, ProteinEditEffect)
+    assert unknown_stop.description.effect.location.start.residue == "Ile"
+    assert unknown_stop.description.effect.location.start.ordinal == 327
+    assert unknown_stop.description.effect.edit == ProteinFrameshiftEdit(
+        to_residue="Arg",
+        stop=ProteinFrameshiftStop(
+            ordinal=None,
+            kind=ProteinFrameshiftStopKind.UNKNOWN,
+        ),
+    )
+
+    assert isinstance(unknown_stop_ter.description.effect, ProteinEditEffect)
+    assert unknown_stop_ter.description.effect.edit == ProteinFrameshiftEdit(
+        to_residue="Pro",
+        stop=ProteinFrameshiftStop(
+            ordinal=None,
+            kind=ProteinFrameshiftStopKind.UNKNOWN,
+        ),
+    )
+
+    assert isinstance(predicted.description.effect, ProteinEditEffect)
+    assert predicted.description.is_predicted is True
+    assert predicted.description.effect.edit == ProteinFrameshiftEdit(
+        to_residue=None,
+        stop=ProteinFrameshiftStop(
+            ordinal=None,
+            kind=ProteinFrameshiftStopKind.OMITTED,
+        ),
+    )
+
+
 def test_distinguishes_intronic_and_utr_relative_coordinates():
     intronic = NucleotideCoordinate(
         anchor=NucleotideAnchor.ABSOLUTE,
@@ -486,6 +557,54 @@ def test_roundtrips_manually_constructed_protein_repeat_variant():
     assert _roundtrip_variant(variant) == variant
 
 
+def test_roundtrips_manually_constructed_protein_frameshift_variant():
+    variant = HgvsVariant(
+        reference=ReferenceSpec(
+            primary=Accession(id="NP_0123456.1", version=1),
+            context=None,
+        ),
+        coordinate_system=CoordinateSystem.PROTEIN,
+        description=ProteinVariant(
+            is_predicted=False,
+            effect=ProteinEditEffect(
+                location=Interval(
+                    start=ProteinCoordinate(residue="Arg", ordinal=97),
+                    end=None,
+                ),
+                edit=ProteinFrameshiftEdit(
+                    to_residue="Pro",
+                    stop=ProteinFrameshiftStop(
+                        ordinal=23,
+                        kind=ProteinFrameshiftStopKind.KNOWN,
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    assert _roundtrip_variant(variant) == variant
+
+
+@pytest.mark.parametrize(
+    "example",
+    [
+        "p.Arg97fsTer23",
+        "p.Arg97fs*23",
+        "p.Arg97fs*?",
+        "p.Arg97Profs",
+        "p.Arg97ProfsTer",
+        "p.Arg97Profs23",
+        "p.Ter97fsTer23",
+    ],
+)
+def test_rejects_malformed_protein_frameshift_variants(example: str):
+    with pytest.raises(TinyHGVSError) as exc_info:
+        parse_hgvs(example)
+
+    assert exc_info.value.code == "invalid.syntax"
+    assert exc_info.value.kind is ParseHgvsErrorKind.INVALID_SYNTAX
+
+
 def test_rejects_examples_deferred_to_future_work():
     deferred = "NC_000023.11:g.(31060227_31100351)_(33274278_33417151)dup"
 
@@ -564,12 +683,6 @@ def test_rejects_examples_deferred_to_future_work():
             "unsupported.rna_adjoined_transcript",
             ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
             "::",
-        ),
-        (
-            "p.(Gln576SerfsTer21)",
-            "unsupported.protein_frameshift",
-            ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
-            "fs",
         ),
         (
             "p.(Ter157Lysext*90)",
