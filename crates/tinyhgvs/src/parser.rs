@@ -117,6 +117,25 @@ const PROTEIN_SYMBOLS: &[&str] = &[
 /// }
 /// ```
 ///
+/// A protein frameshift can be parsed in either short or long form:
+///
+/// ```rust
+/// use tinyhgvs::{ProteinEdit, ProteinEffect, VariantDescription, parse_hgvs};
+///
+/// let variant = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23").unwrap();
+///
+/// match variant.description {
+///     VariantDescription::Protein(protein) => match protein.effect {
+///         ProteinEffect::Edit { edit: ProteinEdit::Frameshift { to_residue, stop }, .. } => {
+///             assert_eq!(to_residue.as_deref(), Some("Pro"));
+///             assert_eq!(stop.ordinal, Some(23));
+///         }
+///         _ => unreachable!("expected protein frameshift"),
+///     },
+///     _ => unreachable!("expected protein variant"),
+/// }
+/// ```
+///
 /// Unsupported syntax is reported as a structured [`crate::ParseHgvsError`]:
 ///
 /// ```rust

@@ -149,7 +149,7 @@ impl ParseHgvsError {
 
     /// Returns the most relevant fragment recognized by the diagnostic layer.
     ///
-    /// For example, a protein frameshift may return `"fs"`, while an allele
+    /// For example, a protein extension may return `"ext"`, while an allele
     /// expression may return a bracketed fragment such as `"[123G>A;345del]"`.
     pub fn fragment(&self) -> Option<&str> {
         self.fragment.as_deref()
