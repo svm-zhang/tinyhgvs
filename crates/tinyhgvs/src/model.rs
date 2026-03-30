@@ -184,6 +184,56 @@ pub enum ProteinEffect {
     },
 }
 
+/// Model describing a stop codon is known (long-form), or omitted (short-form),
+/// or unknown (not encountered) due to a frameshift event.
+///
+/// - "Known" or long-form: `p.Arg97ProfsTer23`
+/// - "Omitted" or short-form: `p.Arg97fs`
+/// - "Unknown" or "not encountered": `p.Arg97ProfsTer?`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProteinFrameshiftStopKind {
+    Omitted,
+    Unknown,
+    Known,
+}
+
+/// Model describing stop codon information in a protein frameshift edit.
+///
+/// # Examples
+///
+/// ```rust
+/// use tinyhgvs::{ProteinEdit, ProteinEffect, ProteinFrameshiftStopKind, VariantDescription, parse_hgvs};
+///
+/// let short = parse_hgvs("NP_0123456.1:p.Arg97fs").unwrap();
+/// let known = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23").unwrap();
+/// let unknown = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer?").unwrap();
+///
+/// let extract_stop = |variant: tinyhgvs::HgvsVariant| match variant.description {
+///     VariantDescription::Protein(description) => match description.effect {
+///         ProteinEffect::Edit { edit: ProteinEdit::Frameshift { stop, .. }, .. } => stop,
+///         _ => unreachable!("expected protein frameshift"),
+///     },
+///     _ => unreachable!("expected protein variant"),
+/// };
+///
+/// let short_stop = extract_stop(short);
+/// assert_eq!(short_stop.kind, ProteinFrameshiftStopKind::Omitted);
+/// assert_eq!(short_stop.ordinal, None);
+///
+/// let known_stop = extract_stop(known);
+/// assert_eq!(known_stop.kind, ProteinFrameshiftStopKind::Known);
+/// assert_eq!(known_stop.ordinal, Some(23));
+///
+/// let unknown_stop = extract_stop(unknown);
+/// assert_eq!(unknown_stop.kind, ProteinFrameshiftStopKind::Unknown);
+/// assert_eq!(unknown_stop.ordinal, None);
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProteinFrameshiftStop {
+    pub ordinal: Option<usize>,
+    pub kind: ProteinFrameshiftStopKind,
+}
+
 /// Inclusive interval used for nucleotide and protein locations.
 ///
 /// # Examples
@@ -447,6 +497,11 @@ pub enum ProteinEdit {
     /// `p.Arg65_Ser67[12]`.
     Repeat {
         count: usize,
+    },
+    /// Protein frameshift such as `p.Arg97fs` or `p.Arg97ProfsTer23`.
+    Frameshift {
+        to_residue: Option<String>,
+        stop: ProteinFrameshiftStop,
     },
     Insertion {
         sequence: ProteinSequence,

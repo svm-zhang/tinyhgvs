@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0]
+
+### Protein frameshift support
+- Added support for exact HGVS protein frameshift syntax, including short form
+  such as `p.Arg97fs` and long form such as `p.Arg97ProfsTer23` and `p.Arg97ProfsTer?`.
+- Removed exact protein frameshift syntax from the unsupported parser boundary
+  while keeping adjacent unsupported protein families unchanged.
+
+### Rust and Python models
+- Added first-class protein frameshift models on both the Rust and Python sides.
+- Extended the PyO3 bridge so frameshift variants are mapped cleanly between
+  the Rust parser result and the public Python API.
+- Added parser-facing valid and malformed frameshift tests.
+
+### Documentation and support inventory
+- Updated the unsupported syntax inventory to mark protein frameshift as
+  supported since `0.3.0`.
+- Refreshed Rust docs, Python docstrings, README examples, and rendered docs
+  to present protein frameshift as a supported syntax family.
+
 ## [0.2.0]
 
 ### Repeat support

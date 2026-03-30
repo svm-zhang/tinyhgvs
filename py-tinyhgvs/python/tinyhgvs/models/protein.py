@@ -179,12 +179,114 @@ class ProteinRepeatEdit:
     kind: Literal["repeat"] = field(init=False, default="repeat")
 
 
+class ProteinFrameshiftStopKind(str, Enum):
+    """Model describing a stop codon is known (long-form), or omitted (short-form),
+    or unknown (not encountered) due to a frameshift event.
+
+    Attributes:
+        OMITTED: Short-form frameshift where stop codon information is omitted.
+        UNKNOWN: Long-form frameshift with unknown stop codon, such as ``p.Arg97ProfsTer?``.
+        KNOWN: Long-form frameshift with known stop codon, such as ``p.Arg97ProfsTer23``.
+
+    Examples:
+        Protein frameshift variant with unknown stop codon:
+        >>> from tinyhgvs import parse_hgvs
+        >>> unknown = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer?")
+        >>> unknown.description.effect.edit.stop.kind
+        <ProteinFrameshiftStopKind.UNKNOWN: 'unknown'>
+
+        Short-form protein frameshift variant:
+        >>> short = parse_hgvs("NP_0123456.1:p.Arg97fs")
+        >>> short.description.effect.edit.stop.kind
+        <ProteinFrameshiftStopKind.OMITTED: 'omitted'>
+
+    """
+
+    OMITTED = "omitted"
+    UNKNOWN = "unknown"
+    KNOWN = "known"
+
+
+@dataclass(frozen=True, slots=True)
+class ProteinFrameshiftStop:
+    """Model describing stop codon information in a protein frameshift edit.
+
+    Attributes:
+        ordinal: Stop codon ordinal. None when stop codon information is either
+            omitted (short-form) or unknown.
+        kind: Whether the stop is omitted, unknown, or known.
+
+    Examples:
+        Protein frameshift variant with a known stop codon:
+        >>> from tinyhgvs import parse_hgvs
+        >>> long = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23")
+        >>> long_stop = long.description.effect.edit.stop
+        >>> long_stop.ordinal
+        23
+        >>> long_stop.kind
+        <ProteinFrameshiftStopKind.KNOWN: 'known'>
+
+        Short-form frameshift variant leaves the stop ordinal optional:
+        >>> short = parse_hgvs("NP_0123456.1:p.Arg97fs")
+        >>> short_stop = short.description.effect.edit.stop
+        >>> short_stop.ordinal is None
+        True
+        >>> short_stop.kind
+        <ProteinFrameshiftStopKind.OMITTED: 'omitted'>
+
+    """
+
+    ordinal: int | None
+    kind: ProteinFrameshiftStopKind
+
+
+@dataclass(frozen=True, slots=True)
+class ProteinFrameshiftEdit:
+    """Model describing a protein frameshift consequence.
+
+    Attributes:
+        to_residue: First newly encoded residue. None when in short-form.
+        stop: Model describing stop codon information in frameshift variant.
+        kind: Edit kind.
+
+    Examples:
+        A short-form protein frameshift variant:
+        >>> from tinyhgvs import parse_hgvs
+        >>> short = parse_hgvs("NP_0123456.1:p.Arg97fs")
+        >>> short_edit = short.description.effect.edit
+        >>> short_edit.to_residue is None
+        True
+        >>> short_edit.stop.kind
+        <ProteinFrameshiftStopKind.OMITTED: 'omitted'>
+
+        A long-form protein frameshift variants:
+        >>> long = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23")
+        >>> long_edit = long.description.effect.edit
+        >>> long_edit.to_residue
+        'Pro'
+        >>> long_edit.stop.ordinal
+        23
+
+        A predicted long-form protein frameshift variant:
+        >>> predicted = parse_hgvs("p.(Arg97ProfsTer?)")
+        >>> predicted.description.is_predicted
+        True
+        >>> predicted.description.effect.edit.stop.kind
+        <ProteinFrameshiftStopKind.UNKNOWN: 'unknown'>
+    """
+
+    to_residue: str | None
+    stop: ProteinFrameshiftStop
+    kind: Literal["frameshift"] = field(init=False, default="frameshift")
+
+
 ProteinEdit: TypeAlias = (
     ProteinSequenceOmittedEdit
     | ProteinSubstitutionEdit
     | ProteinInsertionEdit
     | ProteinDeletionInsertionEdit
     | ProteinRepeatEdit
+    | ProteinFrameshiftEdit
 )
 """Tagged union for supported protein edit models:
 
@@ -193,6 +295,7 @@ ProteinEdit: TypeAlias = (
 - [`ProteinInsertionEdit`][tinyhgvs.models.protein.ProteinInsertionEdit]
 - [`ProteinDeletionInsertionEdit`][tinyhgvs.models.protein.ProteinDeletionInsertionEdit]
 - [`ProteinRepeatEdit`][tinyhgvs.models.protein.ProteinRepeatEdit]
+- [`ProteinFrameshiftEdit`][tinyhgvs.models.protein.ProteinFrameshiftEdit]
 """
 
 
@@ -256,6 +359,14 @@ class ProteinEditEffect:
         'Val'
         >>> effect.edit is ProteinSequenceOmittedEdit.DELETION
         True
+
+        A protein frameshift consequence:
+        >>> variant = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23")
+        >>> effect = variant.description.effect
+        >>> effect.location.start.residue
+        'Arg'
+        >>> effect.edit.to_residue
+        'Pro'
     """
 
     location: Interval[ProteinCoordinate]
@@ -291,6 +402,11 @@ class ProteinVariant:
         A parenthesized protein consequence is predicted:
         >>> parse_hgvs("LRG_199p1:p.(Met1?)").description.is_predicted
         True
+
+        Frameshift consequences:
+        >>> variant = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23")
+        >>> variant.description.effect.edit.kind
+        'frameshift'
     """
 
     is_predicted: bool
@@ -306,6 +422,9 @@ __all__ = [
     "ProteinEdit",
     "ProteinEditEffect",
     "ProteinEffect",
+    "ProteinFrameshiftEdit",
+    "ProteinFrameshiftStop",
+    "ProteinFrameshiftStopKind",
     "ProteinInsertionEdit",
     "ProteinNoProteinProducedEffect",
     "ProteinRepeatEdit",

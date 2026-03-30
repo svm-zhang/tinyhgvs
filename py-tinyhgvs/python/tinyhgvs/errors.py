@@ -65,12 +65,12 @@ class TinyHGVSError(ValueError):
         ...     (error.kind.value, error.code)
         ('invalid_syntax', 'invalid.syntax')
 
-        Unsupported protein frameshift syntax:
+        Unsupported protein extension syntax:
         >>> try:
-        ...     parse_hgvs("p.(Gln576SerfsTer21)")
+        ...     parse_hgvs("p.(Ter157Lysext*90)")
         ... except TinyHGVSError as error:
         ...     (error.code, error.fragment)
-        ('unsupported.protein_frameshift', 'fs')
+        ('unsupported.protein_extension', 'ext')
     """
 
     def __init__(

@@ -5,8 +5,8 @@ use tinyhgvs::{
     HgvsVariant as CoreHgvsVariant, Interval, LiteralSequenceItem, NucleotideAnchor,
     NucleotideCoordinate, NucleotideEdit, NucleotideRepeatBlock, NucleotideSequenceItem,
     ParseHgvsError as CoreParseHgvsError, ParseHgvsErrorKind, ProteinCoordinate, ProteinEdit,
-    ProteinEffect, ProteinSequence, ProteinVariant, ReferenceSpec, RepeatSequenceItem,
-    VariantDescription,
+    ProteinEffect, ProteinFrameshiftStop, ProteinFrameshiftStopKind, ProteinSequence,
+    ProteinVariant, ReferenceSpec, RepeatSequenceItem, VariantDescription,
 };
 
 const PY_ERRORS_MODULE: &str = "tinyhgvs.errors";
@@ -484,6 +484,52 @@ impl<'py> PyModelCodec<'py> {
         }
     }
 
+    fn protein_frameshift_stop_kind(
+        &self,
+        value: ProteinFrameshiftStopKind,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let name = match value {
+            ProteinFrameshiftStopKind::Omitted => "omitted",
+            ProteinFrameshiftStopKind::Unknown => "unknown",
+            ProteinFrameshiftStopKind::Known => "known",
+        };
+        self.class("ProteinFrameshiftStopKind")?.call1((name,))
+    }
+
+    fn protein_frameshift_stop_kind_from_py(
+        &self,
+        value: &Bound<'py, PyAny>,
+    ) -> PyResult<ProteinFrameshiftStopKind> {
+        match self.enum_value(value)?.as_str() {
+            "omitted" => Ok(ProteinFrameshiftStopKind::Omitted),
+            "unknown" => Ok(ProteinFrameshiftStopKind::Unknown),
+            "known" => Ok(ProteinFrameshiftStopKind::Known),
+            other => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "unsupported ProteinFrameshiftStopKind value: {other}"
+            ))),
+        }
+    }
+
+    fn protein_frameshift_stop(
+        &self,
+        value: &ProteinFrameshiftStop,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        self.class("ProteinFrameshiftStop")?.call1((
+            value.ordinal,
+            self.protein_frameshift_stop_kind(value.kind)?,
+        ))
+    }
+
+    fn protein_frameshift_stop_from_py(
+        &self,
+        value: &Bound<'py, PyAny>,
+    ) -> PyResult<ProteinFrameshiftStop> {
+        Ok(ProteinFrameshiftStop {
+            ordinal: value.getattr("ordinal")?.extract()?,
+            kind: self.protein_frameshift_stop_kind_from_py(&value.getattr("kind")?)?,
+        })
+    }
+
     fn protein_edit(&self, value: &ProteinEdit) -> PyResult<Bound<'py, PyAny>> {
         match value {
             ProteinEdit::Unknown => self.protein_sequence_omitted_edit(value),
@@ -491,6 +537,9 @@ impl<'py> PyModelCodec<'py> {
             ProteinEdit::Substitution { to } => self.class("ProteinSubstitutionEdit")?.call1((to,)),
             ProteinEdit::Deletion => self.protein_sequence_omitted_edit(value),
             ProteinEdit::Duplication => self.protein_sequence_omitted_edit(value),
+            ProteinEdit::Frameshift { to_residue, stop } => self
+                .class("ProteinFrameshiftEdit")?
+                .call1((to_residue, self.protein_frameshift_stop(stop)?)),
             ProteinEdit::Insertion { sequence } => self
                 .class("ProteinInsertionEdit")?
                 .call1((self.protein_sequence(sequence)?,)),
@@ -506,6 +555,10 @@ impl<'py> PyModelCodec<'py> {
             "ProteinSequenceOmittedEdit" => self.protein_sequence_omitted_edit_from_py(value),
             "ProteinSubstitutionEdit" => Ok(ProteinEdit::Substitution {
                 to: value.getattr("to")?.extract()?,
+            }),
+            "ProteinFrameshiftEdit" => Ok(ProteinEdit::Frameshift {
+                to_residue: value.getattr("to_residue")?.extract()?,
+                stop: self.protein_frameshift_stop_from_py(&value.getattr("stop")?)?,
             }),
             "ProteinInsertionEdit" => Ok(ProteinEdit::Insertion {
                 sequence: self.protein_sequence_from_py(&value.getattr("sequence")?)?,

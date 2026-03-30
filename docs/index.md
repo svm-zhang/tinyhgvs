@@ -52,6 +52,16 @@ variant = parse_hgvs("NM_004006.3:r.-124_-123[14]")
 print(variant.description.edit.blocks[0].count)
 ```
 
+Parse a protein frameshift consequence:
+
+```python
+from tinyhgvs import parse_hgvs
+
+variant = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23")
+print(variant.description.effect.edit.to_residue)
+print(variant.description.effect.edit.stop.ordinal)
+```
+
 Inspect an unsupported syntax error:
 
 ```python
