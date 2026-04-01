@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.1]
+
+### Test suite cleanup
+- Reworked Rust and Python parser tests so they start from raw HGVS strings and
+  assert on parser-produced objects instead of comparing against hand-built
+  expected model objects.
+- Removed low-value tests that focused on helper or bridge behavior.
+
+### Python test tooling
+- Added persistent `pytest` coverage settings in `py-tinyhgvs/pyproject.toml`.
+- Enforced a minimum Python test coverage threshold of 95%.
+
+
 ## [0.3.0]
 
 ### Protein frameshift support
