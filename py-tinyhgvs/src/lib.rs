@@ -6,7 +6,7 @@ use tinyhgvs::{
     NucleotideCoordinate, NucleotideEdit, NucleotideRepeatBlock, NucleotideSequenceItem,
     ParseHgvsError as CoreParseHgvsError, ParseHgvsErrorKind, ProteinCoordinate, ProteinEdit,
     ProteinEffect, ProteinFrameshiftStop, ProteinFrameshiftStopKind, ProteinSequence,
-    ProteinVariant, ReferenceSpec, RepeatSequenceItem, VariantDescription,
+    ReferenceSpec, RepeatSequenceItem, VariantDescription,
 };
 
 const PY_ERRORS_MODULE: &str = "tinyhgvs.errors";
@@ -20,20 +20,9 @@ fn parse_hgvs<'py>(py: Python<'py>, input: &str) -> PyResult<Bound<'py, PyAny>> 
     }
 }
 
-#[pyfunction]
-fn _roundtrip_variant<'py>(
-    py: Python<'py>,
-    value: Bound<'py, PyAny>,
-) -> PyResult<Bound<'py, PyAny>> {
-    let codec = PyModelCodec::import(py)?;
-    let variant = codec.extract_variant(&value)?;
-    codec.variant(&variant)
-}
-
 #[pymodule]
 fn _tinyhgvs(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parse_hgvs, m)?)?;
-    m.add_function(wrap_pyfunction!(_roundtrip_variant, m)?)?;
     Ok(())
 }
 
@@ -54,34 +43,8 @@ impl<'py> PyModelCodec<'py> {
         self.module.getattr(name)
     }
 
-    fn class_name(&self, value: &Bound<'py, PyAny>) -> PyResult<String> {
-        value.getattr("__class__")?.getattr("__name__")?.extract()
-    }
-
-    fn enum_value(&self, value: &Bound<'py, PyAny>) -> PyResult<String> {
-        match value.getattr("value") {
-            Ok(raw) => raw.extract(),
-            Err(_) => value.extract(),
-        }
-    }
-
     fn coordinate_system(&self, value: CoordinateSystem) -> PyResult<Bound<'py, PyAny>> {
         self.class("CoordinateSystem")?.call1((value.as_str(),))
-    }
-
-    fn coordinate_system_from_py(&self, value: &Bound<'py, PyAny>) -> PyResult<CoordinateSystem> {
-        match self.enum_value(value)?.as_str() {
-            "g" => Ok(CoordinateSystem::Genomic),
-            "o" => Ok(CoordinateSystem::CircularGenomic),
-            "m" => Ok(CoordinateSystem::Mitochondrial),
-            "c" => Ok(CoordinateSystem::CodingDna),
-            "n" => Ok(CoordinateSystem::NonCodingDna),
-            "r" => Ok(CoordinateSystem::Rna),
-            "p" => Ok(CoordinateSystem::Protein),
-            other => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                "unsupported CoordinateSystem value: {other}"
-            ))),
-        }
     }
 
     fn nucleotide_anchor(&self, value: NucleotideAnchor) -> PyResult<Bound<'py, PyAny>> {
@@ -89,26 +52,8 @@ impl<'py> PyModelCodec<'py> {
             .call1((nucleotide_anchor_value(value),))
     }
 
-    fn nucleotide_anchor_from_py(&self, value: &Bound<'py, PyAny>) -> PyResult<NucleotideAnchor> {
-        match self.enum_value(value)?.as_str() {
-            "absolute" => Ok(NucleotideAnchor::Absolute),
-            "relative_cds_start" => Ok(NucleotideAnchor::RelativeCdsStart),
-            "relative_cds_end" => Ok(NucleotideAnchor::RelativeCdsEnd),
-            other => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                "unsupported NucleotideAnchor value: {other}"
-            ))),
-        }
-    }
-
     fn accession(&self, value: &Accession) -> PyResult<Bound<'py, PyAny>> {
         self.class("Accession")?.call1((&value.id, value.version))
-    }
-
-    fn accession_from_py(&self, value: &Bound<'py, PyAny>) -> PyResult<Accession> {
-        Ok(Accession {
-            id: value.getattr("id")?.extract()?,
-            version: value.getattr("version")?.extract()?,
-        })
     }
 
     fn reference_spec(&self, value: &ReferenceSpec) -> PyResult<Bound<'py, PyAny>> {
@@ -122,18 +67,6 @@ impl<'py> PyModelCodec<'py> {
             .call1((self.accession(&value.primary)?, context))
     }
 
-    fn reference_spec_from_py(&self, value: &Bound<'py, PyAny>) -> PyResult<ReferenceSpec> {
-        let context = value.getattr("context")?;
-        Ok(ReferenceSpec {
-            primary: self.accession_from_py(&value.getattr("primary")?)?,
-            context: if context.is_none() {
-                None
-            } else {
-                Some(self.accession_from_py(&context)?)
-            },
-        })
-    }
-
     fn nucleotide_coordinate(&self, value: &NucleotideCoordinate) -> PyResult<Bound<'py, PyAny>> {
         self.class("NucleotideCoordinate")?.call1((
             self.nucleotide_anchor(value.anchor)?,
@@ -142,27 +75,9 @@ impl<'py> PyModelCodec<'py> {
         ))
     }
 
-    fn nucleotide_coordinate_from_py(
-        &self,
-        value: &Bound<'py, PyAny>,
-    ) -> PyResult<NucleotideCoordinate> {
-        Ok(NucleotideCoordinate {
-            anchor: self.nucleotide_anchor_from_py(&value.getattr("anchor")?)?,
-            coordinate: value.getattr("coordinate")?.extract()?,
-            offset: value.getattr("offset")?.extract()?,
-        })
-    }
-
     fn protein_coordinate(&self, value: &ProteinCoordinate) -> PyResult<Bound<'py, PyAny>> {
         self.class("ProteinCoordinate")?
             .call1((&value.residue, value.ordinal))
-    }
-
-    fn protein_coordinate_from_py(&self, value: &Bound<'py, PyAny>) -> PyResult<ProteinCoordinate> {
-        Ok(ProteinCoordinate {
-            residue: value.getattr("residue")?.extract()?,
-            ordinal: value.getattr("ordinal")?.extract()?,
-        })
     }
 
     fn nucleotide_interval(
@@ -179,21 +94,6 @@ impl<'py> PyModelCodec<'py> {
             .call1((self.nucleotide_coordinate(&value.start)?, end))
     }
 
-    fn nucleotide_interval_from_py(
-        &self,
-        value: &Bound<'py, PyAny>,
-    ) -> PyResult<Interval<NucleotideCoordinate>> {
-        let end = value.getattr("end")?;
-        Ok(Interval {
-            start: self.nucleotide_coordinate_from_py(&value.getattr("start")?)?,
-            end: if end.is_none() {
-                None
-            } else {
-                Some(self.nucleotide_coordinate_from_py(&end)?)
-            },
-        })
-    }
-
     fn protein_interval(&self, value: &Interval<ProteinCoordinate>) -> PyResult<Bound<'py, PyAny>> {
         let end = value
             .end
@@ -203,21 +103,6 @@ impl<'py> PyModelCodec<'py> {
 
         self.class("Interval")?
             .call1((self.protein_coordinate(&value.start)?, end))
-    }
-
-    fn protein_interval_from_py(
-        &self,
-        value: &Bound<'py, PyAny>,
-    ) -> PyResult<Interval<ProteinCoordinate>> {
-        let end = value.getattr("end")?;
-        Ok(Interval {
-            start: self.protein_coordinate_from_py(&value.getattr("start")?)?,
-            end: if end.is_none() {
-                None
-            } else {
-                Some(self.protein_coordinate_from_py(&end)?)
-            },
-        })
     }
 
     fn copied_sequence_item(&self, value: &CopiedSequenceItem) -> PyResult<Bound<'py, PyAny>> {
@@ -239,29 +124,6 @@ impl<'py> PyModelCodec<'py> {
         ))
     }
 
-    fn copied_sequence_item_from_py(
-        &self,
-        value: &Bound<'py, PyAny>,
-    ) -> PyResult<CopiedSequenceItem> {
-        let source_reference = value.getattr("source_reference")?;
-        let source_coordinate_system = value.getattr("source_coordinate_system")?;
-        Ok(CopiedSequenceItem {
-            source_reference: if source_reference.is_none() {
-                None
-            } else {
-                Some(self.reference_spec_from_py(&source_reference)?)
-            },
-            source_coordinate_system: if source_coordinate_system.is_none() {
-                None
-            } else {
-                Some(self.coordinate_system_from_py(&source_coordinate_system)?)
-            },
-            source_location: self
-                .nucleotide_interval_from_py(&value.getattr("source_location")?)?,
-            is_inverted: value.getattr("is_inverted")?.extract()?,
-        })
-    }
-
     fn nucleotide_sequence_item(
         &self,
         value: &NucleotideSequenceItem,
@@ -277,27 +139,6 @@ impl<'py> PyModelCodec<'py> {
         }
     }
 
-    fn nucleotide_sequence_item_from_py(
-        &self,
-        value: &Bound<'py, PyAny>,
-    ) -> PyResult<NucleotideSequenceItem> {
-        match self.class_name(value)?.as_str() {
-            "LiteralSequenceItem" => Ok(NucleotideSequenceItem::Literal(LiteralSequenceItem {
-                value: value.getattr("value")?.extract()?,
-            })),
-            "RepeatSequenceItem" => Ok(NucleotideSequenceItem::Repeat(RepeatSequenceItem {
-                unit: value.getattr("unit")?.extract()?,
-                count: value.getattr("count")?.extract()?,
-            })),
-            "CopiedSequenceItem" => Ok(NucleotideSequenceItem::Copied(
-                self.copied_sequence_item_from_py(value)?,
-            )),
-            other => Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!(
-                "unsupported nucleotide sequence item type: {other}"
-            ))),
-        }
-    }
-
     fn nucleotide_items_tuple(
         &self,
         value: &[NucleotideSequenceItem],
@@ -307,17 +148,6 @@ impl<'py> PyModelCodec<'py> {
             .map(|item| self.nucleotide_sequence_item(item))
             .collect::<PyResult<Vec<_>>>()?;
         PyTuple::new(self.py, items)
-    }
-
-    fn nucleotide_items_from_py(
-        &self,
-        value: &Bound<'py, PyAny>,
-    ) -> PyResult<Vec<NucleotideSequenceItem>> {
-        let mut items = Vec::new();
-        for item in value.try_iter()? {
-            items.push(self.nucleotide_sequence_item_from_py(&item?)?);
-        }
-        Ok(items)
     }
 
     fn nucleotide_repeat_block(
@@ -334,22 +164,6 @@ impl<'py> PyModelCodec<'py> {
             .call1((value.count, value.unit.as_deref(), location))
     }
 
-    fn nucleotide_repeat_block_from_py(
-        &self,
-        value: &Bound<'py, PyAny>,
-    ) -> PyResult<NucleotideRepeatBlock> {
-        let location = value.getattr("location")?;
-        Ok(NucleotideRepeatBlock {
-            count: value.getattr("count")?.extract()?,
-            unit: value.getattr("unit")?.extract()?,
-            location: if location.is_none() {
-                None
-            } else {
-                Some(self.nucleotide_interval_from_py(&location)?)
-            },
-        })
-    }
-
     fn nucleotide_repeat_blocks_tuple(
         &self,
         value: &[NucleotideRepeatBlock],
@@ -361,26 +175,9 @@ impl<'py> PyModelCodec<'py> {
         PyTuple::new(self.py, items)
     }
 
-    fn nucleotide_repeat_blocks_from_py(
-        &self,
-        value: &Bound<'py, PyAny>,
-    ) -> PyResult<Vec<NucleotideRepeatBlock>> {
-        let mut items = Vec::new();
-        for item in value.try_iter()? {
-            items.push(self.nucleotide_repeat_block_from_py(&item?)?);
-        }
-        Ok(items)
-    }
-
     fn protein_sequence(&self, value: &ProteinSequence) -> PyResult<Bound<'py, PyAny>> {
         let residues = PyTuple::new(self.py, &value.residues)?;
         self.class("ProteinSequence")?.call1((residues,))
-    }
-
-    fn protein_sequence_from_py(&self, value: &Bound<'py, PyAny>) -> PyResult<ProteinSequence> {
-        Ok(ProteinSequence {
-            residues: value.getattr("residues")?.extract()?,
-        })
     }
 
     fn nucleotide_sequence_omitted_edit(
@@ -395,21 +192,6 @@ impl<'py> PyModelCodec<'py> {
             _ => unreachable!("nucleotide_sequence_omitted_edit called for non-enum edit"),
         };
         self.class("NucleotideSequenceOmittedEdit")?.call1((name,))
-    }
-
-    fn nucleotide_sequence_omitted_edit_from_py(
-        &self,
-        value: &Bound<'py, PyAny>,
-    ) -> PyResult<NucleotideEdit> {
-        match self.enum_value(value)?.as_str() {
-            "no_change" => Ok(NucleotideEdit::NoChange),
-            "deletion" => Ok(NucleotideEdit::Deletion),
-            "duplication" => Ok(NucleotideEdit::Duplication),
-            "inversion" => Ok(NucleotideEdit::Inversion),
-            other => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                "unsupported NucleotideSequenceOmittedEdit value: {other}"
-            ))),
-        }
     }
 
     fn nucleotide_edit(&self, value: &NucleotideEdit) -> PyResult<Bound<'py, PyAny>> {
@@ -436,28 +218,6 @@ impl<'py> PyModelCodec<'py> {
         }
     }
 
-    fn nucleotide_edit_from_py(&self, value: &Bound<'py, PyAny>) -> PyResult<NucleotideEdit> {
-        match self.class_name(value)?.as_str() {
-            "NucleotideSequenceOmittedEdit" => self.nucleotide_sequence_omitted_edit_from_py(value),
-            "NucleotideSubstitutionEdit" => Ok(NucleotideEdit::Substitution {
-                reference: value.getattr("reference")?.extract()?,
-                alternate: value.getattr("alternate")?.extract()?,
-            }),
-            "NucleotideInsertionEdit" => Ok(NucleotideEdit::Insertion {
-                items: self.nucleotide_items_from_py(&value.getattr("items")?)?,
-            }),
-            "NucleotideDeletionInsertionEdit" => Ok(NucleotideEdit::DeletionInsertion {
-                items: self.nucleotide_items_from_py(&value.getattr("items")?)?,
-            }),
-            "NucleotideRepeatEdit" => Ok(NucleotideEdit::Repeat {
-                blocks: self.nucleotide_repeat_blocks_from_py(&value.getattr("blocks")?)?,
-            }),
-            other => Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!(
-                "unsupported nucleotide edit type: {other}"
-            ))),
-        }
-    }
-
     fn protein_sequence_omitted_edit(&self, value: &ProteinEdit) -> PyResult<Bound<'py, PyAny>> {
         let name = match value {
             ProteinEdit::Unknown => "unknown",
@@ -467,21 +227,6 @@ impl<'py> PyModelCodec<'py> {
             _ => unreachable!("protein_sequence_omitted_edit called for non-enum edit"),
         };
         self.class("ProteinSequenceOmittedEdit")?.call1((name,))
-    }
-
-    fn protein_sequence_omitted_edit_from_py(
-        &self,
-        value: &Bound<'py, PyAny>,
-    ) -> PyResult<ProteinEdit> {
-        match self.enum_value(value)?.as_str() {
-            "unknown" => Ok(ProteinEdit::Unknown),
-            "no_change" => Ok(ProteinEdit::NoChange),
-            "deletion" => Ok(ProteinEdit::Deletion),
-            "duplication" => Ok(ProteinEdit::Duplication),
-            other => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                "unsupported ProteinSequenceOmittedEdit value: {other}"
-            ))),
-        }
     }
 
     fn protein_frameshift_stop_kind(
@@ -496,20 +241,6 @@ impl<'py> PyModelCodec<'py> {
         self.class("ProteinFrameshiftStopKind")?.call1((name,))
     }
 
-    fn protein_frameshift_stop_kind_from_py(
-        &self,
-        value: &Bound<'py, PyAny>,
-    ) -> PyResult<ProteinFrameshiftStopKind> {
-        match self.enum_value(value)?.as_str() {
-            "omitted" => Ok(ProteinFrameshiftStopKind::Omitted),
-            "unknown" => Ok(ProteinFrameshiftStopKind::Unknown),
-            "known" => Ok(ProteinFrameshiftStopKind::Known),
-            other => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                "unsupported ProteinFrameshiftStopKind value: {other}"
-            ))),
-        }
-    }
-
     fn protein_frameshift_stop(
         &self,
         value: &ProteinFrameshiftStop,
@@ -518,16 +249,6 @@ impl<'py> PyModelCodec<'py> {
             value.ordinal,
             self.protein_frameshift_stop_kind(value.kind)?,
         ))
-    }
-
-    fn protein_frameshift_stop_from_py(
-        &self,
-        value: &Bound<'py, PyAny>,
-    ) -> PyResult<ProteinFrameshiftStop> {
-        Ok(ProteinFrameshiftStop {
-            ordinal: value.getattr("ordinal")?.extract()?,
-            kind: self.protein_frameshift_stop_kind_from_py(&value.getattr("kind")?)?,
-        })
     }
 
     fn protein_edit(&self, value: &ProteinEdit) -> PyResult<Bound<'py, PyAny>> {
@@ -550,31 +271,6 @@ impl<'py> PyModelCodec<'py> {
         }
     }
 
-    fn protein_edit_from_py(&self, value: &Bound<'py, PyAny>) -> PyResult<ProteinEdit> {
-        match self.class_name(value)?.as_str() {
-            "ProteinSequenceOmittedEdit" => self.protein_sequence_omitted_edit_from_py(value),
-            "ProteinSubstitutionEdit" => Ok(ProteinEdit::Substitution {
-                to: value.getattr("to")?.extract()?,
-            }),
-            "ProteinFrameshiftEdit" => Ok(ProteinEdit::Frameshift {
-                to_residue: value.getattr("to_residue")?.extract()?,
-                stop: self.protein_frameshift_stop_from_py(&value.getattr("stop")?)?,
-            }),
-            "ProteinInsertionEdit" => Ok(ProteinEdit::Insertion {
-                sequence: self.protein_sequence_from_py(&value.getattr("sequence")?)?,
-            }),
-            "ProteinDeletionInsertionEdit" => Ok(ProteinEdit::DeletionInsertion {
-                sequence: self.protein_sequence_from_py(&value.getattr("sequence")?)?,
-            }),
-            "ProteinRepeatEdit" => Ok(ProteinEdit::Repeat {
-                count: value.getattr("count")?.extract()?,
-            }),
-            other => Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!(
-                "unsupported protein edit type: {other}"
-            ))),
-        }
-    }
-
     fn protein_effect(&self, value: &ProteinEffect) -> PyResult<Bound<'py, PyAny>> {
         match value {
             ProteinEffect::Unknown => self.class("ProteinUnknownEffect")?.call0(),
@@ -584,20 +280,6 @@ impl<'py> PyModelCodec<'py> {
             ProteinEffect::Edit { location, edit } => self
                 .class("ProteinEditEffect")?
                 .call1((self.protein_interval(location)?, self.protein_edit(edit)?)),
-        }
-    }
-
-    fn protein_effect_from_py(&self, value: &Bound<'py, PyAny>) -> PyResult<ProteinEffect> {
-        match self.class_name(value)?.as_str() {
-            "ProteinUnknownEffect" => Ok(ProteinEffect::Unknown),
-            "ProteinNoProteinProducedEffect" => Ok(ProteinEffect::NoProteinProduced),
-            "ProteinEditEffect" => Ok(ProteinEffect::Edit {
-                location: self.protein_interval_from_py(&value.getattr("location")?)?,
-                edit: self.protein_edit_from_py(&value.getattr("edit")?)?,
-            }),
-            other => Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!(
-                "unsupported protein effect type: {other}"
-            ))),
         }
     }
 
@@ -613,24 +295,6 @@ impl<'py> PyModelCodec<'py> {
         }
     }
 
-    fn description_from_py(&self, value: &Bound<'py, PyAny>) -> PyResult<VariantDescription> {
-        match self.class_name(value)?.as_str() {
-            "NucleotideVariant" => Ok(VariantDescription::Nucleotide(
-                tinyhgvs::NucleotideVariant {
-                    location: self.nucleotide_interval_from_py(&value.getattr("location")?)?,
-                    edit: self.nucleotide_edit_from_py(&value.getattr("edit")?)?,
-                },
-            )),
-            "ProteinVariant" => Ok(VariantDescription::Protein(ProteinVariant {
-                is_predicted: value.getattr("is_predicted")?.extract()?,
-                effect: self.protein_effect_from_py(&value.getattr("effect")?)?,
-            })),
-            other => Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!(
-                "unsupported variant description type: {other}"
-            ))),
-        }
-    }
-
     fn variant(&self, value: &CoreHgvsVariant) -> PyResult<Bound<'py, PyAny>> {
         let reference = value
             .reference
@@ -643,20 +307,6 @@ impl<'py> PyModelCodec<'py> {
             self.coordinate_system(value.coordinate_system)?,
             self.description(&value.description)?,
         ))
-    }
-
-    fn extract_variant(&self, value: &Bound<'py, PyAny>) -> PyResult<CoreHgvsVariant> {
-        let reference = value.getattr("reference")?;
-        Ok(CoreHgvsVariant {
-            reference: if reference.is_none() {
-                None
-            } else {
-                Some(self.reference_spec_from_py(&reference)?)
-            },
-            coordinate_system: self
-                .coordinate_system_from_py(&value.getattr("coordinate_system")?)?,
-            description: self.description_from_py(&value.getattr("description")?)?,
-        })
     }
 }
 
