@@ -1,7 +1,6 @@
 use tinyhgvs::{
-    parse_hgvs, CoordinateSystem, CopiedSequenceItem, LiteralSequenceItem, NucleotideAnchor,
-    NucleotideCoordinate, NucleotideEdit, NucleotideRepeatBlock, NucleotideSequenceItem,
-    ProteinEdit, ProteinEffect, ProteinFrameshiftStop, ProteinFrameshiftStopKind,
+    parse_hgvs, CoordinateSystem, CopiedSequenceItem, LiteralSequenceItem, NucleotideEdit,
+    NucleotideSequenceItem, ProteinEdit, ProteinEffect, ProteinFrameshiftStopKind,
     RepeatSequenceItem, VariantDescription,
 };
 
@@ -35,13 +34,15 @@ fn parses_nucleotide_substitution_variants() {
     );
     assert_eq!(description.location.start.coordinate, 93);
     assert_eq!(description.location.start.offset, 1);
-    assert_eq!(
-        description.edit,
-        NucleotideEdit::Substitution {
-            reference: "G".to_string(),
-            alternate: "T".to_string(),
-        }
-    );
+    let NucleotideEdit::Substitution {
+        reference,
+        alternate,
+    } = description.edit
+    else {
+        panic!("expected substitution edit");
+    };
+    assert_eq!(reference, "G");
+    assert_eq!(alternate, "T");
 }
 
 #[test]
@@ -204,14 +205,10 @@ fn parses_nucleotide_repeat_variants() {
             let NucleotideEdit::Repeat { blocks } = value.edit else {
                 panic!("expected repeat edit");
             };
-            assert_eq!(
-                blocks,
-                vec![NucleotideRepeatBlock {
-                    count: 23,
-                    unit: Some("CAG".to_string()),
-                    location: None,
-                }]
-            );
+            assert_eq!(blocks.len(), 1);
+            assert_eq!(blocks[0].count, 23);
+            assert_eq!(blocks[0].unit.as_deref(), Some("CAG"));
+            assert!(blocks[0].location.is_none());
         }
         other => panic!("expected nucleotide variant, found {other:?}"),
     }
@@ -223,21 +220,13 @@ fn parses_nucleotide_repeat_variants() {
             let NucleotideEdit::Repeat { blocks } = value.edit else {
                 panic!("expected repeat edit");
             };
-            assert_eq!(
-                blocks,
-                vec![
-                    NucleotideRepeatBlock {
-                        count: 19,
-                        unit: Some("CAG".to_string()),
-                        location: None,
-                    },
-                    NucleotideRepeatBlock {
-                        count: 4,
-                        unit: Some("CAA".to_string()),
-                        location: None,
-                    },
-                ]
-            );
+            assert_eq!(blocks.len(), 2);
+            assert_eq!(blocks[0].count, 19);
+            assert_eq!(blocks[0].unit.as_deref(), Some("CAG"));
+            assert!(blocks[0].location.is_none());
+            assert_eq!(blocks[1].count, 4);
+            assert_eq!(blocks[1].unit.as_deref(), Some("CAA"));
+            assert!(blocks[1].location.is_none());
         }
         other => panic!("expected nucleotide variant, found {other:?}"),
     }
@@ -249,14 +238,10 @@ fn parses_nucleotide_repeat_variants() {
             let NucleotideEdit::Repeat { blocks } = value.edit else {
                 panic!("expected repeat edit");
             };
-            assert_eq!(
-                blocks,
-                vec![NucleotideRepeatBlock {
-                    count: 14,
-                    unit: None,
-                    location: None,
-                }]
-            );
+            assert_eq!(blocks.len(), 1);
+            assert_eq!(blocks[0].count, 14);
+            assert!(blocks[0].unit.is_none());
+            assert!(blocks[0].location.is_none());
         }
         other => panic!("expected nucleotide variant, found {other:?}"),
     }
@@ -268,14 +253,10 @@ fn parses_nucleotide_repeat_variants() {
             let NucleotideEdit::Repeat { blocks } = value.edit else {
                 panic!("expected repeat edit");
             };
-            assert_eq!(
-                blocks,
-                vec![NucleotideRepeatBlock {
-                    count: 6,
-                    unit: Some("gcu".to_string()),
-                    location: None,
-                }]
-            );
+            assert_eq!(blocks.len(), 1);
+            assert_eq!(blocks[0].count, 6);
+            assert_eq!(blocks[0].unit.as_deref(), Some("gcu"));
+            assert!(blocks[0].location.is_none());
         }
         other => panic!("expected nucleotide variant, found {other:?}"),
     }
@@ -333,12 +314,10 @@ fn parses_protein_substitution_and_no_change_variants() {
                 assert!(!value.is_predicted);
                 assert_eq!(location.start.residue, "Trp");
                 assert_eq!(location.start.ordinal, 24);
-                assert_eq!(
-                    edit,
-                    ProteinEdit::Substitution {
-                        to: "Ter".to_string()
-                    }
-                );
+                let ProteinEdit::Substitution { to } = edit else {
+                    panic!("expected substitution edit");
+                };
+                assert_eq!(to, "Ter");
             }
             other => panic!("expected protein edit, found {other:?}"),
         },
@@ -454,7 +433,10 @@ fn parses_protein_deletion_duplication_insertion_and_delins_variants() {
             ProteinEffect::Edit { edit, location } => {
                 assert_eq!(location.start.residue, "Arg");
                 assert_eq!(location.end.as_ref().unwrap().residue, "Ser");
-                assert_eq!(edit, ProteinEdit::Repeat { count: 12 });
+                let ProteinEdit::Repeat { count } = edit else {
+                    panic!("expected repeat edit");
+                };
+                assert_eq!(count, 12);
             }
             other => panic!("expected protein edit, found {other:?}"),
         },
@@ -477,16 +459,12 @@ fn parses_protein_frameshift_variants() {
                 assert!(!value.is_predicted);
                 assert_eq!(location.start.residue, "Arg");
                 assert_eq!(location.start.ordinal, 97);
-                assert_eq!(
-                    edit,
-                    ProteinEdit::Frameshift {
-                        to_residue: None,
-                        stop: ProteinFrameshiftStop {
-                            ordinal: None,
-                            kind: ProteinFrameshiftStopKind::Omitted,
-                        },
-                    }
-                );
+                let ProteinEdit::Frameshift { to_residue, stop } = edit else {
+                    panic!("expected frameshift edit");
+                };
+                assert!(to_residue.is_none());
+                assert!(stop.ordinal.is_none());
+                assert_eq!(stop.kind, ProteinFrameshiftStopKind::Omitted);
             }
             other => panic!("expected protein edit, found {other:?}"),
         },
@@ -496,16 +474,12 @@ fn parses_protein_frameshift_variants() {
     match long.description {
         VariantDescription::Protein(value) => match value.effect {
             ProteinEffect::Edit { edit, .. } => {
-                assert_eq!(
-                    edit,
-                    ProteinEdit::Frameshift {
-                        to_residue: Some("Pro".to_string()),
-                        stop: ProteinFrameshiftStop {
-                            ordinal: Some(23),
-                            kind: ProteinFrameshiftStopKind::Known,
-                        },
-                    }
-                );
+                let ProteinEdit::Frameshift { to_residue, stop } = edit else {
+                    panic!("expected frameshift edit");
+                };
+                assert_eq!(to_residue.as_deref(), Some("Pro"));
+                assert_eq!(stop.ordinal, Some(23));
+                assert_eq!(stop.kind, ProteinFrameshiftStopKind::Known);
             }
             other => panic!("expected protein edit, found {other:?}"),
         },
@@ -515,16 +489,12 @@ fn parses_protein_frameshift_variants() {
     match symbolic_stop.description {
         VariantDescription::Protein(value) => match value.effect {
             ProteinEffect::Edit { edit, .. } => {
-                assert_eq!(
-                    edit,
-                    ProteinEdit::Frameshift {
-                        to_residue: Some("Pro".to_string()),
-                        stop: ProteinFrameshiftStop {
-                            ordinal: Some(23),
-                            kind: ProteinFrameshiftStopKind::Known,
-                        },
-                    }
-                );
+                let ProteinEdit::Frameshift { to_residue, stop } = edit else {
+                    panic!("expected frameshift edit");
+                };
+                assert_eq!(to_residue.as_deref(), Some("Pro"));
+                assert_eq!(stop.ordinal, Some(23));
+                assert_eq!(stop.kind, ProteinFrameshiftStopKind::Known);
             }
             other => panic!("expected protein edit, found {other:?}"),
         },
@@ -536,16 +506,12 @@ fn parses_protein_frameshift_variants() {
             ProteinEffect::Edit { location, edit } => {
                 assert_eq!(location.start.residue, "Ile");
                 assert_eq!(location.start.ordinal, 327);
-                assert_eq!(
-                    edit,
-                    ProteinEdit::Frameshift {
-                        to_residue: Some("Arg".to_string()),
-                        stop: ProteinFrameshiftStop {
-                            ordinal: None,
-                            kind: ProteinFrameshiftStopKind::Unknown,
-                        },
-                    }
-                );
+                let ProteinEdit::Frameshift { to_residue, stop } = edit else {
+                    panic!("expected frameshift edit");
+                };
+                assert_eq!(to_residue.as_deref(), Some("Arg"));
+                assert!(stop.ordinal.is_none());
+                assert_eq!(stop.kind, ProteinFrameshiftStopKind::Unknown);
             }
             other => panic!("expected protein edit, found {other:?}"),
         },
@@ -555,16 +521,12 @@ fn parses_protein_frameshift_variants() {
     match unknown_stop_ter.description {
         VariantDescription::Protein(value) => match value.effect {
             ProteinEffect::Edit { edit, .. } => {
-                assert_eq!(
-                    edit,
-                    ProteinEdit::Frameshift {
-                        to_residue: Some("Pro".to_string()),
-                        stop: ProteinFrameshiftStop {
-                            ordinal: None,
-                            kind: ProteinFrameshiftStopKind::Unknown,
-                        },
-                    }
-                );
+                let ProteinEdit::Frameshift { to_residue, stop } = edit else {
+                    panic!("expected frameshift edit");
+                };
+                assert_eq!(to_residue.as_deref(), Some("Pro"));
+                assert!(stop.ordinal.is_none());
+                assert_eq!(stop.kind, ProteinFrameshiftStopKind::Unknown);
             }
             other => panic!("expected protein edit, found {other:?}"),
         },
@@ -576,16 +538,12 @@ fn parses_protein_frameshift_variants() {
             assert!(value.is_predicted);
             match value.effect {
                 ProteinEffect::Edit { edit, .. } => {
-                    assert_eq!(
-                        edit,
-                        ProteinEdit::Frameshift {
-                            to_residue: None,
-                            stop: ProteinFrameshiftStop {
-                                ordinal: None,
-                                kind: ProteinFrameshiftStopKind::Omitted,
-                            },
-                        }
-                    );
+                    let ProteinEdit::Frameshift { to_residue, stop } = edit else {
+                        panic!("expected frameshift edit");
+                    };
+                    assert!(to_residue.is_none());
+                    assert!(stop.ordinal.is_none());
+                    assert_eq!(stop.kind, ProteinFrameshiftStopKind::Omitted);
                 }
                 other => panic!("expected protein edit, found {other:?}"),
             }
@@ -617,77 +575,51 @@ fn rejects_malformed_protein_frameshift_variants() {
 }
 
 #[test]
-fn normalizes_intronic_and_utr_relative_coordinates() {
-    let intronic = NucleotideCoordinate {
-        anchor: NucleotideAnchor::Absolute,
-        coordinate: 93,
-        offset: 1,
-    };
-    let upstream_intronic = NucleotideCoordinate {
-        anchor: NucleotideAnchor::Absolute,
-        coordinate: 264,
-        offset: -2,
-    };
-    let five_prime_utr = NucleotideCoordinate {
-        anchor: NucleotideAnchor::RelativeCdsStart,
-        coordinate: -81,
-        offset: 0,
-    };
-    let three_prime_utr = NucleotideCoordinate {
-        anchor: NucleotideAnchor::RelativeCdsEnd,
-        coordinate: 1,
-        offset: 0,
-    };
+fn reports_intronic_and_utr_coordinate_properties_from_parsed_variants() {
+    let intronic = parse_variant("NM_004006.2:c.93+1G>T");
+    let upstream_intronic = parse_variant("NG_012232.1(NM_004006.2):c.264-2A>G");
+    let five_prime_utr = parse_variant("NM_007373.4:c.-81C>T");
+    let three_prime_utr = parse_variant("NM_001272071.2:c.*1C>T");
 
+    let VariantDescription::Nucleotide(intronic) = intronic.description else {
+        panic!("expected nucleotide variant");
+    };
+    let intronic = intronic.location.start;
     assert!(intronic.is_intronic());
     assert!(!intronic.is_five_prime_utr());
     assert!(!intronic.is_three_prime_utr());
 
+    let VariantDescription::Nucleotide(upstream_intronic) = upstream_intronic.description else {
+        panic!("expected nucleotide variant");
+    };
+    let upstream_intronic = upstream_intronic.location.start;
     assert!(upstream_intronic.is_intronic());
+    assert!(!upstream_intronic.is_five_prime_utr());
+    assert!(!upstream_intronic.is_three_prime_utr());
+
+    let VariantDescription::Nucleotide(five_prime_utr) = five_prime_utr.description else {
+        panic!("expected nucleotide variant");
+    };
+    let five_prime_utr = five_prime_utr.location.start;
     assert!(!five_prime_utr.is_intronic());
     assert!(five_prime_utr.is_five_prime_utr());
     assert!(!five_prime_utr.is_three_prime_utr());
 
+    let VariantDescription::Nucleotide(three_prime_utr) = three_prime_utr.description else {
+        panic!("expected nucleotide variant");
+    };
+    let three_prime_utr = three_prime_utr.location.start;
     assert!(!three_prime_utr.is_intronic());
     assert!(!three_prime_utr.is_five_prime_utr());
     assert!(three_prime_utr.is_three_prime_utr());
 }
 
 #[test]
-fn parses_trimmed_inputs_and_utr_coordinates() {
-    let five_prime = parse_variant("  NM_007373.4:c.-1C>T  ");
-    let three_prime = parse_variant("NM_001272071.2:c.*1C>T");
-    let upstream_intronic = parse_variant("NG_012232.1(NM_004006.2):c.264-2A>G");
+fn trims_input_before_parsing() {
+    let trimmed = parse_variant("  NM_007373.4:c.-1C>T  ");
+    let plain = parse_variant("NM_007373.4:c.-1C>T");
 
-    let VariantDescription::Nucleotide(five_prime) = five_prime.description else {
-        panic!("expected nucleotide variant");
-    };
-    assert_eq!(
-        five_prime.location.start.anchor,
-        NucleotideAnchor::RelativeCdsStart
-    );
-    assert_eq!(five_prime.location.start.coordinate, -1);
-    assert_eq!(five_prime.location.start.offset, 0);
-
-    let VariantDescription::Nucleotide(three_prime) = three_prime.description else {
-        panic!("expected nucleotide variant");
-    };
-    assert_eq!(
-        three_prime.location.start.anchor,
-        NucleotideAnchor::RelativeCdsEnd
-    );
-    assert_eq!(three_prime.location.start.coordinate, 1);
-    assert_eq!(three_prime.location.start.offset, 0);
-
-    let VariantDescription::Nucleotide(upstream_intronic) = upstream_intronic.description else {
-        panic!("expected nucleotide variant");
-    };
-    assert_eq!(
-        upstream_intronic.location.start.anchor,
-        NucleotideAnchor::Absolute
-    );
-    assert_eq!(upstream_intronic.location.start.coordinate, 264);
-    assert_eq!(upstream_intronic.location.start.offset, -2);
+    assert_eq!(trimmed, plain);
 }
 
 #[test]
