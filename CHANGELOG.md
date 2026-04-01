@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.2]
+
+### Python bridge cleanup
+- Removed the unused Python-to-Rust reverse conversion path from the PyO3
+  extension layer.
+- Removed the internal `_roundtrip_variant` helper and the corresponding stub
+  entry from the Python package.
+
 ## [0.3.1]
 
 ### Test suite cleanup
