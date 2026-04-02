@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.3]
+
+This patch addresses the security alerts from dependabot.
+
+### Dependency maintenance
+- Updated the PyO3 dependency used by the Python extension to a patched
+  release line.
+- Refreshed the Python docs/dev lockfile so the flagged `Pygments` dependency
+  resolves to a patched version.
+- Updated the docs tooling dependency resolution so `zensical build` works
+  cleanly with the patched `Pygments` release line.
+
 ## [0.3.2]
 
 ### Python bridge cleanup
