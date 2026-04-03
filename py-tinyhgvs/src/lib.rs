@@ -263,10 +263,7 @@ impl<'py> PyModelCodec<'py> {
         self.class("ProteinExtensionTerminal")?.call1((name,))
     }
 
-    fn protein_extension_edit(
-        &self,
-        value: &ProteinExtensionEdit,
-    ) -> PyResult<Bound<'py, PyAny>> {
+    fn protein_extension_edit(&self, value: &ProteinExtensionEdit) -> PyResult<Bound<'py, PyAny>> {
         self.class("ProteinExtensionEdit")?.call1((
             self.protein_extension_terminal(value.to_terminal)?,
             value.to_residue.as_deref(),

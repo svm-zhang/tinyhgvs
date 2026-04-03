@@ -152,9 +152,8 @@ fn displays_machine_code_message_and_version() {
     let rendered = error.to_string();
 
     assert!(rendered.contains("[unsupported.protein_insertion_payload]"));
-    assert!(rendered.contains(
-        "quantified or terminal protein insertion payloads are not supported yet"
-    ));
+    assert!(rendered
+        .contains("quantified or terminal protein insertion payloads are not supported yet"));
     assert!(rendered.contains("`p.Arg78_Gly79insXaa[23]`"));
     assert!(rendered.contains(env!("CARGO_PKG_VERSION")));
 }
