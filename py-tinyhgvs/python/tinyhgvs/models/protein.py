@@ -179,6 +179,77 @@ class ProteinRepeatEdit:
     kind: Literal["repeat"] = field(init=False, default="repeat")
 
 
+class ProteinExtensionTerminal(str, Enum):
+    """Protein terminus toward which an extension variant extends.
+
+    Attributes:
+        N: Extension toward the N-terminus.
+        C: Extension toward the C-terminus.
+
+    Examples:
+        N-terminal extension:
+        >>> from tinyhgvs import ProteinExtensionTerminal, parse_hgvs
+        >>> variant = parse_hgvs("NP_003997.2:p.Met1ext-5")
+        >>> variant.description.effect.edit.to_terminal is ProteinExtensionTerminal.N
+        True
+
+        C-terminal extension:
+        >>> variant = parse_hgvs("NP_003997.2:p.Ter110GlnextTer17")
+        >>> variant.description.effect.edit.to_terminal is ProteinExtensionTerminal.C
+        True
+    """
+
+    N = "n"
+    C = "c"
+
+
+@dataclass(frozen=True, slots=True)
+class ProteinExtensionEdit:
+    """Model describing a protein extension consequence.
+
+    Attributes:
+        to_terminal: Protein terminus toward which an extension variant extends.
+        to_residue: Residue replacing the reference stop codon in a C-terminal
+            extension. None for N-terminal extension.
+        terminal_ordinal: New terminal ordinal. Negative for N-terminal
+            extension, positive for C-terminal extension with known stop, and
+            None when the new stop is unknown.
+        kind: Edit kind.
+
+    Examples:
+        An N-terminal extension:
+        >>> from tinyhgvs import parse_hgvs
+        >>> variant = parse_hgvs("NP_003997.2:p.Met1ext-5")
+        >>> variant_edit = variant.description.effect.edit
+        >>> variant_edit.to_terminal
+        <ProteinExtensionTerminal.N: 'n'>
+        >>> variant_edit.to_residue is None
+        True
+        >>> variant_edit.terminal_ordinal
+        -5
+
+        A C-terminal extension with known new stop:
+        >>> variant = parse_hgvs("NP_003997.2:p.Ter110GlnextTer17")
+        >>> variant_edit = variant.description.effect.edit
+        >>> variant_edit.to_terminal
+        <ProteinExtensionTerminal.C: 'c'>
+        >>> variant_edit.to_residue
+        'Gln'
+        >>> variant_edit.terminal_ordinal
+        17
+
+        A C-terminal extension with unknown new stop:
+        >>> variant = parse_hgvs("p.Ter327ArgextTer?")
+        >>> variant.description.effect.edit.terminal_ordinal is None
+        True
+    """
+
+    to_terminal: ProteinExtensionTerminal
+    to_residue: str | None
+    terminal_ordinal: int | None
+    kind: Literal["extension"] = field(init=False, default="extension")
+
+
 class ProteinFrameshiftStopKind(str, Enum):
     """Model describing a stop codon is known (long-form), or omitted (short-form),
     or unknown (not encountered) due to a frameshift event.
@@ -286,6 +357,7 @@ ProteinEdit: TypeAlias = (
     | ProteinInsertionEdit
     | ProteinDeletionInsertionEdit
     | ProteinRepeatEdit
+    | ProteinExtensionEdit
     | ProteinFrameshiftEdit
 )
 """Tagged union for supported protein edit models:
@@ -295,6 +367,7 @@ ProteinEdit: TypeAlias = (
 - [`ProteinInsertionEdit`][tinyhgvs.models.protein.ProteinInsertionEdit]
 - [`ProteinDeletionInsertionEdit`][tinyhgvs.models.protein.ProteinDeletionInsertionEdit]
 - [`ProteinRepeatEdit`][tinyhgvs.models.protein.ProteinRepeatEdit]
+- [`ProteinExtensionEdit`][tinyhgvs.models.protein.ProteinExtensionEdit]
 - [`ProteinFrameshiftEdit`][tinyhgvs.models.protein.ProteinFrameshiftEdit]
 """
 
@@ -367,6 +440,16 @@ class ProteinEditEffect:
         'Arg'
         >>> effect.edit.to_residue
         'Pro'
+
+        A protein extension consequence:
+        >>> variant = parse_hgvs("NP_003997.2:p.Ter110GlnextTer17")
+        >>> effect = variant.description.effect
+        >>> effect.location.start.residue
+        'Ter'
+        >>> effect.edit.kind
+        'extension'
+        >>> effect.edit.terminal_ordinal
+        17
     """
 
     location: Interval[ProteinCoordinate]
@@ -407,6 +490,11 @@ class ProteinVariant:
         >>> variant = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23")
         >>> variant.description.effect.edit.kind
         'frameshift'
+
+        Extension consequences:
+        >>> variant = parse_hgvs("NP_003997.2:p.Ter110GlnextTer17")
+        >>> variant.description.effect.edit.kind
+        'extension'
     """
 
     is_predicted: bool
@@ -422,6 +510,8 @@ __all__ = [
     "ProteinEdit",
     "ProteinEditEffect",
     "ProteinEffect",
+    "ProteinExtensionEdit",
+    "ProteinExtensionTerminal",
     "ProteinFrameshiftEdit",
     "ProteinFrameshiftStop",
     "ProteinFrameshiftStopKind",
