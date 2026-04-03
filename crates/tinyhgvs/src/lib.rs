@@ -88,7 +88,8 @@ pub use model::{
     Accession, CoordinateSystem, CopiedSequenceItem, HgvsVariant, Interval, LiteralSequenceItem,
     NucleotideAnchor, NucleotideCoordinate, NucleotideEdit, NucleotideRepeatBlock,
     NucleotideSequenceItem, NucleotideVariant, ProteinCoordinate, ProteinEdit, ProteinEffect,
-    ProteinFrameshiftStop, ProteinFrameshiftStopKind, ProteinSequence, ProteinVariant,
-    ReferenceSpec, RepeatSequenceItem, VariantDescription,
+    ProteinExtensionEdit, ProteinExtensionTerminal, ProteinFrameshiftStop,
+    ProteinFrameshiftStopKind, ProteinSequence, ProteinVariant, ReferenceSpec,
+    RepeatSequenceItem, VariantDescription,
 };
 pub use parser::parse_hgvs;
