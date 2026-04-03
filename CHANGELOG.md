@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0]
+
+### Protein extension support
+- Added support for HGVS protein extension syntax, including N-terminal
+  extension such as `p.Met1ext-5` and C-terminal extension such as
+  `p.Ter110GlnextTer17` and `p.Ter327ArgextTer?`.
+- Accepted both `Ter` and `*` stop-codon spellings in protein extension input
+  while normalizing the parsed public model to `Ter`.
+- Removed `unsupported.protein_extension` code from the unsupported inventory.
+
+### Rust and Python models
+- Added protein extension models on both the Rust and Python sides.
+- Extended the PyO3 bridge so protein extension variants map cleanly from the
+  Rust parser result into the public Python API.
+- Added test coverage for both valid and malformed extension variants.
+
+### Documentation and support inventory
+- Updated the unsupported syntax inventory to mark protein extension as
+  supported since `0.4.0`.
+- Refreshed Rust docs, Python docstrings, and rendered docs to present
+  protein extension as a supported syntax family.
+
 ## [0.3.3]
 
 This patch addresses the security alerts from dependabot.
