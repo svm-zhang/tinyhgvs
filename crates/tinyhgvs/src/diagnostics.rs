@@ -43,12 +43,6 @@ const UNSUPPORTED_MATCHERS: &[DiagnosticMatcher] = &[
         message: "epigenetic edit syntax is not supported yet",
         detect: epigenetic_edit_fragment,
     },
-    // Examples: `p.(Ter157Lysext*90)`, `NP_003997.2:p.Met1ext-5`
-    DiagnosticMatcher {
-        code: "unsupported.protein_extension",
-        message: "protein extension syntax is not supported yet",
-        detect: protein_extension_fragment,
-    },
     // Examples: `p.Arg78_Gly79insXaa[23]`, `...ins*63`
     DiagnosticMatcher {
         code: "unsupported.protein_insertion_payload",
@@ -156,12 +150,6 @@ fn epigenetic_edit_fragment(input: &str) -> Option<String> {
     description
         .split_once('|')
         .map(|(_, modifier)| format!("|{modifier}"))
-}
-
-/// Detects protein extension notation containing `ext`.
-fn protein_extension_fragment(input: &str) -> Option<String> {
-    let description = protein_description_fragment(input)?;
-    description.contains("ext").then(|| "ext".to_string())
 }
 
 /// Detects unsupported quantified or terminal protein insertion payloads.

@@ -65,12 +65,12 @@ class TinyHGVSError(ValueError):
         ...     (error.kind.value, error.code)
         ('invalid_syntax', 'invalid.syntax')
 
-        Unsupported protein extension syntax:
+        Unsupported quantified protein insertion syntax:
         >>> try:
-        ...     parse_hgvs("p.(Ter157Lysext*90)")
+        ...     parse_hgvs("p.Arg78_Gly79insXaa[23]")
         ... except TinyHGVSError as error:
         ...     (error.code, error.fragment)
-        ('unsupported.protein_extension', 'ext')
+        ('unsupported.protein_insertion_payload', 'Xaa[...]')
     """
 
     def __init__(

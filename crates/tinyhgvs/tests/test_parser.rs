@@ -1,7 +1,7 @@
 use tinyhgvs::{
     parse_hgvs, CoordinateSystem, CopiedSequenceItem, LiteralSequenceItem, NucleotideEdit,
-    NucleotideSequenceItem, ProteinEdit, ProteinEffect, ProteinFrameshiftStopKind,
-    RepeatSequenceItem, VariantDescription,
+    NucleotideSequenceItem, ProteinEdit, ProteinEffect, ProteinExtensionTerminal,
+    ProteinFrameshiftStopKind, RepeatSequenceItem, VariantDescription,
 };
 
 fn parse_variant(example: &str) -> tinyhgvs::HgvsVariant {
@@ -553,6 +553,117 @@ fn parses_protein_frameshift_variants() {
 }
 
 #[test]
+fn parses_protein_extension_variants() {
+    let n_terminal = parse_variant("NP_003997.2:p.Met1ext-5");
+    let predicted_n_terminal = parse_variant("p.(Met1ext-8)");
+    let c_terminal = parse_variant("NP_003997.2:p.Ter110GlnextTer17");
+    let c_terminal_symbolic = parse_variant("p.*110Glnext*17");
+    let unknown_stop = parse_variant("p.Ter327ArgextTer?");
+    let unknown_stop_symbolic = parse_variant("p.*327Argext*?");
+
+    match n_terminal.description {
+        VariantDescription::Protein(value) => match value.effect {
+            ProteinEffect::Edit { location, edit } => {
+                assert!(!value.is_predicted);
+                assert_eq!(location.start.residue, "Met");
+                assert_eq!(location.start.ordinal, 1);
+                let ProteinEdit::Extension(extension) = edit else {
+                    panic!("expected extension edit");
+                };
+                assert_eq!(extension.to_terminal, ProteinExtensionTerminal::N);
+                assert!(extension.to_residue.is_none());
+                assert_eq!(extension.terminal_ordinal, Some(-5));
+            }
+            other => panic!("expected protein edit, found {other:?}"),
+        },
+        other => panic!("expected protein variant, found {other:?}"),
+    }
+
+    match predicted_n_terminal.description {
+        VariantDescription::Protein(value) => match value.effect {
+            ProteinEffect::Edit { edit, .. } => {
+                assert!(value.is_predicted);
+                let ProteinEdit::Extension(extension) = edit else {
+                    panic!("expected extension edit");
+                };
+                assert_eq!(extension.to_terminal, ProteinExtensionTerminal::N);
+                assert_eq!(extension.terminal_ordinal, Some(-8));
+            }
+            other => panic!("expected protein edit, found {other:?}"),
+        },
+        other => panic!("expected protein variant, found {other:?}"),
+    }
+
+    match c_terminal.description {
+        VariantDescription::Protein(value) => match value.effect {
+            ProteinEffect::Edit { location, edit } => {
+                assert_eq!(location.start.residue, "Ter");
+                assert_eq!(location.start.ordinal, 110);
+                let ProteinEdit::Extension(extension) = edit else {
+                    panic!("expected extension edit");
+                };
+                assert_eq!(extension.to_terminal, ProteinExtensionTerminal::C);
+                assert_eq!(extension.to_residue.as_deref(), Some("Gln"));
+                assert_eq!(extension.terminal_ordinal, Some(17));
+            }
+            other => panic!("expected protein edit, found {other:?}"),
+        },
+        other => panic!("expected protein variant, found {other:?}"),
+    }
+
+    match c_terminal_symbolic.description {
+        VariantDescription::Protein(value) => match value.effect {
+            ProteinEffect::Edit { location, edit } => {
+                assert_eq!(location.start.residue, "Ter");
+                assert_eq!(location.start.ordinal, 110);
+                let ProteinEdit::Extension(extension) = edit else {
+                    panic!("expected extension edit");
+                };
+                assert_eq!(extension.to_terminal, ProteinExtensionTerminal::C);
+                assert_eq!(extension.to_residue.as_deref(), Some("Gln"));
+                assert_eq!(extension.terminal_ordinal, Some(17));
+            }
+            other => panic!("expected protein edit, found {other:?}"),
+        },
+        other => panic!("expected protein variant, found {other:?}"),
+    }
+
+    match unknown_stop.description {
+        VariantDescription::Protein(value) => match value.effect {
+            ProteinEffect::Edit { location, edit } => {
+                assert_eq!(location.start.residue, "Ter");
+                assert_eq!(location.start.ordinal, 327);
+                let ProteinEdit::Extension(extension) = edit else {
+                    panic!("expected extension edit");
+                };
+                assert_eq!(extension.to_terminal, ProteinExtensionTerminal::C);
+                assert_eq!(extension.to_residue.as_deref(), Some("Arg"));
+                assert_eq!(extension.terminal_ordinal, None);
+            }
+            other => panic!("expected protein edit, found {other:?}"),
+        },
+        other => panic!("expected protein variant, found {other:?}"),
+    }
+
+    match unknown_stop_symbolic.description {
+        VariantDescription::Protein(value) => match value.effect {
+            ProteinEffect::Edit { location, edit } => {
+                assert_eq!(location.start.residue, "Ter");
+                assert_eq!(location.start.ordinal, 327);
+                let ProteinEdit::Extension(extension) = edit else {
+                    panic!("expected extension edit");
+                };
+                assert_eq!(extension.to_terminal, ProteinExtensionTerminal::C);
+                assert_eq!(extension.to_residue.as_deref(), Some("Arg"));
+                assert_eq!(extension.terminal_ordinal, None);
+            }
+            other => panic!("expected protein edit, found {other:?}"),
+        },
+        other => panic!("expected protein variant, found {other:?}"),
+    }
+}
+
+#[test]
 fn rejects_malformed_protein_frameshift_variants() {
     let malformed = [
         "p.Arg97fsTer23",
@@ -562,6 +673,28 @@ fn rejects_malformed_protein_frameshift_variants() {
         "p.Arg97ProfsTer",
         "p.Arg97Profs23",
         "p.Ter97fsTer23",
+    ];
+
+    for example in malformed {
+        let error = parse_hgvs(example).unwrap_err();
+        assert_eq!(
+            error.code(),
+            "invalid.syntax",
+            "unexpected code for {example}"
+        );
+    }
+}
+
+#[test]
+fn rejects_malformed_protein_extension_variants() {
+    let malformed = [
+        "p.Met1ext5",
+        "p.Met1ext+5",
+        "p.Ter110extTer17",
+        "p.Ter110Glnext17",
+        "p.Ter110GlnextTer",
+        "p.Ter110GlnextTer-17",
+        "p.Met2ext-5",
     ];
 
     for example in malformed {

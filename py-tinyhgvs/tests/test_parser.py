@@ -15,6 +15,7 @@ from tinyhgvs import (
     NucleotideSequenceOmittedEdit,
     ParseHgvsErrorKind,
     ProteinEditEffect,
+    ProteinExtensionTerminal,
     ProteinFrameshiftStopKind,
     ProteinSequenceOmittedEdit,
     TinyHGVSError,
@@ -370,6 +371,77 @@ def test_parses_protein_frameshift_variants():
     )
 
 
+def test_parses_protein_extension_variants():
+    n_terminal = parse_hgvs("NP_003997.2:p.Met1ext-5")
+    predicted_n_terminal = parse_hgvs("p.(Met1ext-8)")
+    c_terminal = parse_hgvs("NP_003997.2:p.Ter110GlnextTer17")
+    c_terminal_symbolic = parse_hgvs("p.*110Glnext*17")
+    unknown_stop = parse_hgvs("p.Ter327ArgextTer?")
+    unknown_stop_symbolic = parse_hgvs("p.*327Argext*?")
+
+    assert isinstance(n_terminal.description.effect, ProteinEditEffect)
+    assert n_terminal.description.effect.location.start.residue == "Met"
+    assert n_terminal.description.effect.location.start.ordinal == 1
+    assert n_terminal.description.effect.edit.kind == "extension"
+    assert (
+        n_terminal.description.effect.edit.to_terminal
+        is ProteinExtensionTerminal.N
+    )
+    assert n_terminal.description.effect.edit.to_residue is None
+    assert n_terminal.description.effect.edit.terminal_ordinal == -5
+
+    assert isinstance(predicted_n_terminal.description.effect, ProteinEditEffect)
+    assert predicted_n_terminal.description.is_predicted is True
+    assert (
+        predicted_n_terminal.description.effect.edit.to_terminal
+        is ProteinExtensionTerminal.N
+    )
+    assert predicted_n_terminal.description.effect.edit.terminal_ordinal == -8
+
+    assert isinstance(c_terminal.description.effect, ProteinEditEffect)
+    assert c_terminal.description.effect.location.start.residue == "Ter"
+    assert c_terminal.description.effect.location.start.ordinal == 110
+    assert c_terminal.description.effect.edit.kind == "extension"
+    assert (
+        c_terminal.description.effect.edit.to_terminal
+        is ProteinExtensionTerminal.C
+    )
+    assert c_terminal.description.effect.edit.to_residue == "Gln"
+    assert c_terminal.description.effect.edit.terminal_ordinal == 17
+
+    assert isinstance(c_terminal_symbolic.description.effect, ProteinEditEffect)
+    assert c_terminal_symbolic.description.effect.location.start.residue == "Ter"
+    assert c_terminal_symbolic.description.effect.location.start.ordinal == 110
+    assert (
+        c_terminal_symbolic.description.effect.edit.to_terminal
+        is ProteinExtensionTerminal.C
+    )
+    assert c_terminal_symbolic.description.effect.edit.to_residue == "Gln"
+    assert c_terminal_symbolic.description.effect.edit.terminal_ordinal == 17
+
+    assert isinstance(unknown_stop.description.effect, ProteinEditEffect)
+    assert unknown_stop.description.effect.location.start.residue == "Ter"
+    assert unknown_stop.description.effect.location.start.ordinal == 327
+    assert (
+        unknown_stop.description.effect.edit.to_terminal
+        is ProteinExtensionTerminal.C
+    )
+    assert unknown_stop.description.effect.edit.to_residue == "Arg"
+    assert unknown_stop.description.effect.edit.terminal_ordinal is None
+
+    assert isinstance(unknown_stop_symbolic.description.effect, ProteinEditEffect)
+    assert (
+        unknown_stop_symbolic.description.effect.location.start.residue == "Ter"
+    )
+    assert unknown_stop_symbolic.description.effect.location.start.ordinal == 327
+    assert (
+        unknown_stop_symbolic.description.effect.edit.to_terminal
+        is ProteinExtensionTerminal.C
+    )
+    assert unknown_stop_symbolic.description.effect.edit.to_residue == "Arg"
+    assert unknown_stop_symbolic.description.effect.edit.terminal_ordinal is None
+
+
 def test_reports_intronic_and_utr_coordinate_properties_from_parsed_variants():
     intronic = parse_hgvs("NM_004006.2:c.93+1G>T").description.location.start
     upstream_intronic = parse_hgvs(
@@ -439,6 +511,26 @@ def test_parses_utr_and_upstream_intronic_coordinates():
     ],
 )
 def test_rejects_malformed_protein_frameshift_variants(example: str):
+    with pytest.raises(TinyHGVSError) as exc_info:
+        parse_hgvs(example)
+
+    assert exc_info.value.code == "invalid.syntax"
+    assert exc_info.value.kind is ParseHgvsErrorKind.INVALID_SYNTAX
+
+
+@pytest.mark.parametrize(
+    "example",
+    [
+        "p.Met1ext5",
+        "p.Met1ext+5",
+        "p.Ter110extTer17",
+        "p.Ter110Glnext17",
+        "p.Ter110GlnextTer",
+        "p.Ter110GlnextTer-17",
+        "p.Met2ext-5",
+    ],
+)
+def test_rejects_malformed_protein_extension_variants(example: str):
     with pytest.raises(TinyHGVSError) as exc_info:
         parse_hgvs(example)
 
@@ -524,12 +616,6 @@ def test_rejects_examples_deferred_to_future_work():
             "unsupported.rna_adjoined_transcript",
             ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
             "::",
-        ),
-        (
-            "p.(Ter157Lysext*90)",
-            "unsupported.protein_extension",
-            ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
-            "ext",
         ),
         (
             "p.(Gln18)[(70_80)]",

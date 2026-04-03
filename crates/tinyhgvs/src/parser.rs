@@ -19,8 +19,9 @@ use crate::model::{
     Accession, CoordinateSystem, CopiedSequenceItem, HgvsVariant, Interval, LiteralSequenceItem,
     NucleotideAnchor, NucleotideCoordinate, NucleotideEdit, NucleotideRepeatBlock,
     NucleotideSequenceItem, NucleotideVariant, ProteinCoordinate, ProteinEdit, ProteinEffect,
-    ProteinFrameshiftStop, ProteinFrameshiftStopKind, ProteinSequence, ProteinVariant,
-    ReferenceSpec, RepeatSequenceItem, VariantDescription,
+    ProteinExtensionEdit, ProteinExtensionTerminal, ProteinFrameshiftStop,
+    ProteinFrameshiftStopKind, ProteinSequence, ProteinVariant, ReferenceSpec, RepeatSequenceItem,
+    VariantDescription,
 };
 
 type ParseResult<'a, T> = IResult<&'a str, T>;
@@ -131,6 +132,26 @@ const PROTEIN_SYMBOLS: &[&str] = &[
 ///             assert_eq!(stop.ordinal, Some(23));
 ///         }
 ///         _ => unreachable!("expected protein frameshift"),
+///     },
+///     _ => unreachable!("expected protein variant"),
+/// }
+/// ```
+///
+/// A protein extension keeps the extended terminus, the first new residue when
+/// present, and the new terminal ordinal together:
+///
+/// ```rust
+/// use tinyhgvs::{ProteinEdit, ProteinEffect, VariantDescription, parse_hgvs};
+///
+/// let variant = parse_hgvs("NP_003997.2:p.Ter110GlnextTer17").unwrap();
+///
+/// match variant.description {
+///     VariantDescription::Protein(protein) => match protein.effect {
+///         ProteinEffect::Edit { edit: ProteinEdit::Extension(extension), .. } => {
+///             assert_eq!(extension.to_residue.as_deref(), Some("Gln"));
+///             assert_eq!(extension.terminal_ordinal, Some(17));
+///         }
+///         _ => unreachable!("expected protein extension"),
 ///     },
 ///     _ => unreachable!("expected protein variant"),
 /// }
@@ -265,7 +286,7 @@ fn nucleotide_description(
         )));
     }
 
-    let location = resolved_nucleotide_location(&initial_location, &edit);
+    let location = resolve_nucleotide_location(&initial_location, &edit);
 
     Ok((
         input,
@@ -548,11 +569,19 @@ fn protein_effect(input: &str) -> ParseResult<'_, ProteinEffect> {
     alt((
         value(ProteinEffect::Unknown, char('?')),
         value(ProteinEffect::NoProteinProduced, char('0')),
-        map(pair(protein_interval, protein_edit), |(location, edit)| {
-            ProteinEffect::Edit { location, edit }
-        }),
+        map_res(
+            pair(protein_interval, protein_edit),
+            build_protein_edit_effect,
+        ),
     ))
     .parse(input)
+}
+
+fn build_protein_edit_effect(
+    (location, edit): (Interval<ProteinCoordinate>, ProteinEdit),
+) -> Result<ProteinEffect, ()> {
+    let location = resolve_protein_effect_location(&location, &edit).ok_or(())?;
+    Ok(ProteinEffect::Edit { location, edit })
 }
 
 /// Parses a single protein position or an interval.
@@ -591,12 +620,74 @@ fn protein_edit(input: &str) -> ParseResult<'_, ProteinEdit> {
         map(delimited(char('['), parse_usize, char(']')), |count| {
             ProteinEdit::Repeat { count }
         }),
+        protein_extension_edit,
         protein_frameshift_edit,
         map(preceded(tag("ins"), protein_sequence), |sequence| {
             ProteinEdit::Insertion { sequence }
         }),
         map(protein_symbol, |to| ProteinEdit::Substitution { to }),
     ))
+    .parse(input)
+}
+
+/// Parses N-terminal and C-terminal protein extension syntax.
+fn protein_extension_edit(input: &str) -> ParseResult<'_, ProteinEdit> {
+    alt((
+        map(
+            preceded(tag("ext"), protein_n_terminal_extension_ordinal),
+            |terminal_ordinal| {
+                ProteinEdit::Extension(ProteinExtensionEdit {
+                    to_terminal: ProteinExtensionTerminal::N,
+                    to_residue: None,
+                    terminal_ordinal: Some(terminal_ordinal),
+                })
+            },
+        ),
+        map(
+            pair(
+                protein_extension_residue,
+                protein_c_terminal_extension_state,
+            ),
+            |(to_residue, terminal_ordinal)| {
+                ProteinEdit::Extension(ProteinExtensionEdit {
+                    to_terminal: ProteinExtensionTerminal::C,
+                    to_residue: Some(to_residue),
+                    terminal_ordinal,
+                })
+            },
+        ),
+    ))
+    .parse(input)
+}
+
+/// Parses the required negative ordinal in N-terminal extension syntax.
+fn protein_n_terminal_extension_ordinal(input: &str) -> ParseResult<'_, i32> {
+    map(preceded(char('-'), parse_i32), |ordinal| -ordinal).parse(input)
+}
+
+/// Parses the residue replacing the reference stop codon in C-terminal extension syntax.
+fn protein_extension_residue(input: &str) -> ParseResult<'_, String> {
+    let (input, residue) = protein_symbol(input)?;
+
+    if residue == "Ter" {
+        Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Verify,
+        )))
+    } else {
+        Ok((input, residue))
+    }
+}
+
+/// Parses the terminal state in C-terminal extension syntax.
+fn protein_c_terminal_extension_state(input: &str) -> ParseResult<'_, Option<i32>> {
+    preceded(
+        tag("ext"),
+        alt((
+            value(None, pair(alt((tag("Ter"), tag("*"))), char('?'))),
+            map(preceded(alt((tag("Ter"), tag("*"))), parse_i32), Some),
+        )),
+    )
     .parse(input)
 }
 
@@ -652,7 +743,7 @@ fn protein_frameshift_stop(input: &str) -> ParseResult<'_, ProteinFrameshiftStop
 fn protein_frameshift_residue(input: &str) -> ParseResult<'_, String> {
     let (input, residue) = protein_symbol(input)?;
 
-    if matches!(residue.as_str(), "Ter" | "*") {
+    if residue == "Ter" {
         Err(nom::Err::Error(nom::error::Error::new(
             input,
             nom::error::ErrorKind::Verify,
@@ -674,7 +765,7 @@ fn protein_sequence(input: &str) -> ParseResult<'_, ProteinSequence> {
 fn protein_symbol(input: &str) -> ParseResult<'_, String> {
     for symbol in PROTEIN_SYMBOLS {
         if let Some(rest) = input.strip_prefix(symbol) {
-            return Ok((rest, (*symbol).to_string()));
+            return Ok((rest, normalize_protein_symbol(symbol)));
         }
     }
 
@@ -684,8 +775,54 @@ fn protein_symbol(input: &str) -> ParseResult<'_, String> {
     )))
 }
 
+fn normalize_protein_symbol(symbol: &str) -> String {
+    if symbol == "*" {
+        "Ter".to_string()
+    } else {
+        symbol.to_string()
+    }
+}
+
+fn resolve_protein_effect_location(
+    location: &Interval<ProteinCoordinate>,
+    edit: &ProteinEdit,
+) -> Option<Interval<ProteinCoordinate>> {
+    let ProteinEdit::Extension(extension) = edit else {
+        return Some(location.clone());
+    };
+
+    if location.end.is_some() {
+        return None;
+    }
+
+    let mut start = location.start.clone();
+
+    match extension.to_terminal {
+        ProteinExtensionTerminal::N => {
+            if start.residue != "Met"
+                || start.ordinal != 1
+                || extension.to_residue.is_some()
+                || !matches!(extension.terminal_ordinal, Some(ordinal) if ordinal < 0)
+            {
+                return None;
+            }
+        }
+        ProteinExtensionTerminal::C => {
+            if start.residue != "Ter"
+                || extension.to_residue.is_none()
+                || matches!(extension.terminal_ordinal, Some(ordinal) if ordinal <= 0)
+            {
+                return None;
+            }
+            start.residue = "Ter".to_string();
+        }
+    }
+
+    Some(Interval { start, end: None })
+}
+
 /// Returns the top-level nucleotide location to expose on the parsed variant.
-fn resolved_nucleotide_location(
+fn resolve_nucleotide_location(
     initial_location: &Interval<NucleotideCoordinate>,
     edit: &NucleotideEdit,
 ) -> Interval<NucleotideCoordinate> {
@@ -898,6 +1035,31 @@ mod tests {
             }
         ));
         assert!(matches!(
+            all_consuming(protein_effect).parse("Met1ext-5").unwrap().1,
+            ProteinEffect::Edit {
+                edit: ProteinEdit::Extension(ProteinExtensionEdit {
+                    to_terminal: ProteinExtensionTerminal::N,
+                    to_residue: None,
+                    terminal_ordinal: Some(-5),
+                }),
+                ..
+            }
+        ));
+        assert!(matches!(
+            all_consuming(protein_effect)
+                .parse("Ter110GlnextTer17")
+                .unwrap()
+                .1,
+            ProteinEffect::Edit {
+                edit: ProteinEdit::Extension(ProteinExtensionEdit {
+                    to_terminal: ProteinExtensionTerminal::C,
+                    to_residue: Some(_),
+                    terminal_ordinal: Some(17),
+                }),
+                ..
+            }
+        ));
+        assert!(matches!(
             all_consuming(protein_effect)
                 .parse("Arg97ProfsTer23")
                 .unwrap()
@@ -964,5 +1126,34 @@ mod tests {
             }
         );
         assert!(all_consuming(protein_edit).parse("TerfsTer2").is_err());
+    }
+
+    #[test]
+    fn parses_protein_extension_branches() {
+        assert_eq!(
+            all_consuming(protein_edit).parse("ext-5").unwrap().1,
+            ProteinEdit::Extension(ProteinExtensionEdit {
+                to_terminal: ProteinExtensionTerminal::N,
+                to_residue: None,
+                terminal_ordinal: Some(-5),
+            })
+        );
+        assert_eq!(
+            all_consuming(protein_edit).parse("GlnextTer17").unwrap().1,
+            ProteinEdit::Extension(ProteinExtensionEdit {
+                to_terminal: ProteinExtensionTerminal::C,
+                to_residue: Some("Gln".to_string()),
+                terminal_ordinal: Some(17),
+            })
+        );
+        assert_eq!(
+            all_consuming(protein_edit).parse("Argext*?").unwrap().1,
+            ProteinEdit::Extension(ProteinExtensionEdit {
+                to_terminal: ProteinExtensionTerminal::C,
+                to_residue: Some("Arg".to_string()),
+                terminal_ordinal: None,
+            })
+        );
+        assert!(all_consuming(protein_edit).parse("TerextTer17").is_err());
     }
 }

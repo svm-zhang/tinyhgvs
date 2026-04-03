@@ -78,13 +78,6 @@ fn classifies_supported_diagnostic_codes() {
             Some("[(...)]"),
         ),
         (
-            "p.(Ter157Lysext*90)",
-            "unsupported.protein_extension",
-            ParseHgvsErrorKind::UnsupportedSyntax,
-            "protein extension syntax is not supported yet",
-            Some("ext"),
-        ),
-        (
             "p.Arg78_Gly79insXaa[23]",
             "unsupported.protein_insertion_payload",
             ParseHgvsErrorKind::UnsupportedSyntax,
@@ -155,11 +148,12 @@ fn falls_back_to_invalid_syntax_for_unclassified_failures() {
 
 #[test]
 fn displays_machine_code_message_and_version() {
-    let error = parse_error("p.(Ter157Lysext*90)");
+    let error = parse_error("p.Arg78_Gly79insXaa[23]");
     let rendered = error.to_string();
 
-    assert!(rendered.contains("[unsupported.protein_extension]"));
-    assert!(rendered.contains("protein extension syntax is not supported yet"));
-    assert!(rendered.contains("`p.(Ter157Lysext*90)`"));
+    assert!(rendered.contains("[unsupported.protein_insertion_payload]"));
+    assert!(rendered
+        .contains("quantified or terminal protein insertion payloads are not supported yet"));
+    assert!(rendered.contains("`p.Arg78_Gly79insXaa[23]`"));
     assert!(rendered.contains(env!("CARGO_PKG_VERSION")));
 }

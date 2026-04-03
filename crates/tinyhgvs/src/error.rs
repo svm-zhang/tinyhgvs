@@ -46,10 +46,10 @@ use std::fmt::{self, Display, Formatter};
 /// ```rust
 /// use tinyhgvs::{ParseHgvsErrorKind, parse_hgvs};
 ///
-/// let error = parse_hgvs("p.(Ter157Lysext*90)").unwrap_err();
+/// let error = parse_hgvs("p.Arg78_Gly79insXaa[23]").unwrap_err();
 /// assert_eq!(error.kind(), ParseHgvsErrorKind::UnsupportedSyntax);
-/// assert_eq!(error.code(), "unsupported.protein_extension");
-/// assert_eq!(error.fragment(), Some("ext"));
+/// assert_eq!(error.code(), "unsupported.protein_insertion_payload");
+/// assert_eq!(error.fragment(), Some("Xaa[...]"));
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseHgvsError {
@@ -149,8 +149,8 @@ impl ParseHgvsError {
 
     /// Returns the most relevant fragment recognized by the diagnostic layer.
     ///
-    /// For example, a protein extension may return `"ext"`, while an allele
-    /// expression may return a bracketed fragment such as `"[123G>A;345del]"`.
+    /// For example, a quantified protein insertion may return `"Xaa[...]"`,
+    /// while an allele expression may return a bracketed fragment such as `"["`.
     pub fn fragment(&self) -> Option<&str> {
         self.fragment.as_deref()
     }

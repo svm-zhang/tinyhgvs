@@ -5,8 +5,9 @@ use tinyhgvs::{
     HgvsVariant as CoreHgvsVariant, Interval, LiteralSequenceItem, NucleotideAnchor,
     NucleotideCoordinate, NucleotideEdit, NucleotideRepeatBlock, NucleotideSequenceItem,
     ParseHgvsError as CoreParseHgvsError, ParseHgvsErrorKind, ProteinCoordinate, ProteinEdit,
-    ProteinEffect, ProteinFrameshiftStop, ProteinFrameshiftStopKind, ProteinSequence,
-    ReferenceSpec, RepeatSequenceItem, VariantDescription,
+    ProteinEffect, ProteinExtensionEdit, ProteinExtensionTerminal, ProteinFrameshiftStop,
+    ProteinFrameshiftStopKind, ProteinSequence, ReferenceSpec, RepeatSequenceItem,
+    VariantDescription,
 };
 
 const PY_ERRORS_MODULE: &str = "tinyhgvs.errors";
@@ -251,6 +252,25 @@ impl<'py> PyModelCodec<'py> {
         ))
     }
 
+    fn protein_extension_terminal(
+        &self,
+        value: ProteinExtensionTerminal,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let name = match value {
+            ProteinExtensionTerminal::N => "n",
+            ProteinExtensionTerminal::C => "c",
+        };
+        self.class("ProteinExtensionTerminal")?.call1((name,))
+    }
+
+    fn protein_extension_edit(&self, value: &ProteinExtensionEdit) -> PyResult<Bound<'py, PyAny>> {
+        self.class("ProteinExtensionEdit")?.call1((
+            self.protein_extension_terminal(value.to_terminal)?,
+            value.to_residue.as_deref(),
+            value.terminal_ordinal,
+        ))
+    }
+
     fn protein_edit(&self, value: &ProteinEdit) -> PyResult<Bound<'py, PyAny>> {
         match value {
             ProteinEdit::Unknown => self.protein_sequence_omitted_edit(value),
@@ -258,6 +278,7 @@ impl<'py> PyModelCodec<'py> {
             ProteinEdit::Substitution { to } => self.class("ProteinSubstitutionEdit")?.call1((to,)),
             ProteinEdit::Deletion => self.protein_sequence_omitted_edit(value),
             ProteinEdit::Duplication => self.protein_sequence_omitted_edit(value),
+            ProteinEdit::Extension(extension) => self.protein_extension_edit(extension),
             ProteinEdit::Frameshift { to_residue, stop } => self
                 .class("ProteinFrameshiftEdit")?
                 .call1((to_residue, self.protein_frameshift_stop(stop)?)),
