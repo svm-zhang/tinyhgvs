@@ -46,6 +46,52 @@ fn parses_nucleotide_substitution_variants() {
 }
 
 #[test]
+fn parses_cdna_offset_anchor_variants() {
+    let five_prime_intronic = parse_variant("NM_001385026.1:c.-666+629C>T");
+    let three_prime_intronic =
+        parse_variant("ENSG00000050628.16(ENST00000351052.5):c.*24-12888C>T");
+    let five_prime_interval = parse_variant("ENST00000440857.1:c.-490-342_-490-341del");
+
+    let VariantDescription::Nucleotide(five_prime_intronic) = five_prime_intronic.description
+    else {
+        panic!("expected nucleotide variant");
+    };
+    assert_eq!(
+        five_prime_intronic.location.start.anchor,
+        tinyhgvs::NucleotideAnchor::RelativeCdsStart
+    );
+    assert_eq!(five_prime_intronic.location.start.coordinate, -666);
+    assert_eq!(five_prime_intronic.location.start.offset, 629);
+
+    let VariantDescription::Nucleotide(three_prime_intronic) = three_prime_intronic.description
+    else {
+        panic!("expected nucleotide variant");
+    };
+    assert_eq!(
+        three_prime_intronic.location.start.anchor,
+        tinyhgvs::NucleotideAnchor::RelativeCdsEnd
+    );
+    assert_eq!(three_prime_intronic.location.start.coordinate, 24);
+    assert_eq!(three_prime_intronic.location.start.offset, -12888);
+
+    let VariantDescription::Nucleotide(five_prime_interval) = five_prime_interval.description
+    else {
+        panic!("expected nucleotide variant");
+    };
+    let start = five_prime_interval.location.start;
+    let end = five_prime_interval
+        .location
+        .end
+        .expect("expected interval end");
+    assert_eq!(start.anchor, tinyhgvs::NucleotideAnchor::RelativeCdsStart);
+    assert_eq!(start.coordinate, -490);
+    assert_eq!(start.offset, -342);
+    assert_eq!(end.anchor, tinyhgvs::NucleotideAnchor::RelativeCdsStart);
+    assert_eq!(end.coordinate, -490);
+    assert_eq!(end.offset, -341);
+}
+
+#[test]
 fn parses_nucleotide_no_change_and_deletion_variants() {
     let no_change = parse_variant("NM_004006.2:c.123=");
     let deletion = parse_variant("NM_004006.2:c.5697del");
@@ -708,10 +754,32 @@ fn rejects_malformed_protein_extension_variants() {
 }
 
 #[test]
+fn rejects_malformed_cdna_offset_anchor_variants() {
+    let malformed = [
+        "NM_001385026.1:c.-106+T>A",
+        "NM_001385026.1:c.-106++2T>A",
+        "NM_001272071.2:c.*639--1G>A",
+        "NM_001272071.2:c.*24-12888_+5del",
+        "NM_001385026.1:c.-0+2A>G",
+        "NM_001272071.2:c.*0-1G>A",
+    ];
+
+    for example in malformed {
+        let error = parse_hgvs(example).unwrap_err();
+        assert_eq!(
+            error.code(),
+            "invalid.syntax",
+            "unexpected code for {example}"
+        );
+    }
+}
+
+#[test]
 fn reports_intronic_and_utr_coordinate_properties_from_parsed_variants() {
     let intronic = parse_variant("NM_004006.2:c.93+1G>T");
-    let upstream_intronic = parse_variant("NG_012232.1(NM_004006.2):c.264-2A>G");
+    let five_prime_intronic = parse_variant("NM_001385026.1:c.-106+2T>A");
     let five_prime_utr = parse_variant("NM_007373.4:c.-81C>T");
+    let three_prime_intronic = parse_variant("NM_001272071.2:c.*639-1G>A");
     let three_prime_utr = parse_variant("NM_001272071.2:c.*1C>T");
 
     let VariantDescription::Nucleotide(intronic) = intronic.description else {
@@ -719,30 +787,50 @@ fn reports_intronic_and_utr_coordinate_properties_from_parsed_variants() {
     };
     let intronic = intronic.location.start;
     assert!(intronic.is_intronic());
+    assert!(!intronic.is_cds_start_anchored());
+    assert!(!intronic.is_cds_end_anchored());
     assert!(!intronic.is_five_prime_utr());
     assert!(!intronic.is_three_prime_utr());
 
-    let VariantDescription::Nucleotide(upstream_intronic) = upstream_intronic.description else {
+    let VariantDescription::Nucleotide(five_prime_intronic) = five_prime_intronic.description
+    else {
         panic!("expected nucleotide variant");
     };
-    let upstream_intronic = upstream_intronic.location.start;
-    assert!(upstream_intronic.is_intronic());
-    assert!(!upstream_intronic.is_five_prime_utr());
-    assert!(!upstream_intronic.is_three_prime_utr());
+    let five_prime_intronic = five_prime_intronic.location.start;
+    assert!(five_prime_intronic.is_intronic());
+    assert!(five_prime_intronic.is_cds_start_anchored());
+    assert!(!five_prime_intronic.is_cds_end_anchored());
+    assert!(!five_prime_intronic.is_five_prime_utr());
+    assert!(!five_prime_intronic.is_three_prime_utr());
 
     let VariantDescription::Nucleotide(five_prime_utr) = five_prime_utr.description else {
         panic!("expected nucleotide variant");
     };
     let five_prime_utr = five_prime_utr.location.start;
     assert!(!five_prime_utr.is_intronic());
+    assert!(five_prime_utr.is_cds_start_anchored());
+    assert!(!five_prime_utr.is_cds_end_anchored());
     assert!(five_prime_utr.is_five_prime_utr());
     assert!(!five_prime_utr.is_three_prime_utr());
+
+    let VariantDescription::Nucleotide(three_prime_intronic) = three_prime_intronic.description
+    else {
+        panic!("expected nucleotide variant");
+    };
+    let three_prime_intronic = three_prime_intronic.location.start;
+    assert!(three_prime_intronic.is_intronic());
+    assert!(!three_prime_intronic.is_cds_start_anchored());
+    assert!(three_prime_intronic.is_cds_end_anchored());
+    assert!(!three_prime_intronic.is_five_prime_utr());
+    assert!(!three_prime_intronic.is_three_prime_utr());
 
     let VariantDescription::Nucleotide(three_prime_utr) = three_prime_utr.description else {
         panic!("expected nucleotide variant");
     };
     let three_prime_utr = three_prime_utr.location.start;
     assert!(!three_prime_utr.is_intronic());
+    assert!(!three_prime_utr.is_cds_start_anchored());
+    assert!(three_prime_utr.is_cds_end_anchored());
     assert!(!three_prime_utr.is_five_prime_utr());
     assert!(three_prime_utr.is_three_prime_utr());
 }
