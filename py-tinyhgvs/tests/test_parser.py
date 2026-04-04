@@ -66,6 +66,42 @@ def test_parses_nucleotide_substitution_variants():
     assert trimmed.description == variant.description
 
 
+def test_parses_cdna_offset_anchor_variants():
+    five_prime_intronic = parse_hgvs("NM_001385026.1:c.-666+629C>T")
+    three_prime_intronic = parse_hgvs(
+        "ENSG00000050628.16(ENST00000351052.5):c.*24-12888C>T"
+    )
+    five_prime_interval = parse_hgvs("ENST00000440857.1:c.-490-342_-490-341del")
+
+    assert (
+        five_prime_intronic.description.location.start.anchor
+        is NucleotideAnchor.RELATIVE_CDS_START
+    )
+    assert five_prime_intronic.description.location.start.coordinate == -666
+    assert five_prime_intronic.description.location.start.offset == 629
+
+    assert (
+        three_prime_intronic.description.location.start.anchor
+        is NucleotideAnchor.RELATIVE_CDS_END
+    )
+    assert three_prime_intronic.description.location.start.coordinate == 24
+    assert three_prime_intronic.description.location.start.offset == -12888
+
+    assert (
+        five_prime_interval.description.location.start.anchor
+        is NucleotideAnchor.RELATIVE_CDS_START
+    )
+    assert five_prime_interval.description.location.start.coordinate == -490
+    assert five_prime_interval.description.location.start.offset == -342
+    assert five_prime_interval.description.location.end is not None
+    assert (
+        five_prime_interval.description.location.end.anchor
+        is NucleotideAnchor.RELATIVE_CDS_START
+    )
+    assert five_prime_interval.description.location.end.coordinate == -490
+    assert five_prime_interval.description.location.end.offset == -341
+
+
 def test_parses_nucleotide_no_change_and_deletion_variants():
     no_change = parse_hgvs("NM_004006.2:c.123=")
     deletion = parse_hgvs("NM_004006.2:c.5697del")
@@ -444,29 +480,46 @@ def test_parses_protein_extension_variants():
 
 def test_reports_intronic_and_utr_coordinate_properties_from_parsed_variants():
     intronic = parse_hgvs("NM_004006.2:c.93+1G>T").description.location.start
-    upstream_intronic = parse_hgvs(
-        "NG_012232.1(NM_004006.2):c.264-2A>G"
+    five_prime_intronic = parse_hgvs(
+        "NM_001385026.1:c.-106+2T>A"
     ).description.location.start
     five_prime_utr = parse_hgvs(
         "NM_007373.4:c.-81C>T"
+    ).description.location.start
+    three_prime_intronic = parse_hgvs(
+        "NM_001272071.2:c.*639-1G>A"
     ).description.location.start
     three_prime_utr = parse_hgvs(
         "NM_001272071.2:c.*1C>T"
     ).description.location.start
 
     assert intronic.is_intronic is True
+    assert intronic.is_cds_start_anchored is False
+    assert intronic.is_cds_end_anchored is False
     assert intronic.is_five_prime_utr is False
     assert intronic.is_three_prime_utr is False
 
-    assert upstream_intronic.is_intronic is True
-    assert upstream_intronic.is_five_prime_utr is False
-    assert upstream_intronic.is_three_prime_utr is False
+    assert five_prime_intronic.is_intronic is True
+    assert five_prime_intronic.is_cds_start_anchored is True
+    assert five_prime_intronic.is_cds_end_anchored is False
+    assert five_prime_intronic.is_five_prime_utr is False
+    assert five_prime_intronic.is_three_prime_utr is False
 
     assert five_prime_utr.is_intronic is False
+    assert five_prime_utr.is_cds_start_anchored is True
+    assert five_prime_utr.is_cds_end_anchored is False
     assert five_prime_utr.is_five_prime_utr is True
     assert five_prime_utr.is_three_prime_utr is False
 
+    assert three_prime_intronic.is_intronic is True
+    assert three_prime_intronic.is_cds_start_anchored is False
+    assert three_prime_intronic.is_cds_end_anchored is True
+    assert three_prime_intronic.is_five_prime_utr is False
+    assert three_prime_intronic.is_three_prime_utr is False
+
     assert three_prime_utr.is_intronic is False
+    assert three_prime_utr.is_cds_start_anchored is False
+    assert three_prime_utr.is_cds_end_anchored is True
     assert three_prime_utr.is_five_prime_utr is False
     assert three_prime_utr.is_three_prime_utr is True
 
@@ -496,6 +549,25 @@ def test_parses_utr_and_upstream_intronic_coordinates():
     )
     assert upstream_intronic.description.location.start.coordinate == 264
     assert upstream_intronic.description.location.start.offset == -2
+
+
+@pytest.mark.parametrize(
+    "example",
+    [
+        "NM_001385026.1:c.-106+T>A",
+        "NM_001385026.1:c.-106++2T>A",
+        "NM_001272071.2:c.*639--1G>A",
+        "NM_001272071.2:c.*24-12888_+5del",
+        "NM_001385026.1:c.-0+2A>G",
+        "NM_001272071.2:c.*0-1G>A",
+    ],
+)
+def test_rejects_malformed_cdna_offset_anchor_variants(example: str):
+    with pytest.raises(TinyHGVSError) as exc_info:
+        parse_hgvs(example)
+
+    assert exc_info.value.code == "invalid.syntax"
+    assert exc_info.value.kind is ParseHgvsErrorKind.INVALID_SYNTAX
 
 
 @pytest.mark.parametrize(
@@ -580,12 +652,6 @@ def test_rejects_examples_deferred_to_future_work():
             "unsupported.epigenetic_edit",
             ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
             "|gom",
-        ),
-        (
-            "NM_001385026.1:c.-666+629C>T",
-            "unsupported.cdna_offset_anchor",
-            ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
-            "-666+629",
         ),
         (
             "NM_004006.3:r.spl",
