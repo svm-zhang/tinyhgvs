@@ -67,12 +67,6 @@ const UNSUPPORTED_MATCHERS: &[DiagnosticMatcher] = &[
         message: "RNA consequence states such as r.spl, r.?, and r.0 are not supported yet",
         detect: rna_special_state_fragment,
     },
-    // Examples: `NM_001385026.1:c.-666+629C>T`, `...:c.*24-12888C>T`
-    DiagnosticMatcher {
-        code: "unsupported.cdna_offset_anchor",
-        message: "coding-DNA positions anchored to CDS start/end with additional offsets are not supported yet",
-        detect: cdna_offset_anchor_fragment,
-    },
     // Examples: `g.(?_234567)_(345678_?)del`, `g.(33038277_33038278)C>T`
     DiagnosticMatcher {
         code: "unsupported.uncertain_range",
@@ -212,23 +206,6 @@ fn rna_special_state_fragment(input: &str) -> Option<String> {
     }
 }
 
-// This catches CDS-start/CDS-end anchored positions with additional offsets,
-// which are valid HGVS patterns but not representable by the current position type.
-/// Detects unsupported CDS-start or CDS-end anchored offsets.
-fn cdna_offset_anchor_fragment(input: &str) -> Option<String> {
-    let description = coordinate_description_fragment(input, "c.")?;
-    let first = description
-        .split_once('_')
-        .map_or(description, |(start, _)| start);
-    if let Some(fragment) = anchored_offset_position_fragment(first) {
-        return Some(fragment);
-    }
-
-    description
-        .split_once('_')
-        .and_then(|(_, end)| anchored_offset_position_fragment(end))
-}
-
 // This remains deliberately broad until uncertainty gets its own richer model.
 /// Detects uncertainty wrappers and range forms handled by the broad fallback.
 fn uncertain_range_fragment(input: &str) -> Option<String> {
@@ -266,42 +243,6 @@ fn allele_fragment(input: &str) -> Option<String> {
     } else {
         None
     }
-}
-
-/// Extracts the offset fragment from a CDS-anchored position like `-666+629`.
-fn anchored_offset_position_fragment(position: &str) -> Option<String> {
-    let mut characters = position.char_indices();
-    let (_, anchor) = characters.next()?;
-
-    if !matches!(anchor, '-' | '*') {
-        return None;
-    }
-
-    let mut offset_start = None;
-
-    for (index, character) in characters.by_ref() {
-        if character.is_ascii_digit() {
-            continue;
-        }
-
-        if matches!(character, '+' | '-') {
-            offset_start = Some(index);
-        }
-        break;
-    }
-
-    let offset_start = offset_start?;
-
-    let mut end = offset_start + 1;
-    for (index, character) in characters {
-        if character.is_ascii_digit() {
-            end = index + character.len_utf8();
-            continue;
-        }
-        break;
-    }
-
-    (end > offset_start + 1).then(|| position[..end].to_string())
 }
 
 fn protein_description_fragment(input: &str) -> Option<&str> {

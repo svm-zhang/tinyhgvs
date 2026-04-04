@@ -347,7 +347,9 @@ pub enum NucleotideAnchor {
 ///
 /// The primary coordinate keeps the sign written in the HGVS string. For
 /// example, `c.-1` becomes `coordinate == -1`, while `c.*1` becomes
-/// `coordinate == 1`.
+/// `coordinate == 1`. CDS-anchored intronic positions keep the same primary
+/// coordinate plus a signed secondary offset, e.g. `c.-106+2` becomes
+/// `coordinate == -106` and `offset == 2`.
 ///
 /// # Examples
 ///
@@ -356,6 +358,7 @@ pub enum NucleotideAnchor {
 ///
 /// let five_prime = parse_hgvs("NM_007373.4:c.-1C>T").unwrap();
 /// let three_prime = parse_hgvs("NM_001272071.2:c.*1C>T").unwrap();
+/// let five_prime_intronic = parse_hgvs("NM_001385026.1:c.-106+2T>A").unwrap();
 ///
 /// match five_prime.description {
 ///     VariantDescription::Nucleotide(description) => {
@@ -374,6 +377,15 @@ pub enum NucleotideAnchor {
 ///     }
 ///     _ => unreachable!("expected nucleotide variant"),
 /// }
+///
+/// match five_prime_intronic.description {
+///     VariantDescription::Nucleotide(description) => {
+///         assert_eq!(description.location.start.anchor, NucleotideAnchor::RelativeCdsStart);
+///         assert_eq!(description.location.start.coordinate, -106);
+///         assert_eq!(description.location.start.offset, 2);
+///     }
+///     _ => unreachable!("expected nucleotide variant"),
+/// }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NucleotideCoordinate {
@@ -386,19 +398,32 @@ pub struct NucleotideCoordinate {
 }
 
 impl NucleotideCoordinate {
-    /// Returns `true` for splice-adjacent intronic coordinates such as `357+1`.
+    /// Returns `true` for intronic coordinates such as `357+1`, `-106+2`,
+    /// and `*639-1`.
     pub fn is_intronic(&self) -> bool {
-        matches!(self.anchor, NucleotideAnchor::Absolute) && self.offset != 0
+        self.offset != 0
     }
 
-    /// Returns `true` for 5' UTR coordinates such as `c.-81`.
-    pub fn is_five_prime_utr(&self) -> bool {
+    /// Returns `true` if variant's location is relative to the CDS start, such
+    /// as `c.-1` and `c.-106+2`.
+    pub fn is_cds_start_anchored(&self) -> bool {
         matches!(self.anchor, NucleotideAnchor::RelativeCdsStart)
     }
 
-    /// Returns `true` for 3' UTR coordinates such as `c.*24`.
-    pub fn is_three_prime_utr(&self) -> bool {
+    /// Returns `true` if variant's location is relative to the CDS end, such
+    /// as `c.*1` and `c.*639-1`.
+    pub fn is_cds_end_anchored(&self) -> bool {
         matches!(self.anchor, NucleotideAnchor::RelativeCdsEnd)
+    }
+
+    /// Returns `true` for exonic 5' UTR coordinates such as `c.-81`.
+    pub fn is_five_prime_utr(&self) -> bool {
+        self.is_cds_start_anchored() && self.offset == 0
+    }
+
+    /// Returns `true` for exonic 3' UTR coordinates such as `c.*24`.
+    pub fn is_three_prime_utr(&self) -> bool {
+        self.is_cds_end_anchored() && self.offset == 0
     }
 }
 

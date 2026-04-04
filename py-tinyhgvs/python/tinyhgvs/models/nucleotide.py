@@ -96,6 +96,15 @@ class NucleotideCoordinate:
         1
         >>> variant.description.location.start.offset
         0
+
+        5' UTR intronic substitution:
+        >>> variant = parse_hgvs("NM_001385026.1:c.-106+2T>A")
+        >>> variant.description.location.start.anchor
+        <NucleotideAnchor.RELATIVE_CDS_START: 'relative_cds_start'>
+        >>> variant.description.location.start.coordinate
+        -106
+        >>> variant.description.location.start.offset
+        2
     """
 
     anchor: NucleotideAnchor
@@ -104,52 +113,82 @@ class NucleotideCoordinate:
 
     @property
     def is_intronic(self) -> bool:
-        """Return ``True`` for coordinate-anchored positions with an offset.
+        """Return ``True`` for intronic variant.
 
         Examples:
             >>> from tinyhgvs import parse_hgvs
-            >>> parse_hgvs("NM_004006.2:c.357+1G>A").description.location.start.is_intronic
+            >>> variant = parse_hgvs("NM_004006.2:c.357+1G>A")
+            >>> variant.description.location.start.is_intronic
             True
-            >>> parse_hgvs("NG_012232.1(NM_004006.2):c.264-2A>G").description.location.start.is_intronic
+            >>> variant = parse_hgvs("NM_001385026.1:c.-106+2T>A")
+            >>> variant.description.location.start.is_intronic
             True
         """
-        return self.anchor is NucleotideAnchor.ABSOLUTE and self.offset != 0
+        return self.offset != 0
 
     @property
-    def _is_cds_start_relative(self) -> bool:
+    def is_cds_start_anchored(self) -> bool:
+        """Return ``True`` if variant's location is relative to the CDS start.
+
+        Examples:
+            >>> from tinyhgvs import parse_hgvs
+            >>> variant = parse_hgvs("NM_007373.4:c.-1C>T")
+            >>> variant.description.location.start.is_cds_start_anchored
+            True
+            >>> variant = parse_hgvs("NM_001385026.1:c.-106+2T>A")
+            >>> variant.description.location.start.is_cds_start_anchored
+            True
+        """
         return self.anchor is NucleotideAnchor.RELATIVE_CDS_START
 
     @property
-    def _is_cds_end_relative(self) -> bool:
+    def is_cds_end_anchored(self) -> bool:
+        """Return ``True`` if variant's location is relative to the CDS end.
+
+        Examples:
+            >>> from tinyhgvs import parse_hgvs
+            >>> variant = parse_hgvs("NM_001272071.2:c.*1C>T")
+            >>> variant.description.location.start.is_cds_end_anchored
+            True
+            >>> variant = parse_hgvs("NM_001272071.2:c.*639-1G>A")
+            >>> variant.description.location.start.is_cds_end_anchored
+            True
+        """
         return self.anchor is NucleotideAnchor.RELATIVE_CDS_END
 
     @property
     def is_five_prime_utr(self) -> bool:
-        """Return ``True`` for positions in the 5' UTR.
+        """Return ``True`` for exonic positions in the 5' UTR.
 
         Examples:
             >>> from tinyhgvs import parse_hgvs
             >>> position = parse_hgvs("NM_007373.4:c.-123C>T").description.location.start
             >>> position.is_five_prime_utr
             True
+            >>> position = parse_hgvs("NM_001385026.1:c.-106+2T>A").description.location.start
+            >>> position.is_five_prime_utr
+            False
             >>> position.is_three_prime_utr
             False
         """
-        return self._is_cds_start_relative
+        return self.is_cds_start_anchored and self.offset == 0
 
     @property
     def is_three_prime_utr(self) -> bool:
-        """Return ``True`` for positions in the 3' UTR.
+        """Return ``True`` for exonic positions in the 3' UTR.
 
         Examples:
             >>> from tinyhgvs import parse_hgvs
             >>> position = parse_hgvs("NM_001272071.2:c.*1C>T").description.location.start
             >>> position.is_three_prime_utr
             True
+            >>> position = parse_hgvs("NM_001272071.2:c.*639-1G>A").description.location.start
+            >>> position.is_three_prime_utr
+            False
             >>> position.is_five_prime_utr
             False
         """
-        return self._is_cds_end_relative
+        return self.is_cds_end_anchored and self.offset == 0
 
 
 @dataclass(frozen=True, slots=True)

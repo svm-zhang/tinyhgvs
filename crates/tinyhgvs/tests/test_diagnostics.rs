@@ -98,13 +98,6 @@ fn classifies_supported_diagnostic_codes() {
             "uncertain protein consequence syntax is not supported yet",
             Some("[(...)]"),
         ),
-        (
-            "NM_001385026.1:c.-666+629C>T",
-            "unsupported.cdna_offset_anchor",
-            ParseHgvsErrorKind::UnsupportedSyntax,
-            "coding-DNA positions anchored to CDS start/end with additional offsets are not supported yet",
-            Some("-666+629"),
-        ),
     ];
 
     for (input, code, kind, message, fragment) in cases {

@@ -83,6 +83,33 @@ const PROTEIN_SYMBOLS: &[&str] = &[
 /// }
 /// ```
 ///
+/// CDS-anchored intronic positions in the 5' and 3' UTR:
+///
+/// ```rust
+/// use tinyhgvs::{NucleotideAnchor, VariantDescription, parse_hgvs};
+///
+/// let five_prime_intronic = parse_hgvs("NM_001385026.1:c.-106+2T>A").unwrap();
+/// let three_prime_intronic = parse_hgvs("NM_001272071.2:c.*639-1G>A").unwrap();
+///
+/// match five_prime_intronic.description {
+///     VariantDescription::Nucleotide(nucleotide) => {
+///         assert_eq!(nucleotide.location.start.anchor, NucleotideAnchor::RelativeCdsStart);
+///         assert_eq!(nucleotide.location.start.coordinate, -106);
+///         assert_eq!(nucleotide.location.start.offset, 2);
+///     }
+///     _ => unreachable!("expected nucleotide variant"),
+/// }
+///
+/// match three_prime_intronic.description {
+///     VariantDescription::Nucleotide(nucleotide) => {
+///         assert_eq!(nucleotide.location.start.anchor, NucleotideAnchor::RelativeCdsEnd);
+///         assert_eq!(nucleotide.location.start.coordinate, 639);
+///         assert_eq!(nucleotide.location.start.offset, -1);
+///     }
+///     _ => unreachable!("expected nucleotide variant"),
+/// }
+/// ```
+///
 /// A nonsense mutation leading to an early termination consequence at protein-level:
 ///
 /// ```rust
@@ -316,20 +343,40 @@ fn nucleotide_interval(input: &str) -> ParseResult<'_, Interval<NucleotideCoordi
 /// Parses a nucleotide coordinate with anchor and optional offset.
 fn nucleotide_coordinate(input: &str) -> ParseResult<'_, NucleotideCoordinate> {
     alt((
-        map(preceded(char('-'), parse_i32), |coordinate| {
-            NucleotideCoordinate {
-                anchor: NucleotideAnchor::RelativeCdsStart,
-                coordinate: -coordinate,
-                offset: 0,
-            }
-        }),
-        map(preceded(char('*'), parse_i32), |coordinate| {
-            NucleotideCoordinate {
-                anchor: NucleotideAnchor::RelativeCdsEnd,
-                coordinate,
-                offset: 0,
-            }
-        }),
+        map(
+            pair(
+                preceded(char('-'), parse_nonzero_i32),
+                opt(pair(alt((char('+'), char('-'))), parse_i32)),
+            ),
+            |(coordinate, offset)| {
+                let offset = offset
+                    .map(|(sign, value)| if sign == '-' { -value } else { value })
+                    .unwrap_or(0);
+
+                NucleotideCoordinate {
+                    anchor: NucleotideAnchor::RelativeCdsStart,
+                    coordinate: -coordinate,
+                    offset,
+                }
+            },
+        ),
+        map(
+            pair(
+                preceded(char('*'), parse_nonzero_i32),
+                opt(pair(alt((char('+'), char('-'))), parse_i32)),
+            ),
+            |(coordinate, offset)| {
+                let offset = offset
+                    .map(|(sign, value)| if sign == '-' { -value } else { value })
+                    .unwrap_or(0);
+
+                NucleotideCoordinate {
+                    anchor: NucleotideAnchor::RelativeCdsEnd,
+                    coordinate,
+                    offset,
+                }
+            },
+        ),
         map(
             pair(parse_i32, opt(pair(alt((char('+'), char('-'))), parse_i32))),
             |(coordinate, offset)| {
@@ -351,6 +398,18 @@ fn nucleotide_coordinate(input: &str) -> ParseResult<'_, NucleotideCoordinate> {
 /// Parses an unsigned decimal integer into `i32`.
 fn parse_i32(input: &str) -> ParseResult<'_, i32> {
     map_res(digit1, str::parse::<i32>).parse(input)
+}
+
+fn parse_nonzero_i32(input: &str) -> ParseResult<'_, i32> {
+    let (input, value) = parse_i32(input)?;
+    if value == 0 {
+        Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Verify,
+        )))
+    } else {
+        Ok((input, value))
+    }
 }
 
 /// Parses an unsigned decimal integer into `usize`.
@@ -903,10 +962,38 @@ mod tests {
         assert_eq!(utr5.coordinate, -18);
         assert_eq!(utr5.offset, 0);
 
+        let (_, utr5_intronic) = all_consuming(nucleotide_coordinate)
+            .parse("-106+2")
+            .unwrap();
+        assert_eq!(utr5_intronic.anchor, NucleotideAnchor::RelativeCdsStart);
+        assert_eq!(utr5_intronic.coordinate, -106);
+        assert_eq!(utr5_intronic.offset, 2);
+
+        let (_, utr5_intronic_upstream) =
+            all_consuming(nucleotide_coordinate).parse("-84-1").unwrap();
+        assert_eq!(
+            utr5_intronic_upstream.anchor,
+            NucleotideAnchor::RelativeCdsStart
+        );
+        assert_eq!(utr5_intronic_upstream.coordinate, -84);
+        assert_eq!(utr5_intronic_upstream.offset, -1);
+
         let (_, utr3) = all_consuming(nucleotide_coordinate).parse("*18").unwrap();
         assert_eq!(utr3.anchor, NucleotideAnchor::RelativeCdsEnd);
         assert_eq!(utr3.coordinate, 18);
         assert_eq!(utr3.offset, 0);
+
+        let (_, utr3_intronic) = all_consuming(nucleotide_coordinate)
+            .parse("*639-1")
+            .unwrap();
+        assert_eq!(utr3_intronic.anchor, NucleotideAnchor::RelativeCdsEnd);
+        assert_eq!(utr3_intronic.coordinate, 639);
+        assert_eq!(utr3_intronic.offset, -1);
+
+        assert!(all_consuming(nucleotide_coordinate).parse("-0").is_err());
+        assert!(all_consuming(nucleotide_coordinate).parse("-0+2").is_err());
+        assert!(all_consuming(nucleotide_coordinate).parse("*0").is_err());
+        assert!(all_consuming(nucleotide_coordinate).parse("*0-1").is_err());
     }
 
     #[test]

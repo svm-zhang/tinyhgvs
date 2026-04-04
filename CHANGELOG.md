@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0]
+
+### Coding-DNA coordinate support
+- Added support for CDS-anchored intronic coding-DNA coordinates such as
+  `c.-106+2`, `c.-666+629`, `c.*639-1`, and `c.*24-12888`.
+- Added support for intervals built from CDS-anchored intronic positions, such
+  as `c.-490-342_-490-341del`.
+- Removed `unsupported.cdna_offset_anchor` from the unsupported parser
+  boundary.
+
+### Coordinate helper semantics
+- Refined nucleotide coordinate helper semantics so `is_intronic` follows any
+  nonzero offset, while `is_five_prime_utr` and `is_three_prime_utr` remain
+  limited to exonic UTR positions.
+- Added explicit CDS-anchor helpers for nucleotide coordinates on the Rust and
+  Python public models.
+
+### Tests and support inventory
+- Added test coverage on representative valid and malformed CDS-anchored
+  coordinate forms on both Rust and Python side.
+- Updated the unsupported syntax inventory to mark `cdna_offset_anchor` as
+  supported since `0.5.0`.
+
 ## [0.4.0]
 
 ### Protein extension support
