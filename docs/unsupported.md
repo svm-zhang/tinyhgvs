@@ -27,7 +27,7 @@ the collapsible sections below each table.
 | `dna_repeat` | DNA repeated sequence | `NC_000014.8:g.123CAG[23]` | `0.2.0` |
 | `telomeric_position` | DNA telomeric coordinate | `NC_000023.11:g.pter_qtersup` | `-` |
 | `epigenetic_edit` | DNA epigenetic edit | `NC_000011.10:g.1999904_1999946|gom` | `-` |
-| `cdna_offset_anchor` | UTR-anchored intron edit | `NM_001385026.1:c.-666+629C>T` | `-` |
+| `cdna_offset_anchor` | UTR-anchored intron edit | `NM_001385026.1:c.-666+629C>T` | `0.5.0` |
 
 
 ??? Example "More examples"
@@ -45,11 +45,6 @@ the collapsible sections below each table.
     === "telomeric_position"
 
         - `NC_000002.12:g.pter_8247756delins[NC_000011.10:g.pter_15825266]`
-
-    === "cdna_offset_anchor"
-
-        - `ENSG00000050628.16(ENST00000351052.5):c.*24-12888C>T`
-        - `ENST00000440857.1:c.-490-342_-490-341del`
 
 ## RNA
 
