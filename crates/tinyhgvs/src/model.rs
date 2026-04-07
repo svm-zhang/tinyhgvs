@@ -17,7 +17,7 @@
 ///     VariantDescription::Nucleotide(description) => {
 ///         assert_eq!(description.location.start.coordinate, -1);
 ///     }
-///     VariantDescription::Protein(_) => unreachable!("expected nucleotide variant"),
+///     _ => unreachable!("expected nucleotide variant"),
 /// }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -119,7 +119,136 @@ impl CoordinateSystem {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VariantDescription {
     Nucleotide(NucleotideVariant),
+    /// DNA or RNA allele container with one written allele, an optional second
+    /// established allele, and any later unphased additions.
+    NucleotideAllele(AlleleVariant<NucleotideVariant>),
     Protein(ProteinVariant),
+}
+
+/// Phase relationship between two established alleles.
+///
+/// # Examples
+///
+/// ```rust
+/// use tinyhgvs::{AllelePhase, VariantDescription, parse_hgvs};
+///
+/// let variant = parse_hgvs("NC_000001.11:g.123G>A(;)345del").unwrap();
+///
+/// match variant.description {
+///     VariantDescription::NucleotideAllele(allele) => {
+///         assert_eq!(allele.phase, Some(AllelePhase::Uncertain));
+///     }
+///     _ => unreachable!("expected nucleotide allele"),
+/// }
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AllelePhase {
+    Trans,
+    Uncertain,
+}
+
+/// One allele containing one or more exact inner variants.
+///
+/// Variants inside one allele are implicitly written in cis.
+///
+/// # Examples
+///
+/// ```rust
+/// use tinyhgvs::{VariantDescription, parse_hgvs};
+///
+/// let variant = parse_hgvs("NC_000001.11:g.[123G>A;345del]").unwrap();
+///
+/// match variant.description {
+///     VariantDescription::NucleotideAllele(allele) => {
+///         assert_eq!(allele.allele_one.variants.len(), 2);
+///     }
+///     _ => unreachable!("expected nucleotide allele"),
+/// }
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Allele<T> {
+    pub variants: Vec<T>,
+}
+
+impl<T> Allele<T> {
+    /// Returns the inner variants carried by this allele.
+    pub fn iter(&self) -> std::slice::Iter<'_, T> {
+        self.variants.iter()
+    }
+}
+
+impl<'a, T> IntoIterator for &'a Allele<T> {
+    type Item = &'a T;
+    type IntoIter = std::slice::Iter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.variants.iter()
+    }
+}
+
+/// Allele container holding an initial allele, an optional second established
+/// allele, and any later unphased alleles.
+///
+/// # Examples
+///
+/// ```rust
+/// use tinyhgvs::{AllelePhase, VariantDescription, parse_hgvs};
+///
+/// let variant = parse_hgvs("NM_004006.2:c.[2376G>C];[2376=]").unwrap();
+///
+/// match variant.description {
+///     VariantDescription::NucleotideAllele(allele) => {
+///         assert_eq!(allele.allele_one.variants.len(), 1);
+///         assert!(allele.allele_two.is_some());
+///         assert_eq!(allele.phase, Some(AllelePhase::Trans));
+///         assert_eq!(allele.iter().count(), 2);
+///     }
+///     _ => unreachable!("expected nucleotide allele"),
+/// }
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AlleleVariant<T> {
+    pub allele_one: Allele<T>,
+    pub allele_two: Option<Allele<T>>,
+    pub phase: Option<AllelePhase>,
+    pub alleles_unphased: Vec<Allele<T>>,
+}
+
+impl<T> AlleleVariant<T> {
+    /// Returns all written alleles in order.
+    pub fn iter(&self) -> impl Iterator<Item = &Allele<T>> {
+        std::iter::once(&self.allele_one)
+            .chain(self.allele_two.iter())
+            .chain(self.alleles_unphased.iter())
+    }
+
+    /// Returns the established trans allele pair when the relation is known.
+    pub fn phased_alleles(&self) -> Option<(&Allele<T>, &Allele<T>)> {
+        match (self.phase, self.allele_two.as_ref()) {
+            (Some(AllelePhase::Trans), Some(allele_two)) => Some((&self.allele_one, allele_two)),
+            _ => None,
+        }
+    }
+
+    /// Returns any later alleles written in uncertain relation to the
+    /// established allele state.
+    pub fn unphased_alleles(&self) -> &[Allele<T>] {
+        &self.alleles_unphased
+    }
+}
+
+impl<'a, T> IntoIterator for &'a AlleleVariant<T> {
+    type Item = &'a Allele<T>;
+    type IntoIter = std::iter::Chain<
+        std::iter::Chain<std::iter::Once<&'a Allele<T>>, std::option::Iter<'a, Allele<T>>>,
+        std::slice::Iter<'a, Allele<T>>,
+    >;
+
+    fn into_iter(self) -> Self::IntoIter {
+        std::iter::once(&self.allele_one)
+            .chain(self.allele_two.iter())
+            .chain(self.alleles_unphased.iter())
+    }
 }
 
 /// Parsed nucleotide location and edit.
@@ -141,7 +270,7 @@ pub enum VariantDescription {
 ///         assert_eq!(description.location.start.coordinate, 357);
 ///         assert_eq!(description.location.start.offset, 1);
 ///     }
-///     VariantDescription::Protein(_) => unreachable!("expected nucleotide variant"),
+///     _ => unreachable!("expected nucleotide variant"),
 /// }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,7 +294,7 @@ pub struct NucleotideVariant {
 ///         assert!(description.is_predicted);
 ///         assert!(matches!(description.effect, ProteinEffect::Edit { .. }));
 ///     }
-///     VariantDescription::Nucleotide(_) => unreachable!("expected protein variant"),
+///     _ => unreachable!("expected protein variant"),
 /// }
 ///
 /// match extension.description {
@@ -173,7 +302,7 @@ pub struct NucleotideVariant {
 ///         ProteinEffect::Edit { edit: ProteinEdit::Extension(_), .. } => {}
 ///         _ => unreachable!("expected protein extension"),
 ///     },
-///     VariantDescription::Nucleotide(_) => unreachable!("expected protein variant"),
+///     _ => unreachable!("expected protein variant"),
 /// }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -323,7 +452,7 @@ pub struct ProteinFrameshiftStop {
 ///         assert_eq!(location.start.residue, "Lys");
 ///         assert_eq!(location.end.as_ref().unwrap().residue, "Val");
 ///     }
-///     VariantDescription::Nucleotide(_) => unreachable!("expected protein variant"),
+///     _ => unreachable!("expected protein variant"),
 /// }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -521,7 +650,7 @@ pub struct RepeatSequenceItem {
 ///         assert_eq!(blocks[0].unit.as_deref(), Some("CAG"));
 ///         assert_eq!(blocks[0].count, 23);
 ///     }
-///     VariantDescription::Protein(_) => unreachable!("expected nucleotide variant"),
+///     _ => unreachable!("expected nucleotide variant"),
 /// }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -555,7 +684,7 @@ pub struct NucleotideRepeatBlock {
 ///         assert_eq!(item.source_location.start.coordinate, 450);
 ///         assert_eq!(item.source_location.end.as_ref().unwrap().coordinate, 470);
 ///     }
-///     VariantDescription::Protein(_) => unreachable!("expected nucleotide variant"),
+///     _ => unreachable!("expected nucleotide variant"),
 /// }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -631,7 +760,7 @@ pub enum ProteinEdit {
 ///             vec!["Gln".to_string(), "Ser".to_string(), "Lys".to_string()]
 ///         );
 ///     }
-///     VariantDescription::Nucleotide(_) => unreachable!("expected protein variant"),
+///     _ => unreachable!("expected protein variant"),
 /// }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]

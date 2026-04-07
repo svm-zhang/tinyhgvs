@@ -10,7 +10,7 @@
 //! In practice, the most useful fields are usually:
 //!
 //! - [`ParseHgvsError::code`] for a stable machine-readable diagnostic such as
-//!   `unsupported.allele`
+//!   `unsupported.allele_unknown_variant`
 //! - [`ParseHgvsError::message`] for a short explanation
 //! - [`ParseHgvsError::fragment`] for the most relevant unsupported fragment
 //! - [`ParseHgvsError::parser_version`] for tracing the crate release that
@@ -25,9 +25,10 @@ use std::fmt::{self, Display, Formatter};
 /// failure.
 ///
 /// This is especially useful for syntaxes that are valid HGVS but not yet
-/// supported by the current data model. For example, an allele expression such
-/// as `NC_000001.11:g.[123G>A;345del]` returns
-/// `code == "unsupported.allele"` rather than a generic parse failure.
+/// supported by the current data model. For example, an allele member written
+/// as `NM_004006.2:c.[2376G>C];[?]` returns
+/// `code == "unsupported.allele_unknown_variant"` rather than a generic parse
+/// failure.
 ///
 /// # Examples
 ///
@@ -132,7 +133,7 @@ impl ParseHgvsError {
         self.kind
     }
 
-    /// Returns the machine-friendly diagnostic code such as `unsupported.allele`.
+    /// Returns the machine-friendly diagnostic code such as `unsupported.allele_unknown_variant`.
     pub fn code(&self) -> &'static str {
         self.code
     }

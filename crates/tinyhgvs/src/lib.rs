@@ -6,8 +6,8 @@
 //! - the reference sequence context such as `NM_004006.2` or `NP_003997.1`
 //! - the coordinate type such as coding DNA (`c.`), genomic DNA (`g.`), RNA
 //!   (`r.`), or protein (`p.`)
-//! - the biological description itself, represented as either a nucleotide
-//!   variant or a protein consequence
+//! - the biological description itself, represented as either an exact
+//!   nucleotide variant, a nucleotide allele, or a protein consequence
 //!
 //! The crate is intentionally small. It aims to represent common, high-value
 //! HGVS syntax clearly, while returning structured errors for syntax families
@@ -48,7 +48,25 @@
 //!                 if reference == "G" && alternate == "A"
 //!         ));
 //!     }
-//!     VariantDescription::Protein(_) => unreachable!("expected nucleotide variant"),
+//!     _ => unreachable!("expected nucleotide variant"),
+//! }
+//! ```
+//!
+//! An exact nucleotide allele keeps one first allele, an optional second
+//! established allele, and any later unphased additions:
+//!
+//! ```rust
+//! use tinyhgvs::{AllelePhase, VariantDescription, parse_hgvs};
+//!
+//! let variant = parse_hgvs("NM_004006.2:c.[2376G>C];[2376=]").unwrap();
+//!
+//! match variant.description {
+//!     VariantDescription::NucleotideAllele(allele) => {
+//!         assert_eq!(allele.allele_one.variants.len(), 1);
+//!         assert!(allele.allele_two.is_some());
+//!         assert_eq!(allele.phase, Some(AllelePhase::Trans));
+//!     }
+//!     _ => unreachable!("expected nucleotide allele"),
 //! }
 //! ```
 //!
@@ -65,7 +83,7 @@
 //!         assert!(!protein.is_predicted);
 //!         assert!(matches!(protein.effect, ProteinEffect::Edit { .. }));
 //!     }
-//!     VariantDescription::Nucleotide(_) => unreachable!("expected protein variant"),
+//!     _ => unreachable!("expected protein variant"),
 //! }
 //! ```
 //!
@@ -74,8 +92,8 @@
 //! ```rust
 //! use tinyhgvs::parse_hgvs;
 //!
-//! let error = parse_hgvs("NC_000001.11:g.[123G>A;345del]").unwrap_err();
-//! assert_eq!(error.code(), "unsupported.allele");
+//! let error = parse_hgvs("NM_004006.2:c.[2376G>C];[?]").unwrap_err();
+//! assert_eq!(error.code(), "unsupported.allele_unknown_variant");
 //! ```
 
 mod diagnostics;
@@ -85,11 +103,11 @@ mod parser;
 
 pub use error::{ParseHgvsError, ParseHgvsErrorKind};
 pub use model::{
-    Accession, CoordinateSystem, CopiedSequenceItem, HgvsVariant, Interval, LiteralSequenceItem,
-    NucleotideAnchor, NucleotideCoordinate, NucleotideEdit, NucleotideRepeatBlock,
-    NucleotideSequenceItem, NucleotideVariant, ProteinCoordinate, ProteinEdit, ProteinEffect,
-    ProteinExtensionEdit, ProteinExtensionTerminal, ProteinFrameshiftStop,
-    ProteinFrameshiftStopKind, ProteinSequence, ProteinVariant, ReferenceSpec, RepeatSequenceItem,
-    VariantDescription,
+    Accession, Allele, AllelePhase, AlleleVariant, CoordinateSystem, CopiedSequenceItem,
+    HgvsVariant, Interval, LiteralSequenceItem, NucleotideAnchor, NucleotideCoordinate,
+    NucleotideEdit, NucleotideRepeatBlock, NucleotideSequenceItem, NucleotideVariant,
+    ProteinCoordinate, ProteinEdit, ProteinEffect, ProteinExtensionEdit, ProteinExtensionTerminal,
+    ProteinFrameshiftStop, ProteinFrameshiftStopKind, ProteinSequence, ProteinVariant,
+    ReferenceSpec, RepeatSequenceItem, VariantDescription,
 };
 pub use parser::parse_hgvs;
