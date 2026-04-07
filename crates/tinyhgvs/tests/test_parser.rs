@@ -1,6 +1,6 @@
 use tinyhgvs::{
-    parse_hgvs, CoordinateSystem, CopiedSequenceItem, LiteralSequenceItem, NucleotideEdit,
-    NucleotideSequenceItem, ProteinEdit, ProteinEffect, ProteinExtensionTerminal,
+    parse_hgvs, AllelePhase, CoordinateSystem, CopiedSequenceItem, LiteralSequenceItem,
+    NucleotideEdit, NucleotideSequenceItem, ProteinEdit, ProteinEffect, ProteinExtensionTerminal,
     ProteinFrameshiftStopKind, RepeatSequenceItem, VariantDescription,
 };
 
@@ -346,6 +346,196 @@ fn parses_nucleotide_repeat_variants() {
             );
         }
         other => panic!("expected nucleotide variant, found {other:?}"),
+    }
+}
+
+#[test]
+fn parses_nucleotide_allele_variants() {
+    let cis = parse_variant("NC_000001.11:g.[123G>A;345del]");
+    let trans = parse_variant("NM_004006.3:r.[123c>a];[345del]");
+    let uncertain = parse_variant("NC_000001.11:g.123G>A(;)345del");
+    let unchanged = parse_variant("NM_004006.2:c.[2376G>C];[2376=]");
+    let mixed = parse_variant("NM_004006.2:c.[296T>G;476T>C];[476T>C](;)1083A>C");
+
+    let VariantDescription::NucleotideAllele(cis) = cis.description else {
+        panic!("expected nucleotide allele");
+    };
+    assert_eq!(cis.allele_one.variants.len(), 2);
+    assert!(cis.allele_two.is_none());
+    assert!(cis.phase.is_none());
+    assert!(cis.alleles_unphased.is_empty());
+    assert_eq!(cis.iter().count(), 1);
+    assert!(matches!(
+        cis.allele_one.variants[0].edit,
+        NucleotideEdit::Substitution { ref reference, ref alternate }
+            if reference == "G" && alternate == "A"
+    ));
+    assert_eq!(cis.allele_one.variants[1].location.start.coordinate, 345);
+    assert_eq!(cis.allele_one.variants[1].edit, NucleotideEdit::Deletion);
+
+    let VariantDescription::NucleotideAllele(trans) = trans.description else {
+        panic!("expected nucleotide allele");
+    };
+    assert_eq!(trans.allele_one.variants.len(), 1);
+    assert_eq!(trans.phase, Some(AllelePhase::Trans));
+    let trans_allele_two = trans.allele_two.as_ref().expect("expected allele two");
+    assert_eq!(trans_allele_two.variants.len(), 1);
+    assert!(trans.alleles_unphased.is_empty());
+    assert_eq!(trans_allele_two.variants[0].location.start.coordinate, 345);
+
+    let VariantDescription::NucleotideAllele(uncertain) = uncertain.description else {
+        panic!("expected nucleotide allele");
+    };
+    assert_eq!(uncertain.allele_one.variants.len(), 1);
+    assert_eq!(uncertain.phase, Some(AllelePhase::Uncertain));
+    let uncertain_allele_two = uncertain.allele_two.as_ref().expect("expected allele two");
+    assert!(uncertain.alleles_unphased.is_empty());
+    assert_eq!(
+        uncertain_allele_two.variants[0].location.start.coordinate,
+        345
+    );
+    assert_eq!(
+        uncertain_allele_two.variants[0].edit,
+        NucleotideEdit::Deletion
+    );
+
+    let VariantDescription::NucleotideAllele(unchanged) = unchanged.description else {
+        panic!("expected nucleotide allele");
+    };
+    assert_eq!(unchanged.allele_one.variants.len(), 1);
+    assert_eq!(unchanged.phase, Some(AllelePhase::Trans));
+    let unchanged_allele_two = unchanged.allele_two.as_ref().expect("expected allele two");
+    assert!(unchanged.alleles_unphased.is_empty());
+    assert_eq!(
+        unchanged_allele_two.variants[0].location.start.coordinate,
+        2376
+    );
+    assert_eq!(
+        unchanged_allele_two.variants[0].edit,
+        NucleotideEdit::NoChange
+    );
+
+    let VariantDescription::NucleotideAllele(mixed) = mixed.description else {
+        panic!("expected nucleotide allele");
+    };
+    assert_eq!(mixed.allele_one.variants.len(), 2);
+    assert_eq!(mixed.phase, Some(AllelePhase::Trans));
+    let mixed_allele_two = mixed.allele_two.as_ref().expect("expected allele two");
+    assert_eq!(mixed.alleles_unphased.len(), 1);
+    assert_eq!(mixed_allele_two.variants[0].location.start.coordinate, 476);
+    assert_eq!(
+        mixed.alleles_unphased[0].variants[0]
+            .location
+            .start
+            .coordinate,
+        1083
+    );
+}
+
+#[test]
+fn reports_nucleotide_allele_helper_views() {
+    let cis = parse_variant("NC_000001.11:g.[123G>A;345del]");
+    let trans = parse_variant("NM_004006.3:r.[123c>a];[345del]");
+    let uncertain = parse_variant("NC_000001.11:g.123G>A(;)345del");
+    let mixed = parse_variant("NM_004006.2:c.[296T>G];[476T>C](;)1083G>C(;)1406del");
+
+    let VariantDescription::NucleotideAllele(cis) = cis.description else {
+        panic!("expected nucleotide allele");
+    };
+    assert!(cis.phased_alleles().is_none());
+    assert_eq!(cis.unphased_alleles().len(), 0);
+    assert_eq!(cis.allele_one.variants.len(), 2);
+    assert!(cis.allele_two.is_none());
+
+    let VariantDescription::NucleotideAllele(trans) = trans.description else {
+        panic!("expected nucleotide allele");
+    };
+    let (allele_one, allele_two) = trans.phased_alleles().expect("expected phased alleles");
+    assert_eq!(allele_one.variants.len(), 1);
+    assert_eq!(allele_two.variants.len(), 1);
+    assert_eq!(trans.unphased_alleles().len(), 0);
+    assert_eq!(trans.allele_one.variants.len(), 1);
+    assert_eq!(
+        trans
+            .allele_two
+            .as_ref()
+            .expect("expected second haplotype")
+            .variants
+            .len(),
+        1
+    );
+
+    let VariantDescription::NucleotideAllele(uncertain) = uncertain.description else {
+        panic!("expected nucleotide allele");
+    };
+    assert!(uncertain.phased_alleles().is_none());
+    assert_eq!(uncertain.unphased_alleles().len(), 0);
+    assert_eq!(uncertain.allele_one.variants.len(), 1);
+    assert_eq!(
+        uncertain
+            .allele_two
+            .as_ref()
+            .expect("expected second haplotype")
+            .variants[0]
+            .location
+            .start
+            .coordinate,
+        345
+    );
+
+    let VariantDescription::NucleotideAllele(mixed) = mixed.description else {
+        panic!("expected nucleotide allele");
+    };
+    assert!(mixed.phased_alleles().is_some());
+    assert_eq!(mixed.unphased_alleles().len(), 2);
+    assert_eq!(mixed.allele_one.variants.len(), 1);
+    assert_eq!(
+        mixed
+            .allele_two
+            .as_ref()
+            .expect("expected second haplotype")
+            .variants[0]
+            .location
+            .start
+            .coordinate,
+        476
+    );
+    assert_eq!(
+        mixed.unphased_alleles()[0].variants[0]
+            .location
+            .start
+            .coordinate,
+        1083
+    );
+    assert_eq!(
+        mixed.unphased_alleles()[1].variants[0]
+            .location
+            .start
+            .coordinate,
+        1406
+    );
+}
+
+#[test]
+fn rejects_malformed_nucleotide_allele_syntax() {
+    let cases = [
+        "NC_000001.11:g.[123G>A](;)345del",
+        "NC_000001.11:g.123G>A(;)[345del]",
+        "NC_000001.11:g.[123G>A](;)[345del]",
+        "NC_000001.11:g.[123G>A;;345del]",
+        "NC_000001.11:g.[123G>A](;)",
+        "NC_000001.11:g.[123G>A][345del]",
+        "NC_000001.11:g.[123G>A;]",
+        "NM_004006.3:r.;[123c>a]",
+    ];
+
+    for input in cases {
+        let error = parse_hgvs(input).unwrap_err();
+        assert_eq!(
+            error.code(),
+            "invalid.syntax",
+            "unexpected code for {input}"
+        );
     }
 }
 
