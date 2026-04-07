@@ -16,12 +16,12 @@ use nom::{IResult, Parser};
 use crate::diagnostics::classify_parse_failure;
 use crate::error::ParseHgvsError;
 use crate::model::{
-    Accession, CoordinateSystem, CopiedSequenceItem, HgvsVariant, Interval, LiteralSequenceItem,
-    NucleotideAnchor, NucleotideCoordinate, NucleotideEdit, NucleotideRepeatBlock,
-    NucleotideSequenceItem, NucleotideVariant, ProteinCoordinate, ProteinEdit, ProteinEffect,
-    ProteinExtensionEdit, ProteinExtensionTerminal, ProteinFrameshiftStop,
-    ProteinFrameshiftStopKind, ProteinSequence, ProteinVariant, ReferenceSpec, RepeatSequenceItem,
-    VariantDescription,
+    Accession, Allele, AllelePhase, AlleleVariant, CoordinateSystem, CopiedSequenceItem,
+    HgvsVariant, Interval, LiteralSequenceItem, NucleotideAnchor, NucleotideCoordinate,
+    NucleotideEdit, NucleotideRepeatBlock, NucleotideSequenceItem, NucleotideVariant,
+    ProteinCoordinate, ProteinEdit, ProteinEffect, ProteinExtensionEdit, ProteinExtensionTerminal,
+    ProteinFrameshiftStop, ProteinFrameshiftStopKind, ProteinSequence, ProteinVariant,
+    ReferenceSpec, RepeatSequenceItem, VariantDescription,
 };
 
 type ParseResult<'a, T> = IResult<&'a str, T>;
@@ -142,6 +142,23 @@ const PROTEIN_SYMBOLS: &[&str] = &[
 ///         assert_eq!(blocks[0].unit, None);
 ///     }
 ///     _ => unreachable!("expected nucleotide variant"),
+/// }
+/// ```
+///
+/// A nucleotide allele variant with two in-trans alleles:
+///
+/// ```rust
+/// use tinyhgvs::{AllelePhase, VariantDescription, parse_hgvs};
+///
+/// let variant = parse_hgvs("NM_004006.2:c.[2376G>C];[2376=]").unwrap();
+///
+/// match variant.description {
+///     VariantDescription::NucleotideAllele(allele) => {
+///         assert_eq!(allele.allele_one.variants.len(), 1);
+///         assert!(allele.allele_two.is_some());
+///         assert_eq!(allele.phase, Some(AllelePhase::Trans));
+///     }
+///     _ => unreachable!("expected nucleotide allele"),
 /// }
 /// ```
 ///
@@ -303,6 +320,98 @@ fn nucleotide_description(
     coordinate_system: CoordinateSystem,
     input: &str,
 ) -> ParseResult<'_, VariantDescription> {
+    alt((
+        |input| nucleotide_allele_description(coordinate_system, input),
+        map(
+            |input| nucleotide_variant_description(coordinate_system, input),
+            VariantDescription::Nucleotide,
+        ),
+    ))
+    .parse(input)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AllelePhaseMarker {
+    Trans,
+    Uncertain,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AlleleForm {
+    BracketedAllele,
+    PlainVariant,
+}
+
+fn verify_failure<T>(input: &str) -> ParseResult<'_, T> {
+    Err(nom::Err::Error(nom::error::Error::new(
+        input,
+        nom::error::ErrorKind::Verify,
+    )))
+}
+
+/// Parses exact DNA/RNA allele syntax such as `c.[A;B]`, `c.[A];[B]`, and
+/// `c.[A];[B](;)C`.
+///
+/// The parser works in three stages:
+/// - parse the initial allele
+/// - parse an optional established second allele
+/// - parse any later alleles written in uncertain relation to that state
+fn nucleotide_allele_description(
+    coordinate_system: CoordinateSystem,
+    input: &str,
+) -> ParseResult<'_, VariantDescription> {
+    let (input, (allele_one, first_was_bracketed)) =
+        nucleotide_initial_allele(coordinate_system, input)?;
+    let (input, established_second) = opt(|input| {
+        nucleotide_established_second_allele(
+            coordinate_system,
+            allele_one.variants.len(),
+            first_was_bracketed,
+            input,
+        )
+    })
+    .parse(input)?;
+
+    let (input, alleles_unphased) = if established_second.is_some() {
+        many0(|input| {
+            nucleotide_allele_with_phase_marker(
+                coordinate_system,
+                AllelePhaseMarker::Uncertain,
+                AlleleForm::PlainVariant,
+                input,
+            )
+        })
+        .parse(input)?
+    } else {
+        (input, Vec::new())
+    };
+
+    let (allele_two, phase) = match established_second {
+        Some((phase, allele_two)) => (Some(allele_two), Some(phase)),
+        None => (None, None),
+    };
+
+    if !first_was_bracketed && allele_two.is_none() {
+        return verify_failure(input);
+    }
+
+    Ok((
+        input,
+        VariantDescription::NucleotideAllele(AlleleVariant {
+            allele_one,
+            allele_two,
+            phase,
+            alleles_unphased,
+        }),
+    ))
+}
+
+/// Parses one exact nucleotide variant description such as `123G>A` or
+/// `357+1G>A`, without wrapping it in the top-level description enum.
+fn nucleotide_variant_description(
+    coordinate_system: CoordinateSystem,
+    input: &str,
+) -> ParseResult<'_, NucleotideVariant> {
     let (input, initial_location) = nucleotide_interval(input)?;
     let (input, edit) = nucleotide_edit(input)?;
 
@@ -315,10 +424,163 @@ fn nucleotide_description(
 
     let location = resolve_nucleotide_location(&initial_location, &edit);
 
-    Ok((
-        input,
-        VariantDescription::Nucleotide(NucleotideVariant { location, edit }),
+    Ok((input, NucleotideVariant { location, edit }))
+}
+
+/// Parses the first allele in an exact allele expression.
+///
+/// Examples:
+/// - `c.[123G>A;345del]`
+/// - `c.123G>A(;)345del`
+///
+/// Returns both the parsed allele and whether that first allele was bracketed.
+fn nucleotide_initial_allele(
+    coordinate_system: CoordinateSystem,
+    input: &str,
+) -> ParseResult<'_, (Allele<NucleotideVariant>, bool)> {
+    alt((
+        map(
+            |input| bracketed_nucleotide_allele(coordinate_system, input),
+            |allele| (allele, true),
+        ),
+        map(
+            |input| singleton_nucleotide_allele(coordinate_system, input),
+            |allele| (allele, false),
+        ),
     ))
+    .parse(input)
+}
+
+/// Parses one bracketed allele such as `[123G>A]` or `[123G>A;345del]`.
+fn bracketed_nucleotide_allele(
+    coordinate_system: CoordinateSystem,
+    input: &str,
+) -> ParseResult<'_, Allele<NucleotideVariant>> {
+    map(
+        delimited(
+            char('['),
+            separated_list1(char(';'), |input| {
+                nucleotide_variant_description(coordinate_system, input)
+            }),
+            char(']'),
+        ),
+        |variants| Allele { variants },
+    )
+    .parse(input)
+}
+
+/// Parses one plain, unbracketed variant such as `123G>A` as a singleton allele.
+fn singleton_nucleotide_allele(
+    coordinate_system: CoordinateSystem,
+    input: &str,
+) -> ParseResult<'_, Allele<NucleotideVariant>> {
+    map(
+        |input| nucleotide_variant_description(coordinate_system, input),
+        |variant| Allele {
+            variants: vec![variant],
+        },
+    )
+    .parse(input)
+}
+
+/// Parses the established second allele and its phase relation to `allele_one`.
+///
+/// This helper is for the second allele only. It does not parse later
+/// uncertain-state additions such as `c.[A];[B](;)C`.
+fn nucleotide_established_second_allele(
+    coordinate_system: CoordinateSystem,
+    allele_one_variant_count: usize,
+    first_was_bracketed: bool,
+    input: &str,
+) -> ParseResult<'_, (AllelePhase, Allele<NucleotideVariant>)> {
+    alt((
+        map(
+            |input| nucleotide_allele_two_in_trans(coordinate_system, first_was_bracketed, input),
+            |allele| (AllelePhase::Trans, allele),
+        ),
+        map(
+            |input| {
+                nucleotide_allele_two_uncertain_phase(
+                    coordinate_system,
+                    allele_one_variant_count,
+                    first_was_bracketed,
+                    input,
+                )
+            },
+            |allele| (AllelePhase::Uncertain, allele),
+        ),
+    ))
+    .parse(input)
+}
+
+/// Parses the explicit in-trans second allele in forms such as `c.[A];[B]`.
+///
+/// The early guard rejects cases like `c.A;[B]`, because a trans second allele
+/// must follow a bracketed first allele in the exact nucleotide allele syntax
+/// supported by `tinyhgvs`.
+fn nucleotide_allele_two_in_trans(
+    coordinate_system: CoordinateSystem,
+    first_was_bracketed: bool,
+    input: &str,
+) -> ParseResult<'_, Allele<NucleotideVariant>> {
+    if !first_was_bracketed {
+        return verify_failure(input);
+    }
+
+    nucleotide_allele_with_phase_marker(
+        coordinate_system,
+        AllelePhaseMarker::Trans,
+        AlleleForm::BracketedAllele,
+        input,
+    )
+}
+
+/// Parses the second allele when the relation to the first allele is uncertain,
+/// as in `c.A(;)B`.
+///
+/// The early guard rejects cases like `c.[A](;)B`. Once the first allele is
+/// bracketed and contains only one inner variant, `(;)B` should not be treated
+/// as the established second allele.
+fn nucleotide_allele_two_uncertain_phase(
+    coordinate_system: CoordinateSystem,
+    allele_one_variant_count: usize,
+    first_was_bracketed: bool,
+    input: &str,
+) -> ParseResult<'_, Allele<NucleotideVariant>> {
+    if first_was_bracketed && allele_one_variant_count == 1 {
+        return verify_failure(input);
+    }
+
+    nucleotide_allele_with_phase_marker(
+        coordinate_system,
+        AllelePhaseMarker::Uncertain,
+        AlleleForm::PlainVariant,
+        input,
+    )
+}
+
+/// Parses one allele body after a local HGVS phase marker.
+///
+/// Examples:
+/// - `;[345del]` with `Trans + BracketedAllele`
+/// - `(;)1083A>C` with `Uncertain + PlainVariant`
+fn nucleotide_allele_with_phase_marker(
+    coordinate_system: CoordinateSystem,
+    phase_marker: AllelePhaseMarker,
+    allele_form: AlleleForm,
+    input: &str,
+) -> ParseResult<'_, Allele<NucleotideVariant>> {
+    match (phase_marker, allele_form) {
+        (AllelePhaseMarker::Trans, AlleleForm::BracketedAllele) => preceded(char(';'), |input| {
+            bracketed_nucleotide_allele(coordinate_system, input)
+        })
+        .parse(input),
+        (AllelePhaseMarker::Uncertain, AlleleForm::PlainVariant) => preceded(tag("(;)"), |input| {
+            singleton_nucleotide_allele(coordinate_system, input)
+        })
+        .parse(input),
+        _ => verify_failure(input),
+    }
 }
 
 /// Parses nucleotide location as a single position/coordinate or an interval

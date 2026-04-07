@@ -73,7 +73,25 @@ const UNSUPPORTED_MATCHERS: &[DiagnosticMatcher] = &[
         message: "uncertain HGVS ranges are not supported yet",
         detect: uncertain_range_fragment,
     },
-    // Examples: `g.[123G>A;345del]`, `r.[123c>a;345del]`, `p.Val7=/del`
+    // Example: `c.[2376G>C];[?]`
+    DiagnosticMatcher {
+        code: "unsupported.allele_unknown_variant",
+        message: "allele variants written as [?] are not supported yet",
+        detect: allele_unknown_variant_fragment,
+    },
+    // Example: `c.2376G>C(;)(2376G>C)`
+    DiagnosticMatcher {
+        code: "unsupported.allele_uncertain_variant_state",
+        message: "uncertain allele variant states are not supported yet",
+        detect: allele_uncertain_variant_state_fragment,
+    },
+    // Examples: `p.Val7=/del`, `p.[(Ser73Arg;Asn103del)]`
+    DiagnosticMatcher {
+        code: "unsupported.protein_allele",
+        message: "protein allele syntax is not supported yet",
+        detect: protein_allele_fragment,
+    },
+    // Example: `r.-124_-123[14];[18]`
     DiagnosticMatcher {
         code: "unsupported.allele",
         message: "allele syntax is not supported yet",
@@ -224,22 +242,35 @@ fn uncertain_range_fragment(input: &str) -> Option<String> {
     }
 }
 
-// A single top-level code is used across DNA, RNA, and protein until the model
-// grows explicit allele and phase containers.
-/// Detects allele containers across DNA, RNA, and protein syntax.
+/// Detects allele variants written as `[?]`.
+fn allele_unknown_variant_fragment(input: &str) -> Option<String> {
+    let description = variant_description_fragment(input)?;
+    description.contains("[?]").then(|| "[?]".to_string())
+}
+
+/// Detects allele forms where a variant is written but its allele state is uncertain.
+fn allele_uncertain_variant_state_fragment(input: &str) -> Option<String> {
+    let description = variant_description_fragment(input)?;
+    description.contains("(;)(").then(|| "(;)(...)".to_string())
+}
+
+/// Detects protein allele containers, which remain out of scope.
+fn protein_allele_fragment(input: &str) -> Option<String> {
+    let description = protein_description_fragment(input)?;
+    allele_like_fragment(description)
+}
+
+/// Detects other still-unsupported allele containers.
 fn allele_fragment(input: &str) -> Option<String> {
     let description = variant_description_fragment(input)?;
+    allele_like_fragment(description)
+}
 
+fn allele_like_fragment(description: &str) -> Option<String> {
     if description.contains("=/") {
         Some("=/".to_string())
-    } else if description.contains("(;)") {
-        Some("(;)".to_string())
     } else if description.contains("];[") {
         Some("];[".to_string())
-    } else if description.starts_with('[')
-        && (description.contains(';') || description.contains(','))
-    {
-        Some("[".to_string())
     } else {
         None
     }
