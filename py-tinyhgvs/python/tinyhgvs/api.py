@@ -54,6 +54,16 @@ def parse_hgvs(input: str) -> HgvsVariant:
         >>> repeat.description.edit.blocks[0].unit is None
         True
 
+        Two alleles *in trans*:
+
+        >>> allele = parse_hgvs("NM_004006.2:c.[2376G>C];[2376=]")
+        >>> allele.description.phase
+        <AllelePhase.TRANS: 'trans'>
+        >>> len(tuple(allele.description.allele_one))
+        1
+        >>> len(tuple(allele.description.allele_two))
+        1
+
         A predicted protein consequence:
 
         >>> protein = parse_hgvs("NP_003997.1:p.(Trp24Ter)")
