@@ -59,7 +59,7 @@ print(variant.description.effect.edit.stop.ordinal)
 from tinyhgvs import TinyHGVSError, parse_hgvs
 
 try:
-    parse_hgvs("NC_000001.11:g.[123G>A;345del]")
+    parse_hgvs("NP_003997.1:p.Val7=/del")
 except TinyHGVSError as error:
     print(error.code)
 ```
