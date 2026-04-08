@@ -122,6 +122,7 @@ class ReferenceSpec:
 
 
 PositionT = TypeVar("PositionT")
+VariantT = TypeVar("VariantT")
 
 
 @dataclass(frozen=True, slots=True)
