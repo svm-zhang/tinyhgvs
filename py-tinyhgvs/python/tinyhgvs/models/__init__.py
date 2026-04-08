@@ -16,10 +16,14 @@ from dataclasses import dataclass
 from typing import TypeAlias
 
 from .nucleotide import (
+    Allele,
+    AllelePhase,
+    AlleleVariant,
     CopiedSequenceItem,
-    NucleotideDeletionInsertionEdit,
+    LiteralSequenceItem,
     NucleotideAnchor,
     NucleotideCoordinate,
+    NucleotideDeletionInsertionEdit,
     NucleotideEdit,
     NucleotideInsertionEdit,
     NucleotideRepeatBlock,
@@ -28,12 +32,11 @@ from .nucleotide import (
     NucleotideSequenceOmittedEdit,
     NucleotideSubstitutionEdit,
     NucleotideVariant,
-    LiteralSequenceItem,
     RepeatSequenceItem,
 )
 from .protein import (
-    ProteinDeletionInsertionEdit,
     ProteinCoordinate,
+    ProteinDeletionInsertionEdit,
     ProteinEdit,
     ProteinEditEffect,
     ProteinEffect,
@@ -58,10 +61,13 @@ from .shared import (
     ReferenceSpec,
 )
 
-VariantDescription: TypeAlias = NucleotideVariant | ProteinVariant
+VariantDescription: TypeAlias = (
+    NucleotideVariant | AlleleVariant[NucleotideVariant] | ProteinVariant
+)
 """Tagged union for supported top-level variant models:
 
 - [`NucleotideVariant`][tinyhgvs.models.nucleotide.NucleotideVariant]
+- [`AlleleVariant`][tinyhgvs.models.nucleotide.AlleleVariant]
 - [`ProteinVariant`][tinyhgvs.models.protein.ProteinVariant]
 """
 
@@ -122,6 +128,9 @@ class HgvsVariant:
 
 __all__ = [
     "Accession",
+    "Allele",
+    "AllelePhase",
+    "AlleleVariant",
     "CopiedSequenceItem",
     "CoordinateSystem",
     "HgvsVariant",

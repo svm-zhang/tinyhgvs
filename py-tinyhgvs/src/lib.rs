@@ -1,13 +1,13 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyModule, PyTuple};
 use tinyhgvs::{
-    parse_hgvs as parse_hgvs_core, Accession, CoordinateSystem, CopiedSequenceItem,
-    HgvsVariant as CoreHgvsVariant, Interval, LiteralSequenceItem, NucleotideAnchor,
-    NucleotideCoordinate, NucleotideEdit, NucleotideRepeatBlock, NucleotideSequenceItem,
-    ParseHgvsError as CoreParseHgvsError, ParseHgvsErrorKind, ProteinCoordinate, ProteinEdit,
-    ProteinEffect, ProteinExtensionEdit, ProteinExtensionTerminal, ProteinFrameshiftStop,
-    ProteinFrameshiftStopKind, ProteinSequence, ReferenceSpec, RepeatSequenceItem,
-    VariantDescription,
+    parse_hgvs as parse_hgvs_core, Accession, Allele, AllelePhase, AlleleVariant, CoordinateSystem,
+    CopiedSequenceItem, HgvsVariant as CoreHgvsVariant, Interval, LiteralSequenceItem,
+    NucleotideAnchor, NucleotideCoordinate, NucleotideEdit, NucleotideRepeatBlock,
+    NucleotideSequenceItem, NucleotideVariant, ParseHgvsError as CoreParseHgvsError,
+    ParseHgvsErrorKind, ProteinCoordinate, ProteinEdit, ProteinEffect, ProteinExtensionEdit,
+    ProteinExtensionTerminal, ProteinFrameshiftStop, ProteinFrameshiftStopKind, ProteinSequence,
+    ReferenceSpec, RepeatSequenceItem, VariantDescription,
 };
 
 const PY_ERRORS_MODULE: &str = "tinyhgvs.errors";
@@ -176,6 +176,70 @@ impl<'py> PyModelCodec<'py> {
         PyTuple::new(self.py, items)
     }
 
+    fn allele_phase(&self, value: AllelePhase) -> PyResult<Bound<'py, PyAny>> {
+        let name = match value {
+            AllelePhase::Trans => "trans",
+            AllelePhase::Uncertain => "uncertain",
+        };
+        self.class("AllelePhase")?.call1((name,))
+    }
+
+    fn nucleotide_variant(&self, value: &NucleotideVariant) -> PyResult<Bound<'py, PyAny>> {
+        self.class("NucleotideVariant")?.call1((
+            self.nucleotide_interval(&value.location)?,
+            self.nucleotide_edit(&value.edit)?,
+        ))
+    }
+
+    fn nucleotide_variants_tuple(
+        &self,
+        value: &[NucleotideVariant],
+    ) -> PyResult<Bound<'py, PyTuple>> {
+        let items = value
+            .iter()
+            .map(|item| self.nucleotide_variant(item))
+            .collect::<PyResult<Vec<_>>>()?;
+        PyTuple::new(self.py, items)
+    }
+
+    fn nucleotide_allele(&self, value: &Allele<NucleotideVariant>) -> PyResult<Bound<'py, PyAny>> {
+        self.class("Allele")?
+            .call1((self.nucleotide_variants_tuple(&value.variants)?,))
+    }
+
+    fn nucleotide_alleles_tuple(
+        &self,
+        value: &[Allele<NucleotideVariant>],
+    ) -> PyResult<Bound<'py, PyTuple>> {
+        let items = value
+            .iter()
+            .map(|item| self.nucleotide_allele(item))
+            .collect::<PyResult<Vec<_>>>()?;
+        PyTuple::new(self.py, items)
+    }
+
+    fn nucleotide_allele_variant(
+        &self,
+        value: &AlleleVariant<NucleotideVariant>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let allele_two = value
+            .allele_two
+            .as_ref()
+            .map(|allele| self.nucleotide_allele(allele))
+            .transpose()?;
+        let phase = value
+            .phase
+            .map(|phase| self.allele_phase(phase))
+            .transpose()?;
+
+        self.class("AlleleVariant")?.call1((
+            self.nucleotide_allele(&value.allele_one)?,
+            allele_two,
+            phase,
+            self.nucleotide_alleles_tuple(&value.alleles_unphased)?,
+        ))
+    }
+
     fn protein_sequence(&self, value: &ProteinSequence) -> PyResult<Bound<'py, PyAny>> {
         let residues = PyTuple::new(self.py, &value.residues)?;
         self.class("ProteinSequence")?.call1((residues,))
@@ -306,10 +370,8 @@ impl<'py> PyModelCodec<'py> {
 
     fn description(&self, value: &VariantDescription) -> PyResult<Bound<'py, PyAny>> {
         match value {
-            VariantDescription::Nucleotide(value) => self.class("NucleotideVariant")?.call1((
-                self.nucleotide_interval(&value.location)?,
-                self.nucleotide_edit(&value.edit)?,
-            )),
+            VariantDescription::Nucleotide(value) => self.nucleotide_variant(value),
+            VariantDescription::NucleotideAllele(value) => self.nucleotide_allele_variant(value),
             VariantDescription::Protein(value) => self
                 .class("ProteinVariant")?
                 .call1((value.is_predicted, self.protein_effect(&value.effect)?)),

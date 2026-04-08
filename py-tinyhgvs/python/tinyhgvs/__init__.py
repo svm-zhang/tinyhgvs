@@ -13,6 +13,9 @@ from .api import parse_hgvs
 from .errors import ParseHgvsErrorKind, TinyHGVSError
 from .models import (
     Accession,
+    Allele,
+    AllelePhase,
+    AlleleVariant,
     CopiedSequenceItem,
     CoordinateSystem,
     HgvsVariant,
@@ -59,6 +62,9 @@ except PackageNotFoundError:
 
 __all__ = [
     "Accession",
+    "Allele",
+    "AllelePhase",
+    "AlleleVariant",
     "CopiedSequenceItem",
     "CoordinateSystem",
     "HgvsVariant",
