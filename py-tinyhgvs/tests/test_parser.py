@@ -5,6 +5,8 @@ import sys
 import pytest
 import tinyhgvs as tinyhgvs_package
 from tinyhgvs import (
+    AllelePhase,
+    AlleleVariant,
     CoordinateSystem,
     CopiedSequenceItem,
     LiteralSequenceItem,
@@ -254,6 +256,122 @@ def test_parses_nucleotide_repeat_variants():
     assert composite_edit.blocks[2].location.start.coordinate == 490
     assert composite_edit.blocks[2].location.end is not None
     assert composite_edit.blocks[2].location.end.coordinate == 499
+
+
+def test_parses_nucleotide_allele_variants():
+    cis = parse_hgvs("NC_000001.11:g.[123G>A;345del]")
+    trans = parse_hgvs("NM_004006.3:r.[123c>a];[345del]")
+    uncertain = parse_hgvs("NC_000001.11:g.123G>A(;)345del")
+    unchanged = parse_hgvs("NM_004006.2:c.[2376G>C];[2376=]")
+    mixed = parse_hgvs("NM_004006.2:c.[296T>G;476T>C];[476T>C](;)1083A>C")
+
+    assert isinstance(cis.description, AlleleVariant)
+    assert len(cis.description.allele_one.variants) == 2
+    assert cis.description.allele_two is None
+    assert cis.description.phase is None
+    assert cis.description.alleles_unphased == ()
+    assert len(tuple(cis.description)) == 1
+    assert cis.description.allele_one.variants[0].edit.reference == "G"
+    assert cis.description.allele_one.variants[0].edit.alternate == "A"
+    assert cis.description.allele_one.variants[1].location.start.coordinate == 345
+    assert (
+        cis.description.allele_one.variants[1].edit
+        is NucleotideSequenceOmittedEdit.DELETION
+    )
+
+    assert isinstance(trans.description, AlleleVariant)
+    assert len(trans.description.allele_one.variants) == 1
+    assert trans.description.phase is AllelePhase.TRANS
+    assert trans.description.allele_two is not None
+    assert len(trans.description.allele_two.variants) == 1
+    assert trans.description.alleles_unphased == ()
+    assert trans.description.allele_two.variants[0].location.start.coordinate == 345
+
+    assert isinstance(uncertain.description, AlleleVariant)
+    assert len(uncertain.description.allele_one.variants) == 1
+    assert uncertain.description.phase is AllelePhase.UNCERTAIN
+    assert uncertain.description.allele_two is not None
+    assert uncertain.description.allele_two.variants[0].location.start.coordinate == 345
+    assert uncertain.description.alleles_unphased == ()
+    assert uncertain.description.allele_two.variants[0].edit is NucleotideSequenceOmittedEdit.DELETION
+
+    assert isinstance(unchanged.description, AlleleVariant)
+    assert len(unchanged.description.allele_one.variants) == 1
+    assert unchanged.description.phase is AllelePhase.TRANS
+    assert unchanged.description.allele_two is not None
+    assert unchanged.description.allele_two.variants[0].location.start.coordinate == 2376
+    assert unchanged.description.allele_two.variants[0].edit is NucleotideSequenceOmittedEdit.NO_CHANGE
+
+    assert isinstance(mixed.description, AlleleVariant)
+    assert len(mixed.description.allele_one.variants) == 2
+    assert mixed.description.phase is AllelePhase.TRANS
+    assert mixed.description.allele_two is not None
+    assert len(mixed.description.alleles_unphased) == 1
+    assert mixed.description.allele_two.variants[0].location.start.coordinate == 476
+    assert (
+        mixed.description.alleles_unphased[0].variants[0].location.start.coordinate
+        == 1083
+    )
+
+
+def test_reports_nucleotide_allele_helper_views():
+    cis = parse_hgvs("NC_000001.11:g.[123G>A;345del]")
+    trans = parse_hgvs("NM_004006.3:r.[123c>a];[345del]")
+    uncertain = parse_hgvs("NC_000001.11:g.123G>A(;)345del")
+    mixed = parse_hgvs("NM_004006.2:c.[296T>G];[476T>C](;)1083G>C(;)1406del")
+
+    assert cis.description.phased_alleles is None
+    assert cis.description.unphased_alleles == ()
+    assert len(cis.description.allele_one.variants) == 2
+    assert cis.description.allele_two is None
+    assert len(tuple(cis.description.allele_one)) == 2
+
+    trans_pair = trans.description.phased_alleles
+    assert trans_pair is not None
+    assert len(trans_pair[0].variants) == 1
+    assert len(trans_pair[1].variants) == 1
+    assert trans.description.unphased_alleles == ()
+    assert len(trans.description.allele_one.variants) == 1
+    assert trans.description.allele_two is not None
+    assert trans.description.allele_two.variants[0].location.start.coordinate == 345
+    assert len(tuple(trans.description)) == 2
+
+    assert uncertain.description.phased_alleles is None
+    assert uncertain.description.unphased_alleles == ()
+    assert len(uncertain.description.allele_one.variants) == 1
+    assert uncertain.description.allele_two is not None
+    assert (
+        uncertain.description.allele_two.variants[0].location.start.coordinate
+        == 345
+    )
+
+    mixed_pair = mixed.description.phased_alleles
+    assert mixed_pair is not None
+    assert len(mixed.description.unphased_alleles) == 2
+    assert len(mixed.description.allele_one.variants) == 1
+    assert mixed.description.allele_two is not None
+    assert mixed.description.allele_two.variants[0].location.start.coordinate == 476
+    assert mixed.description.unphased_alleles[0].variants[0].location.start.coordinate == 1083
+    assert mixed.description.unphased_alleles[1].variants[0].location.start.coordinate == 1406
+
+
+def test_rejects_malformed_nucleotide_allele_variants():
+    cases = [
+        "NC_000001.11:g.[123G>A](;)345del",
+        "NC_000001.11:g.123G>A(;)[345del]",
+        "NC_000001.11:g.[123G>A](;)[345del]",
+        "NC_000001.11:g.[123G>A;;345del]",
+        "NC_000001.11:g.[123G>A](;)",
+        "NC_000001.11:g.[123G>A][345del]",
+        "NC_000001.11:g.[123G>A;]",
+        "NM_004006.3:r.;[123c>a]",
+    ]
+
+    for input_value in cases:
+        with pytest.raises(TinyHGVSError) as exc_info:
+            parse_hgvs(input_value)
+
+        assert exc_info.value.code == "invalid.syntax"
 
 
 def test_parses_protein_substitution_and_no_change_variants():
@@ -624,16 +742,22 @@ def test_rejects_examples_deferred_to_future_work():
     ("example", "code", "kind", "fragment"),
     [
         (
-            "NC_000001.11:g.[123G>A;345del]",
-            "unsupported.allele",
-            ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
-            "[",
-        ),
-        (
             "NC_000023.11:g.(31060227_31100351)_(33274278_33417151)dup",
             "unsupported.uncertain_range",
             ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
             "(",
+        ),
+        (
+            "NM_004006.2:c.[2376G>C];[?]",
+            "unsupported.allele_unknown_variant",
+            ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
+            "[?]",
+        ),
+        (
+            "NM_004006.2:c.[2376G>C](;)(1083A>C)",
+            "unsupported.allele_uncertain_variant_state",
+            ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
+            "(;)(...)",
         ),
         (
             "r.-124_-123[14];[18]",
@@ -682,6 +806,12 @@ def test_rejects_examples_deferred_to_future_work():
             "unsupported.rna_adjoined_transcript",
             ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
             "::",
+        ),
+        (
+            "NP_003997.1:p.Val7=/del",
+            "unsupported.protein_allele",
+            ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
+            "=/",
         ),
         (
             "p.(Gln18)[(70_80)]",
