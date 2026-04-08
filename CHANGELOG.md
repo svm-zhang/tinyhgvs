@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.0]
+
+### Nucleotide allele support
+- Added support for exact DNA and RNA allele syntax, including:
+  - single-allele cis forms such as `g.[123G>A;345del]`
+  - variants *in trans* such as `r.[123c>a];[345del]`
+  - uncertain-phase forms such as `g.123G>A(;)345del`
+  - mixed-phase chains such as `c.[296T>G;476T>C];[476T>C](;)1083A>C`
+- Removed exact DNA/RNA allele syntax from the unsupported parser boundary.
+
+### Rust and Python models
+- Added allele container model on Rust backend and mirrored in Python surface:
+  - `AlleleVariant`
+  - `Allele`
+  - `AllelePhase`
+- Exposed helper views of alleles, phase, variants written in the description.
+
+### Diagnostics and tests
+- Added specific allele diagnostics for unsupported cases that still remain out
+  of scope, including `[?]` and `(;)(...)` forms.
+- Added test coverage for parsing both valid and malformed allele on both Rust
+  Python sides.
+
+### Documentation and support inventory
+- Updated the unsupported syntax inventory to mark DNA and RNA allele support
+  as available since `0.6.0`.
+- Refreshed public docs, Python docstrings, and error examples so they reflect
+  the supported nucleotide allele surface.
+
 ## [0.5.0]
 
 ### Coding-DNA coordinate support
