@@ -24,7 +24,7 @@ class ParseHgvsErrorKind(str, Enum):
 
         Unsupported syntax that is recognized but not implemented:
         >>> try:
-        ...     parse_hgvs("NC_000001.11:g.[123G>A;345del]")
+        ...     parse_hgvs("NM_004006.2:c.[2376G>C];[?]")
         ... except TinyHGVSError as error:
         ...     error.kind
         <ParseHgvsErrorKind.UNSUPPORTED_SYNTAX: 'unsupported_syntax'>
@@ -43,20 +43,21 @@ class TinyHGVSError(ValueError):
 
     Attributes:
         kind: Broad error class derived from the Rust error model.
-        code: Stable diagnostic code such as ``unsupported.allele``.
+        code: Stable diagnostic code in the format of ``unsupported.*``.
         message: Human-readable explanation of the failure.
         input: Original HGVS string that failed to parse.
         fragment: Relevant unsupported fragment when one was detected.
         parser_version: ``tinyhgvs`` version that produced the error.
 
     Examples:
-        Unsupported allele syntax:
+        Unsupported allele variant with variant unknown:
+
         >>> from tinyhgvs import TinyHGVSError, parse_hgvs
         >>> try:
-        ...     parse_hgvs("NC_000001.11:g.[123G>A;345del]")
+        ...     parse_hgvs("NM_004006.2:c.[2376G>C];[?]")
         ... except TinyHGVSError as error:
         ...     (error.kind.value, error.code, error.fragment)
-        ('unsupported_syntax', 'unsupported.allele', '[')
+        ('unsupported_syntax', 'unsupported.allele_unknown_variant', '[?]')
 
         Invalid syntax:
         >>> try:

@@ -22,7 +22,9 @@ the collapsible sections below each table.
 
 | Diagnostic code category | Biology category | Representative example | Supported since |
 | --- | --- | --- | --- |
-| `allele` | DNA allele | `NC_000001.11:g.[123G>A;345del]` | `-` |
+| `allele` | DNA allele | `NC_000001.11:g.[123G>A;345del]` | `0.6.0` |
+| `allele_unknown_variant` | DNA allele with variant unknown | `NC_000001.11:g.[123G>A];[?]` | `-` |
+| `allele_uncertain_variant_state` | DNA allele with uncertain variant state | `NC_000001.11:g.[123G>A](;)(345del)` | `-` |
 | `uncertain_range` | DNA range-uncertain edit | `NC_000023.10:g.(33038277_33038278)C>T` | `-` |
 | `dna_repeat` | DNA repeated sequence | `NC_000014.8:g.123CAG[23]` | `0.2.0` |
 | `telomeric_position` | DNA telomeric coordinate | `NC_000023.11:g.pter_qtersup` | `-` |
@@ -35,7 +37,15 @@ the collapsible sections below each table.
     === "allele"
 
         - `NC_000001.11:g.[123G>A];[345del]`
-        - `NC_000023.11:g.33344590_33344592=/dup`
+        - `NC_000001.11:g.123G>A(;)345del`
+
+    === "allele_unknown_variant"
+
+        - `NC_000001.11:g.[123G>A;345del];[?]`
+
+    === "allele_uncertain_variant_state"
+
+        - `NC_000001.11:g.[123G>A](;)(345del)`
 
     === "uncertain_range"
 
@@ -50,7 +60,9 @@ the collapsible sections below each table.
 
 | Diagnostic code category | Biology category | Representative example | Supported since |
 | --- | --- | --- | --- |
-| `allele` | RNA allele | `LRG_199t1:r.[76a>u;103del]` | `-` |
+| `allele` | RNA allele | `LRG_199t1:r.[76a>u;103del]` | `0.6.0` |
+| `allele_unknown_variant` | RNA allele with variant unknown | `NM_004006.3:r.[123c>a];[?]` | `-` |
+| `allele_uncertain_variant_state` | RNA allele with uncertain variant state | `NM_004006.3:r.[123c>a](;)(345del)` | `-` |
 | `rna_special_state` | RNA special-state outcome | `NM_004006.3:r.?` | `-` |
 | `rna_uncertain_position` | RNA uncertain insertion | `NM_004006.2:r.(222_226)insg` | `-` |
 | `rna_repeat` | RNA repeated sequence | `NM_004006.3:r.-124_-123[14]` | `0.2.0` |
@@ -63,7 +75,15 @@ the collapsible sections below each table.
     === "allele"
 
         - `NM_004006.3:r.[123c>a;345del]`
-        - `NM_004006.3:r.[123c>a];[345del]`
+        - `NM_004006.3:r.123c>a(;)345del`
+
+    === "allele_unknown_variant"
+
+        - `NM_004006.3:r.[123c>a;345del];[?]`
+
+    === "allele_uncertain_variant_state"
+
+        - `NM_004006.3:r.[123c>a](;)(345del)`
 
     === "rna_special_state"
 
