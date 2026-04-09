@@ -78,11 +78,18 @@ fn classifies_supported_diagnostic_codes() {
             Some("];["),
         ),
         (
-            "NP_003997.1:p.Val7=/del",
-            "unsupported.protein_allele",
+            "NP_003997.1:p.[Lys31Asn,Val25_Lys31del]",
+            "unsupported.one_allele_multi_protein",
             ParseHgvsErrorKind::UnsupportedSyntax,
-            "protein allele syntax is not supported yet",
-            Some("=/"),
+            "one protein allele encoding more than one protein is not supported yet",
+            Some(","),
+        ),
+        (
+            "NP_003997.2:p.[(Asn158Asp)(;)(Asn158Ile)]^[(Asn158Val)]",
+            "unsupported.alternate_allele_state",
+            ParseHgvsErrorKind::UnsupportedSyntax,
+            "alternate allele states are not supported yet",
+            Some("^"),
         ),
         (
             "r.-128_-126[(600_800)]",
@@ -138,11 +145,16 @@ fn prioritizes_specific_rna_codes_before_generic_ones() {
     let splicing = parse_error("NC_000023.11(NM_004006.2):r.spl");
     let uncertain = parse_error("NM_004006.2:r.(222_226)insg");
     let unknown_member = parse_error("NM_004006.2:c.[2376G>C];[?]");
+    let protein_unknown_member = parse_error("NP_003997.1:p.[(Ser68Arg)];[?]");
     let uncertain_state = parse_error("NM_004006.2:c.2376G>C(;)(2376G>C)");
 
     assert_eq!(splicing.code(), "unsupported.rna_splicing_outcome");
     assert_eq!(uncertain.code(), "unsupported.rna_uncertain_position");
     assert_eq!(unknown_member.code(), "unsupported.allele_unknown_variant");
+    assert_eq!(
+        protein_unknown_member.code(),
+        "unsupported.allele_unknown_variant"
+    );
     assert_eq!(
         uncertain_state.code(),
         "unsupported.allele_uncertain_variant_state"
