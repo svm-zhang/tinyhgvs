@@ -540,6 +540,128 @@ fn rejects_malformed_nucleotide_allele_syntax() {
 }
 
 #[test]
+fn parses_protein_allele_variants() {
+    let single = parse_variant("p.[Ser73Arg]");
+    let cis = parse_variant("NP_003997.1:p.[Ser68Arg;Asn594del]");
+    let trans = parse_variant("NP_003997.1:p.[Ser68Arg];[Ser68=]");
+    let uncertain = parse_variant("NP_003997.1:p.(Ser73Arg)(;)(Asn103del)");
+    let absent = parse_variant("p.[Ser86Arg];[0]");
+    let mixed = parse_variant("p.[Phe233Leu;(Cys690Trp)]");
+    let whole_predicted = parse_variant("NP_003997.1:p.[(Ser68Arg;Asn594del)]");
+    let range_no_change = parse_variant("p.[Ser68_Arg70dup];[Ser68_Arg70=]");
+
+    let VariantDescription::ProteinAllele(single) = single.description else {
+        panic!("expected protein allele");
+    };
+    assert_eq!(single.allele_one.variants.len(), 1);
+    assert!(single.allele_two.is_none());
+    assert!(single.phased_alleles().is_none());
+
+    let VariantDescription::ProteinAllele(cis) = cis.description else {
+        panic!("expected protein allele");
+    };
+    assert_eq!(cis.allele_one.variants.len(), 2);
+    assert!(cis.allele_two.is_none());
+    assert_eq!(cis.iter().count(), 1);
+    assert!(cis.phased_alleles().is_none());
+    assert_eq!(cis.unphased_alleles().len(), 0);
+
+    let first_cis = &cis.allele_one.variants[0];
+    assert!(!first_cis.is_predicted);
+    let ProteinEffect::Edit { location, edit } = &first_cis.effect else {
+        panic!("expected protein edit");
+    };
+    assert_eq!(location.start.residue, "Ser");
+    let ProteinEdit::Substitution { to } = edit else {
+        panic!("expected substitution edit");
+    };
+    assert_eq!(to, "Arg");
+
+    let VariantDescription::ProteinAllele(trans) = trans.description else {
+        panic!("expected protein allele");
+    };
+    assert_eq!(trans.phase, Some(AllelePhase::Trans));
+    assert!(trans.phased_alleles().is_some());
+    assert!(trans.allele_two.is_some());
+    let second_trans = &trans.allele_two.as_ref().unwrap().variants[0];
+    let ProteinEffect::Edit { location, edit } = &second_trans.effect else {
+        panic!("expected protein edit");
+    };
+    assert_eq!(location.start.residue, "Ser");
+    assert!(location.end.is_none());
+    assert_eq!(*edit, ProteinEdit::NoChange);
+
+    let VariantDescription::ProteinAllele(uncertain) = uncertain.description else {
+        panic!("expected protein allele");
+    };
+    assert_eq!(uncertain.phase, Some(AllelePhase::Uncertain));
+    assert!(uncertain.allele_two.is_some());
+    assert!(uncertain.phased_alleles().is_none());
+    assert_eq!(uncertain.unphased_alleles().len(), 0);
+    assert!(uncertain.allele_one.variants[0].is_predicted);
+    assert!(uncertain.allele_two.as_ref().unwrap().variants[0].is_predicted);
+
+    let VariantDescription::ProteinAllele(absent) = absent.description else {
+        panic!("expected protein allele");
+    };
+    assert_eq!(absent.phase, Some(AllelePhase::Trans));
+    assert_eq!(
+        absent.allele_two.as_ref().unwrap().variants[0].effect,
+        ProteinEffect::NoProteinProduced
+    );
+
+    let VariantDescription::ProteinAllele(mixed) = mixed.description else {
+        panic!("expected protein allele");
+    };
+    assert_eq!(mixed.allele_one.variants.len(), 2);
+    assert!(!mixed.allele_one.variants[0].is_predicted);
+    assert!(mixed.allele_one.variants[1].is_predicted);
+
+    let VariantDescription::ProteinAllele(whole_predicted) = whole_predicted.description else {
+        panic!("expected protein allele");
+    };
+    assert_eq!(whole_predicted.allele_one.variants.len(), 2);
+    assert!(whole_predicted
+        .allele_one
+        .variants
+        .iter()
+        .all(|variant| variant.is_predicted));
+
+    let VariantDescription::ProteinAllele(range_no_change) = range_no_change.description else {
+        panic!("expected protein allele");
+    };
+    let second_range = &range_no_change.allele_two.as_ref().unwrap().variants[0];
+    let ProteinEffect::Edit { location, edit } = &second_range.effect else {
+        panic!("expected protein edit");
+    };
+    assert_eq!(location.start.residue, "Ser");
+    assert_eq!(location.end.as_ref().unwrap().residue, "Arg");
+    assert_eq!(*edit, ProteinEdit::NoChange);
+}
+
+#[test]
+fn rejects_malformed_protein_allele_syntax() {
+    let cases = [
+        "p.([Ser68Arg;Asn594del])",
+        "p.([Ser68Arg];[Ser68Arg])",
+        "p.[Ser68Arg];[=]",
+        "p.[Ser73Arg];[]",
+        "p.[Ser68Arg](;)Asn594del",
+        "p.[Ser73Arg+p.Asn103del]",
+        "p.[Ser73Arg;p.Asn103del]",
+    ];
+
+    for input in cases {
+        let error = parse_hgvs(input).unwrap_err();
+        assert_eq!(
+            error.code(),
+            "invalid.syntax",
+            "unexpected code for {input}"
+        );
+    }
+}
+
+#[test]
 fn parses_protein_substitution_and_no_change_variants() {
     let substitution = parse_variant("NP_003997.1:p.Trp24Ter");
     let no_change = parse_variant("NP_003997.1:p.Cys188=");
