@@ -79,17 +79,23 @@ const UNSUPPORTED_MATCHERS: &[DiagnosticMatcher] = &[
         message: "allele variants written as [?] are not supported yet",
         detect: allele_unknown_variant_fragment,
     },
+    // Example: `p.[(Asn158Asp)(;)(Asn158Ile)]^[(Asn158Val)]`
+    DiagnosticMatcher {
+        code: "unsupported.alternate_allele_state",
+        message: "alternate allele states are not supported yet",
+        detect: alternate_allele_state_fragment,
+    },
+    // Example: `p.[Lys31Asn,Val25_Lys31del]`
+    DiagnosticMatcher {
+        code: "unsupported.one_allele_multi_protein",
+        message: "one protein allele encoding more than one protein is not supported yet",
+        detect: one_allele_multi_protein_fragment,
+    },
     // Example: `c.2376G>C(;)(2376G>C)`
     DiagnosticMatcher {
         code: "unsupported.allele_uncertain_variant_state",
         message: "uncertain allele variant states are not supported yet",
         detect: allele_uncertain_variant_state_fragment,
-    },
-    // Examples: `p.Val7=/del`, `p.[(Ser73Arg;Asn103del)]`
-    DiagnosticMatcher {
-        code: "unsupported.protein_allele",
-        message: "protein allele syntax is not supported yet",
-        detect: protein_allele_fragment,
     },
     // Example: `r.-124_-123[14];[18]`
     DiagnosticMatcher {
@@ -121,7 +127,7 @@ fn rna_adjoined_transcript_fragment(input: &str) -> Option<String> {
     (description.contains("::") || input.contains("::")).then(|| "::".to_string())
 }
 
-// These are higher-level transcript consequence containers, not the exact
+// These are higher-level transcript consequence containers, not the
 // nucleotide edits that the parser already supports for some splice outcomes.
 /// Detects top-level RNA splicing outcome containers.
 fn rna_splicing_outcome_fragment(input: &str) -> Option<String> {
@@ -183,6 +189,10 @@ fn protein_insertion_payload_fragment(input: &str) -> Option<String> {
 /// Detects uncertain protein consequences written with `^`.
 fn protein_uncertain_consequence_fragment(input: &str) -> Option<String> {
     let description = protein_description_fragment(input)?;
+    if description.starts_with('[') {
+        return None;
+    }
+
     if description.contains('^') {
         Some("^".to_string())
     } else if description.contains("[(") {
@@ -203,7 +213,7 @@ fn rna_uncertain_position_fragment(input: &str) -> Option<String> {
     .then(|| "r.(...)".to_string())
 }
 
-// The current RNA model assumes exact `location + edit`, so special states and
+// The current RNA model assumes a direct `location + edit` shape, so special states and
 // slash-style outcome forms are grouped here until RNA consequence types expand.
 /// Detects RNA special states such as `r.?`, `r.spl`, and `r.0`.
 fn rna_special_state_fragment(input: &str) -> Option<String> {
@@ -228,6 +238,9 @@ fn rna_special_state_fragment(input: &str) -> Option<String> {
 /// Detects uncertainty wrappers and range forms handled by the broad fallback.
 fn uncertain_range_fragment(input: &str) -> Option<String> {
     let description = variant_description_fragment(input)?;
+    if protein_description_fragment(input).is_some() && description.contains('[') {
+        return None;
+    }
 
     if description.contains('^') {
         Some("^".to_string())
@@ -254,14 +267,24 @@ fn allele_uncertain_variant_state_fragment(input: &str) -> Option<String> {
     description.contains("(;)(").then(|| "(;)(...)".to_string())
 }
 
-/// Detects protein allele containers, which remain out of scope.
-fn protein_allele_fragment(input: &str) -> Option<String> {
+/// Detects alternate allele states written with `^`.
+fn alternate_allele_state_fragment(input: &str) -> Option<String> {
     let description = protein_description_fragment(input)?;
-    allele_like_fragment(description)
+    description.contains('^').then(|| "^".to_string())
+}
+
+/// Detects one protein allele that encodes more than one protein with `,`.
+fn one_allele_multi_protein_fragment(input: &str) -> Option<String> {
+    let description = protein_description_fragment(input)?;
+    description.contains(',').then(|| ",".to_string())
 }
 
 /// Detects other still-unsupported allele containers.
 fn allele_fragment(input: &str) -> Option<String> {
+    if protein_description_fragment(input).is_some() {
+        return None;
+    }
+
     let description = variant_description_fragment(input)?;
     allele_like_fragment(description)
 }
