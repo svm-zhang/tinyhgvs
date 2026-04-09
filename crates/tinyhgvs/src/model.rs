@@ -122,6 +122,9 @@ pub enum VariantDescription {
     /// DNA or RNA allele container with one written allele, an optional second
     /// established allele, and any later unphased additions.
     NucleotideAllele(AlleleVariant<NucleotideVariant>),
+    /// Protein allele container with one written allele, an optional second
+    /// established allele, and any later unphased additions.
+    ProteinAllele(AlleleVariant<ProteinVariant>),
     Protein(ProteinVariant),
 }
 
@@ -147,7 +150,7 @@ pub enum AllelePhase {
     Uncertain,
 }
 
-/// One allele containing one or more exact inner variants.
+/// One allele containing one or more inner variants.
 ///
 /// Variants inside one allele are implicitly written in cis.
 ///
@@ -171,6 +174,11 @@ pub struct Allele<T> {
 }
 
 impl<T> Allele<T> {
+    /// Builds one allele from all its carrying variants.
+    pub fn from_variants(variants: Vec<T>) -> Self {
+        Self { variants }
+    }
+
     /// Returns the inner variants carried by this allele.
     pub fn iter(&self) -> std::slice::Iter<'_, T> {
         self.variants.iter()
