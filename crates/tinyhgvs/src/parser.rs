@@ -126,7 +126,7 @@ const PROTEIN_SYMBOLS: &[&str] = &[
 /// }
 /// ```
 ///
-/// An exact repeated sequence is returned as a repeat edit:
+/// A repeated sequence is returned as a repeat edit:
 ///
 /// ```rust
 /// use tinyhgvs::{NucleotideEdit, VariantDescription, parse_hgvs};
@@ -315,31 +315,29 @@ fn coordinate_system(input: &str) -> ParseResult<'_, CoordinateSystem> {
     .parse(input)
 }
 
-/// Parses nucleotide description composed of location plus edit.
+/// Parser for nucleotide variant and allele description.
 fn nucleotide_description(
     coordinate_system: CoordinateSystem,
     input: &str,
 ) -> ParseResult<'_, VariantDescription> {
     alt((
-        |input| nucleotide_allele_description(coordinate_system, input),
+        // Nucleotide allele description: [123G>A;345del]
+        // Composed of nucleotide variant descriptions
+        |input| {
+            allele_description(
+                input,
+                |input| nucleotide_initial_allele(coordinate_system, input),
+                |phase, input| next_nucleotide_allele(coordinate_system, phase, input),
+                VariantDescription::NucleotideAllele,
+            )
+        },
+        // Nucleotide variant description: 123G>A
         map(
             |input| nucleotide_variant_description(coordinate_system, input),
             VariantDescription::Nucleotide,
         ),
     ))
     .parse(input)
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AllelePhaseMarker {
-    Trans,
-    Uncertain,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AlleleForm {
-    BracketedAllele,
-    PlainVariant,
 }
 
 fn verify_failure<T>(input: &str) -> ParseResult<'_, T> {
@@ -349,37 +347,75 @@ fn verify_failure<T>(input: &str) -> ParseResult<'_, T> {
     )))
 }
 
-/// Parses exact DNA/RNA allele syntax such as `c.[A;B]`, `c.[A];[B]`, and
-/// `c.[A];[B](;)C`.
-///
-/// The parser works in three stages:
-/// - parse the initial allele
-/// - parse an optional established second allele
-/// - parse any later alleles written in uncertain relation to that state
-fn nucleotide_allele_description(
-    coordinate_system: CoordinateSystem,
+/// Universal parser for nucleotide and protein allele description carrying
+/// variants, such as:
+/// - `NC_000001.11:g.[123G>A;345del]`
+/// - `NM_004006.3:r.[123c>a;345del]`
+/// - `p.[Ser73Arg;Asn103del]`
+/// - `NP_003997.1:p.[Ser68Arg;Asn594del]`
+/// - `p.[(Ser73Arg;Asn103del)]`
+fn variants_on_allele<T, PVariant>(input: &str, parse_variant: PVariant) -> ParseResult<'_, Vec<T>>
+where
+    PVariant: Fn(&str) -> ParseResult<'_, T>,
+{
+    separated_list1(char(';'), |input| parse_variant(input)).parse(input)
+}
+
+/// Parser for phase marker written in allele variant description.
+fn phase_marker(input: &str) -> ParseResult<'_, AllelePhase> {
+    alt((
+        // ;
+        value(AllelePhase::Trans, char(';')),
+        // (;)
+        value(AllelePhase::Uncertain, tag("(;)")),
+    ))
+    .parse(input)
+}
+
+/// Main parser entry point for parsing both nucleotide and protein allele
+/// description. The work sequence flow is:
+/// - initial allele
+/// - optional second established allele
+/// - additional unphased alleles after `(;)`
+fn allele_description<T, PInitial, PNext, BuildDescription>(
     input: &str,
-) -> ParseResult<'_, VariantDescription> {
-    let (input, (allele_one, first_was_bracketed)) =
-        nucleotide_initial_allele(coordinate_system, input)?;
+    parse_initial_allele: PInitial,
+    parse_next_allele: PNext,
+    build_description: BuildDescription,
+) -> ParseResult<'_, VariantDescription>
+where
+    PInitial: Fn(&str) -> ParseResult<'_, (Allele<T>, bool)>,
+    PNext: Fn(AllelePhase, &str) -> ParseResult<'_, Allele<T>>,
+    BuildDescription: Fn(AlleleVariant<T>) -> VariantDescription,
+{
+    // Initial allele
+    let (input, (allele_one, initial_bracketed)) = parse_initial_allele(input)?;
+    let allele_one_variant_count = allele_one.variants.len();
+
+    // Optional second allele when present
     let (input, established_second) = opt(|input| {
-        nucleotide_established_second_allele(
-            coordinate_system,
-            allele_one.variants.len(),
-            first_was_bracketed,
-            input,
-        )
+        let (input, phase) = phase_marker(input)?;
+
+        // Reject A;[B]
+        if phase == AllelePhase::Trans && !initial_bracketed {
+            return verify_failure(input);
+        }
+
+        // Reject [A](;)B
+        if phase == AllelePhase::Uncertain && initial_bracketed && allele_one_variant_count == 1 {
+            return verify_failure(input);
+        }
+
+        let (input, allele_two) = parse_next_allele(phase, input)?;
+        Ok((input, (phase, allele_two)))
     })
     .parse(input)?;
 
+    // Additional alleles
     let (input, alleles_unphased) = if established_second.is_some() {
         many0(|input| {
-            nucleotide_allele_with_phase_marker(
-                coordinate_system,
-                AllelePhaseMarker::Uncertain,
-                AlleleForm::PlainVariant,
-                input,
-            )
+            let (input, _) = tag("(;)")(input)?;
+            parse_next_allele(AllelePhase::Uncertain, input)
         })
         .parse(input)?
     } else {
@@ -391,13 +427,14 @@ fn nucleotide_allele_description(
         None => (None, None),
     };
 
-    if !first_was_bracketed && allele_two.is_none() {
+    // Reject A or A(;) without a written second allele.
+    if !initial_bracketed && allele_two.is_none() {
         return verify_failure(input);
     }
 
     Ok((
         input,
-        VariantDescription::NucleotideAllele(AlleleVariant {
+        build_description(AlleleVariant {
             allele_one,
             allele_two,
             phase,
@@ -406,7 +443,7 @@ fn nucleotide_allele_description(
     ))
 }
 
-/// Parses one exact nucleotide variant description such as `123G>A` or
+/// Parses one supported nucleotide variant description such as `123G>A` or
 /// `357+1G>A`, without wrapping it in the top-level description enum.
 fn nucleotide_variant_description(
     coordinate_system: CoordinateSystem,
@@ -427,9 +464,9 @@ fn nucleotide_variant_description(
     Ok((input, NucleotideVariant { location, edit }))
 }
 
-/// Parses the first allele in an exact allele expression.
+/// Parser for digesting the initial allele written in a nucleotide allele
+/// description, such as
 ///
-/// Examples:
 /// - `c.[123G>A;345del]`
 /// - `c.123G>A(;)345del`
 ///
@@ -439,147 +476,65 @@ fn nucleotide_initial_allele(
     input: &str,
 ) -> ParseResult<'_, (Allele<NucleotideVariant>, bool)> {
     alt((
+        // [123G>A;345del]
         map(
-            |input| bracketed_nucleotide_allele(coordinate_system, input),
+            |input| nucleotide_bracket_allele(coordinate_system, input),
             |allele| (allele, true),
         ),
+        // 123G>A
         map(
-            |input| singleton_nucleotide_allele(coordinate_system, input),
-            |allele| (allele, false),
+            |input| nucleotide_variant_description(coordinate_system, input),
+            |variant| (Allele::from_variants(vec![variant]), false),
         ),
     ))
     .parse(input)
 }
 
-/// Parses one bracketed allele such as `[123G>A]` or `[123G>A;345del]`.
-fn bracketed_nucleotide_allele(
+/// Parser for pattern of nucleotide allele wrapped in bracket, such as:
+///
+/// - `[123G>A;345del]`
+fn nucleotide_bracket_allele(
     coordinate_system: CoordinateSystem,
     input: &str,
 ) -> ParseResult<'_, Allele<NucleotideVariant>> {
     map(
         delimited(
             char('['),
-            separated_list1(char(';'), |input| {
-                nucleotide_variant_description(coordinate_system, input)
-            }),
+            |input| {
+                variants_on_allele(input, |input| {
+                    nucleotide_variant_description(coordinate_system, input)
+                })
+            },
             char(']'),
         ),
-        |variants| Allele { variants },
+        Allele::from_variants,
     )
     .parse(input)
 }
 
-/// Parses one plain, unbracketed variant such as `123G>A` as a singleton allele.
-fn singleton_nucleotide_allele(
-    coordinate_system: CoordinateSystem,
-    input: &str,
-) -> ParseResult<'_, Allele<NucleotideVariant>> {
-    map(
-        |input| nucleotide_variant_description(coordinate_system, input),
-        |variant| Allele {
-            variants: vec![variant],
-        },
-    )
-    .parse(input)
-}
-
-/// Parses the established second allele and its phase relation to `allele_one`.
+/// Parser for digesting the next nucleotide allele following the initial
+/// allele + phase marker in the nucleotide allele description, such as:
 ///
-/// This helper is for the second allele only. It does not parse later
-/// uncertain-state additions such as `c.[A];[B](;)C`.
-fn nucleotide_established_second_allele(
-    coordinate_system: CoordinateSystem,
-    allele_one_variant_count: usize,
-    first_was_bracketed: bool,
-    input: &str,
-) -> ParseResult<'_, (AllelePhase, Allele<NucleotideVariant>)> {
-    alt((
-        map(
-            |input| nucleotide_allele_two_in_trans(coordinate_system, first_was_bracketed, input),
-            |allele| (AllelePhase::Trans, allele),
-        ),
-        map(
-            |input| {
-                nucleotide_allele_two_uncertain_phase(
-                    coordinate_system,
-                    allele_one_variant_count,
-                    first_was_bracketed,
-                    input,
-                )
-            },
-            |allele| (AllelePhase::Uncertain, allele),
-        ),
-    ))
-    .parse(input)
-}
-
-/// Parses the explicit in-trans second allele in forms such as `c.[A];[B]`.
+/// - `[345del]` in `NC_000001.11:g.[123G>A];[345del]` after `;`
+/// - `3103del` in `NM_004006.2:c.2376G>C(;)3103del` after '(;)'
 ///
-/// The early guard rejects cases like `c.A;[B]`, because a trans second allele
-/// must follow a bracketed first allele in the exact nucleotide allele syntax
-/// supported by `tinyhgvs`.
-fn nucleotide_allele_two_in_trans(
-    coordinate_system: CoordinateSystem,
-    first_was_bracketed: bool,
-    input: &str,
-) -> ParseResult<'_, Allele<NucleotideVariant>> {
-    if !first_was_bracketed {
-        return verify_failure(input);
-    }
-
-    nucleotide_allele_with_phase_marker(
-        coordinate_system,
-        AllelePhaseMarker::Trans,
-        AlleleForm::BracketedAllele,
-        input,
-    )
-}
-
-/// Parses the second allele when the relation to the first allele is uncertain,
-/// as in `c.A(;)B`.
-///
-/// The early guard rejects cases like `c.[A](;)B`. Once the first allele is
-/// bracketed and contains only one inner variant, `(;)B` should not be treated
-/// as the established second allele.
-fn nucleotide_allele_two_uncertain_phase(
-    coordinate_system: CoordinateSystem,
-    allele_one_variant_count: usize,
-    first_was_bracketed: bool,
-    input: &str,
-) -> ParseResult<'_, Allele<NucleotideVariant>> {
-    if first_was_bracketed && allele_one_variant_count == 1 {
-        return verify_failure(input);
-    }
-
-    nucleotide_allele_with_phase_marker(
-        coordinate_system,
-        AllelePhaseMarker::Uncertain,
-        AlleleForm::PlainVariant,
-        input,
-    )
-}
-
-/// Parses one allele body after a local HGVS phase marker.
+/// The phase marker after the initial allele imposes syntactic rule.
 ///
 /// Examples:
-/// - `;[345del]` with `Trans + BracketedAllele`
-/// - `(;)1083A>C` with `Uncertain + PlainVariant`
-fn nucleotide_allele_with_phase_marker(
+/// - `NM_004006.2:c.2376G>C;3103del`: invalid
+/// - `NM_004006.2:c.[2376G>C](;)[3103del]`: invalid
+fn next_nucleotide_allele(
     coordinate_system: CoordinateSystem,
-    phase_marker: AllelePhaseMarker,
-    allele_form: AlleleForm,
+    phase: AllelePhase,
     input: &str,
 ) -> ParseResult<'_, Allele<NucleotideVariant>> {
-    match (phase_marker, allele_form) {
-        (AllelePhaseMarker::Trans, AlleleForm::BracketedAllele) => preceded(char(';'), |input| {
-            bracketed_nucleotide_allele(coordinate_system, input)
-        })
+    match phase {
+        AllelePhase::Trans => nucleotide_bracket_allele(coordinate_system, input),
+        AllelePhase::Uncertain => map(
+            |input| nucleotide_variant_description(coordinate_system, input),
+            |variant| Allele::from_variants(vec![variant]),
+        )
         .parse(input),
-        (AllelePhaseMarker::Uncertain, AlleleForm::PlainVariant) => preceded(tag("(;)"), |input| {
-            singleton_nucleotide_allele(coordinate_system, input)
-        })
-        .parse(input),
-        _ => verify_failure(input),
     }
 }
 
@@ -865,15 +820,30 @@ fn nucleotide_literal(input: &str) -> ParseResult<'_, String> {
     .parse(input)
 }
 
-/// Parses protein description of either known or predicted effect and consequences.
+/// Parser for protein variant and allele description.
 fn protein_description(input: &str) -> ParseResult<'_, VariantDescription> {
     alt((
-        map(delimited(char('('), protein_effect, char(')')), |effect| {
-            VariantDescription::Protein(ProteinVariant {
-                is_predicted: true,
-                effect,
-            })
-        }),
+        // Protein allele description with known consequence: [Ser68Arg;Asn594del]
+        // Composed of protein variant descriptions
+        |input| {
+            allele_description(
+                input,
+                protein_initial_allele,
+                next_protein_allele,
+                VariantDescription::ProteinAllele,
+            )
+        },
+        // Predicted allele description: (Ser68Arg)
+        map(
+            delimited(char('('), protein_known_consequence, char(')')),
+            |effect| {
+                VariantDescription::Protein(ProteinVariant {
+                    is_predicted: true,
+                    effect,
+                })
+            },
+        ),
+        // Protein variant description: Ser68Arg, 0, ?
         map(protein_effect, |effect| {
             VariantDescription::Protein(ProteinVariant {
                 is_predicted: false,
@@ -884,16 +854,149 @@ fn protein_description(input: &str) -> ParseResult<'_, VariantDescription> {
     .parse(input)
 }
 
+/// Parser for one protein variant description.
+///
+/// This parser admits three cases:
+/// - No protein produced
+/// - Known protein consequence, such as `Ser68Arg` or `0`
+/// - Predicted protein consequence, such as `(Ser68Arg)`
+///
+/// One remaining gap: it does not admit plain `?`, which HGVS uses inside
+/// protein alleles for an unknown allele member rather than a supported
+/// protein consequence.
+fn protein_variant_description(input: &str) -> ParseResult<'_, ProteinVariant> {
+    alt((
+        map(
+            delimited(char('('), protein_known_consequence, char(')')),
+            |effect| ProteinVariant {
+                is_predicted: true,
+                effect,
+            },
+        ),
+        map(
+            value(ProteinEffect::NoProteinProduced, char('0')),
+            |effect| ProteinVariant {
+                is_predicted: false,
+                effect,
+            },
+        ),
+        map(protein_known_consequence, |effect| ProteinVariant {
+            is_predicted: false,
+            effect,
+        }),
+    ))
+    .parse(input)
+}
+
+/// Parser for digesting the initial allele written in a protein allele, such as:
+///
+/// - `p.[Ser68Arg;Asn594del]`
+/// - `p.(Ser73Arg)(;)(Asn103del)`
+fn protein_initial_allele(input: &str) -> ParseResult<'_, (Allele<ProteinVariant>, bool)> {
+    alt((
+        map(
+            alt((
+                // [(Ser73Arg;Asn103del)]
+                delimited(char('['), predicted_protein_allele, char(']')),
+                // [Ser68Arg;Asn594del]
+                protein_bracket_allele,
+            )),
+            // true: initial allele wrapped in bracket
+            |allele| (allele, true),
+        ),
+        // Ser68Arg
+        map(protein_variant_description, |variant| {
+            // false: initial allele not wrapped in bracket
+            (Allele::from_variants(vec![variant]), false)
+        }),
+    ))
+    .parse(input)
+}
+
+/// Parser for pattern of protein allele wrapped in bracket, such as:
+///
+/// - `[Ser68Arg;Asn594del]`
+fn protein_bracket_allele(input: &str) -> ParseResult<'_, Allele<ProteinVariant>> {
+    map(
+        delimited(
+            char('['),
+            |input| variants_on_allele(input, protein_variant_description),
+            char(']'),
+        ),
+        Allele::from_variants,
+    )
+    .parse(input)
+}
+
+/// Parser for the predicted protein allele pattern, such as:
+///
+/// - `(Ser73Arg;Asn103del)`.
+fn predicted_protein_allele(input: &str) -> ParseResult<'_, Allele<ProteinVariant>> {
+    map(
+        delimited(
+            char('('),
+            |input| variants_on_allele(input, protein_known_consequence),
+            char(')'),
+        ),
+        |effects| {
+            Allele::from_variants(
+                effects
+                    .into_iter()
+                    .map(|effect| ProteinVariant {
+                        is_predicted: true,
+                        effect,
+                    })
+                    .collect(),
+            )
+        },
+    )
+    .parse(input)
+}
+
+/// Parser for digesting the next protein allele following the initial allele +
+/// phase marker in the protein allele description, such as:
+///
+/// - `[Ser68_Arg70=]` in `p.[Ser68_Arg70dup];[Ser68_Arg70=]` after `;`
+/// Like in the nucleotide case, the phase marker after the initial allele
+/// imposes syntactic rule.
+fn next_protein_allele(phase: AllelePhase, input: &str) -> ParseResult<'_, Allele<ProteinVariant>> {
+    match phase {
+        AllelePhase::Trans => alt((
+            // [(Ser73Arg;Asn103del)]
+            delimited(char('['), predicted_protein_allele, char(']')),
+            // [Ser68Arg;Asn594del]
+            protein_bracket_allele,
+        ))
+        .parse(input),
+        AllelePhase::Uncertain => map(protein_variant_description, |variant| {
+            Allele::from_variants(vec![variant])
+        })
+        .parse(input),
+    }
+}
+
+/// Parser for one known protein consequence, which means:
+///
+/// - `Ser68Arg`
+/// - `Ser68del`
+/// - `Ser68_Ala74insSerGln`
+///
+/// The parser does not digest `?` and `0`.
+fn protein_known_consequence(input: &str) -> ParseResult<'_, ProteinEffect> {
+    map_res(
+        pair(protein_interval, protein_edit),
+        build_protein_edit_effect,
+    )
+    .parse(input)
+}
+
 /// Parses the supported protein effect types. Differentiating unknown consequence
 /// from the case where mutation produces no protein.
 fn protein_effect(input: &str) -> ParseResult<'_, ProteinEffect> {
     alt((
         value(ProteinEffect::Unknown, char('?')),
         value(ProteinEffect::NoProteinProduced, char('0')),
-        map_res(
-            pair(protein_interval, protein_edit),
-            build_protein_edit_effect,
-        ),
+        protein_known_consequence,
     ))
     .parse(input)
 }
