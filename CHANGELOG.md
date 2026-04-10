@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.1]
+
+### Protein allele support
+- Added support for protein allele syntax on the current HGVS path, including:
+  - one written allele such as `p.[Ser68Arg;Asn594del]`
+  - two written alleles in trans such as `p.[Ser68Arg];[Ser68=]`
+  - uncertain phase such as `p.(Ser73Arg)(;)(Asn103del)`
+  - Predicted protein allele form such as `p.[(Ser73Arg;Asn103del)]`
+  - Allele with mixed known and predicted variants such as `p.[Phe233Leu;(Cys690Trp)]`
+  - `p.[Ser86Arg];[0]`
+- Retired the `unsupported.protein_allele` family and replaced with more grained
+   code for protein allele syntax that are yet to be supported (see below).
+
+### Rust and Python models
+- Reused the shared `AlleleVariant`, `Allele`, and `AllelePhase` model shape
+  for protein allele parsing on both the Rust and Python sides.
+- Added `VariantDescription::ProteinAllele(...)` on the Rust side and mirrored
+  the same shape through the PyO3 bridge and Python surface.
+- Moved the shared Python allele model into the shared module.
+
+### Diagnostics and tests
+- Kept the remaining out-of-scope protein allele forms under structured
+  diagnostics, including:
+  - `unsupported.allele_unknown_variant`
+  - `unsupported.alternate_allele_state`
+  - `unsupported.one_allele_multi_protein`
+- Added Rust and Python coverage for both valid and malformed protein allele
+  examples.
+
+### Documentation and support inventory
+- Updated the unsupported syntax inventory to mark protein allele support as
+  available since `0.6.1`.
+- Refreshed shared Python allele docstrings and public error examples so they
+  reflect the current protein allele boundary.
+
 ## [0.6.0]
 
 ### Nucleotide allele support
