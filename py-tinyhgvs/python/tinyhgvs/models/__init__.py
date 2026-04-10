@@ -16,9 +16,6 @@ from dataclasses import dataclass
 from typing import TypeAlias
 
 from .nucleotide import (
-    Allele,
-    AllelePhase,
-    AlleleVariant,
     CopiedSequenceItem,
     LiteralSequenceItem,
     NucleotideAnchor,
@@ -56,19 +53,26 @@ from .protein import (
 )
 from .shared import (
     Accession,
+    Allele,
+    AllelePhase,
+    AlleleVariant,
     CoordinateSystem,
     Interval,
     ReferenceSpec,
 )
 
 VariantDescription: TypeAlias = (
-    NucleotideVariant | AlleleVariant[NucleotideVariant] | ProteinVariant
+    NucleotideVariant
+    | AlleleVariant[NucleotideVariant]
+    | ProteinVariant
+    | AlleleVariant[ProteinVariant]
 )
 """Tagged union for supported top-level variant models:
 
 - [`NucleotideVariant`][tinyhgvs.models.nucleotide.NucleotideVariant]
-- [`AlleleVariant`][tinyhgvs.models.nucleotide.AlleleVariant]
+- `AlleleVariant[NucleotideVariant]`
 - [`ProteinVariant`][tinyhgvs.models.protein.ProteinVariant]
+- `AlleleVariant[ProteinVariant]`
 """
 
 

@@ -1,15 +1,15 @@
 """Shared Python model types for parsed HGVS variants.
 
 This module groups the model pieces used by both nucleotide and protein
-variants: reference identifiers, coordinate-system labels, and generic
-intervals over a reference.
+variants: reference identifiers, coordinate-system labels, generic intervals,
+and allele container types.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Generic, TypeVar
+from typing import Generic, Iterator, TypeVar
 
 
 class CoordinateSystem(str, Enum):
@@ -158,10 +158,392 @@ class Interval(Generic[PositionT]):
     end: PositionT | None = None
 
 
+class AllelePhase(str, Enum):
+    """Model describing phase between/among alleles.
+
+    Attributes:
+        TRANS: Alleles are *In-trans* phase.
+        UNCERTAIN: Phase between/among alleles is uncertain.
+
+    Examples:
+        *In-trans* alleles:
+        >>> from tinyhgvs import parse_hgvs
+        >>> variants = parse_hgvs("NM_004006.2:c.[2376G>C];[3103del]")
+        >>> variants.description.phase
+        <AllelePhase.TRANS: 'trans'>
+
+        Uncertain phase:
+        >>> variant = parse_hgvs("NC_000001.11:g.123G>A(;)345del")
+        >>> variant.description.phase
+        <AllelePhase.UNCERTAIN: 'uncertain'>
+
+        *In-trans* protein alleles:
+        >>> variants = parse_hgvs("NP_003997.1:p.[Ser68Arg];[Ser68=]")
+        >>> variants.description.phase
+        <AllelePhase.TRANS: 'trans'>
+
+        Protein alleles with uncertain phase:
+        >>> variant = parse_hgvs("NP_003997.1:p.(Ser73Arg)(;)(Asn103del)")
+        >>> variant.description.phase
+        <AllelePhase.UNCERTAIN: 'uncertain'>
+    """
+
+    TRANS = "trans"
+    UNCERTAIN = "uncertain"
+
+
+@dataclass(frozen=True, slots=True)
+class Allele(Generic[VariantT]):
+    """One allele carrying one or more variants *in cis*.
+
+    Attributes:
+        variants: Variants described on the same allele and therefore treated
+            as occurring together *in cis*.
+
+    Examples:
+        A nucleotide allele carrying multiple variants:
+
+        >>> from tinyhgvs import parse_hgvs
+        >>> variant = parse_hgvs("NC_000001.11:g.[123G>A;345del]")
+        >>> len(variant.description.allele_one.variants)
+        2
+
+        A protein allele carrying multiple variants together:
+
+        >>> from tinyhgvs import parse_hgvs
+        >>> variant = parse_hgvs("NP_003997.1:p.[Ser68Arg;Asn594del]")
+        >>> len(variant.description.allele_one.variants)
+        2
+    """
+
+    variants: tuple[VariantT, ...]
+
+    def __iter__(self) -> Iterator[VariantT]:
+        """Return an iterator over variants carried by an allele in order.
+
+        Returns:
+            (Iterator[VariantT]): Iterator over variants carried by this allele,
+                in the order they appear in the written description.
+        Examples:
+            >>> from tinyhgvs import parse_hgvs
+            >>> allele = parse_hgvs(
+            ...     "NP_003997.1:p.[Ser68Arg;Asn594del]"
+            ... ).description.allele_one
+            >>> len(tuple(allele))
+            2
+
+            >>> from tinyhgvs import parse_hgvs
+            >>> allele = parse_hgvs(
+            ...     "NC_000001.11:g.[123G>A;345del]"
+            ... ).description.allele_one
+            >>> len(tuple(allele))
+            2
+        """
+        return iter(self.variants)
+
+
+@dataclass(frozen=True, slots=True)
+class AlleleVariant(Generic[VariantT]):
+    """Structured representation of HGVS allele variant syntax.
+
+    An allele variant may describe:
+
+    - a single allele carrying one or more variants.
+    - two alleles with an explicit phase relationship.
+    - additional alleles whose relation to the established allele state is
+      uncertain.
+
+    Attributes:
+        allele_one: First allele in the allele-variant description.
+        allele_two: Second allele, if present.
+        phase: Phase relation between ``allele_one`` and ``allele_two``. This
+            is ``None`` when only one allele is described.
+        alleles_unphased: Additional alleles in uncertain relation to the
+            allele state established by ``allele_one`` and ``allele_two``.
+
+    Examples:
+        Two protein alleles *in trans*:
+
+        >>> desc = parse_hgvs("NP_003997.1:p.[Ser68Arg];[Ser68=]").description
+        >>> desc.allele_two is not None
+        True
+        >>> desc.phase
+        <AllelePhase.TRANS: 'trans'>
+        >>> len(desc.allele_one.variants)
+        1
+        >>> len(desc.allele_two.variants)
+        1
+
+        Additional protein alleles with uncertain relation to the established pair:
+
+        >>> desc = parse_hgvs("p.[Ser68Arg];[Asn594del](;)0").description
+        >>> desc.phase
+        <AllelePhase.TRANS: 'trans'>
+        >>> len(desc.unphased_alleles)
+        1
+        >>> desc.unphased_alleles[0].variants[0].effect.kind
+        'no_protein_produced'
+
+        Variants *in cis* on a single allele:
+
+        >>> from tinyhgvs import parse_hgvs
+        >>> desc = parse_hgvs("NC_000023.10:g.[30683643A>G;33038273T>G]").description
+        >>> len(tuple(desc))
+        1
+        >>> desc.allele_two is None
+        True
+        >>> desc.phase is None
+        True
+        >>> len(desc.allele_one.variants)
+        2
+
+        Two alleles *in trans*:
+
+        >>> desc = parse_hgvs("NM_004006.2:c.[2376G>C];[3103del]").description
+        >>> desc.allele_two is not None
+        True
+        >>> desc.phase
+        <AllelePhase.TRANS: 'trans'>
+        >>> len(desc.allele_one.variants)
+        1
+        >>> len(desc.allele_two.variants)
+        1
+
+        Additional alleles with uncertain phase:
+
+        >>> desc = parse_hgvs(
+        ...     "NM_004006.2:c.[296T>G;476T>C];[476T>C](;)1083A>C"
+        ... ).description
+        >>> desc.phase
+        <AllelePhase.TRANS: 'trans'>
+        >>> len(desc.unphased_alleles)
+        1
+        >>> len(desc.unphased_alleles[0].variants)
+        1
+
+        Variants *in cis* on a single protein allele:
+
+        >>> from tinyhgvs import parse_hgvs
+        >>> desc = parse_hgvs("NP_003997.1:p.[Ser68Arg;Asn594del]").description
+        >>> len(tuple(desc))
+        1
+        >>> desc.allele_two is None
+        True
+        >>> desc.phase is None
+        True
+        >>> len(desc.allele_one.variants)
+        2
+
+    """
+
+    allele_one: Allele[VariantT]
+    allele_two: Allele[VariantT] | None = None
+    phase: AllelePhase | None = None
+    alleles_unphased: tuple[Allele[VariantT], ...] = ()
+
+    def __iter__(self) -> Iterator[Allele[VariantT]]:
+        """Iterate over alleles in description order.
+
+        Yields:
+            (Allele[VariantT]): Alleles in description order: ``allele_one``,
+                then ``allele_two`` when present, followed by any entries in
+                ``alleles_unphased``.
+
+        Notes:
+            Iteration preserves the structural order of the HGVS allele-variant
+            description. It does not infer or reorder alleles by phase.
+
+        Examples:
+            >>> from tinyhgvs import parse_hgvs
+            >>> desc = parse_hgvs("NP_003997.1:p.[Ser68Arg];[Ser68=]").description
+            >>> len(tuple(desc))
+            2
+
+            >>> desc = parse_hgvs("p.[Ser68Arg];[Asn594del](;)0").description
+            >>> len(tuple(desc))
+            3
+
+            >>> from tinyhgvs import parse_hgvs
+            >>> desc = parse_hgvs("NM_004006.2:c.[2376G>C];[3103del]").description
+            >>> len(tuple(desc))
+            2
+
+            >>> desc = parse_hgvs(
+            ...     "NM_004006.2:c.[296T>G;476T>C];[476T>C](;)1083A>C"
+            ... ).description
+            >>> len(tuple(desc))
+            3
+        """
+        yield self.allele_one
+        if self.allele_two is not None:
+            yield self.allele_two
+        yield from self.alleles_unphased
+
+    @property
+    def phased_alleles(
+        self,
+    ) -> tuple[Allele[VariantT], Allele[VariantT]] | None:
+        """Return the established phased allele pair, if present.
+
+        Returns:
+            (tuple[Allele[VariantT], Allele[VariantT]] | None): The established
+                phased allele pair as ``(allele_one, allele_two)`` when this
+                description contains two established alleles with an explicit
+                phase relationship; otherwise, ``None``.
+
+        Notes:
+            This property reports only the primary phased allele pair
+            represented by ``allele_one`` and ``allele_two``. Alleles in
+            ``alleles_unphased`` are not included.
+
+        Examples:
+            A single protein allele does not establish a phased pair:
+
+            >>> from tinyhgvs import parse_hgvs
+            >>> desc = parse_hgvs("NP_003997.1:p.[Ser68Arg;Asn594del]").description
+            >>> desc.phased_alleles is None
+            True
+
+            Two protein alleles with established phase return a pair:
+
+            >>> desc = parse_hgvs("NP_003997.1:p.[Ser68Arg];[Ser68=]").description
+            >>> desc.phase
+            <AllelePhase.TRANS: 'trans'>
+            >>> pair = desc.phased_alleles
+            >>> pair is not None
+            True
+            >>> len(pair[0].variants), len(pair[1].variants)
+            (1, 1)
+
+            Two protein alleles with uncertain phase do not return a pair:
+
+            >>> desc = parse_hgvs("NP_003997.1:p.(Ser73Arg)(;)(Asn103del)").description
+            >>> desc.phase
+            <AllelePhase.UNCERTAIN: 'uncertain'>
+            >>> pair = desc.phased_alleles
+            >>> pair is None
+            True
+
+            Additional protein alleles with uncertain relation to the established pair:
+
+            >>> desc = parse_hgvs("p.[Ser68Arg];[Asn594del](;)0").description
+            >>> pair = desc.phased_alleles
+            >>> pair is not None
+            True
+            >>> len(desc.alleles_unphased)
+            1
+
+            A single allele does not establish a phased pair:
+
+            >>> from tinyhgvs import parse_hgvs
+            >>> desc = parse_hgvs("NC_000001.11:g.[123G>A;345del]").description
+            >>> desc.phased_alleles is None
+            True
+
+            Two alleles with established phase return a pair:
+
+            >>> desc = parse_hgvs("NM_004006.2:c.[2376G>C];[2376=]").description
+            >>> desc.phase
+            <AllelePhase.TRANS: 'trans'>
+            >>> pair = desc.phased_alleles
+            >>> pair is not None
+            True
+            >>> len(pair[0].variants), len(pair[1].variants)
+            (1, 1)
+
+            Two alleles with uncertain phase do not return a pair:
+
+            >>> desc = parse_hgvs("NC_000001.11:g.123G>A(;)345del").description
+            >>> desc.phase
+            <AllelePhase.UNCERTAIN: 'uncertain'>
+            >>> pair = desc.phased_alleles
+            >>> pair is None
+            True
+
+            Additional alleles with uncertain relation to the established pair:
+
+            >>> desc = parse_hgvs(
+            ...     "NM_004006.2:c.[296T>G;476T>C];[476T>C](;)1083A>C"
+            ... ).description
+            >>> pair = desc.phased_alleles
+            >>> pair is not None
+            True
+            >>> len(desc.alleles_unphased)
+            1
+        """
+        if self.phase is AllelePhase.TRANS and self.allele_two is not None:
+            return (self.allele_one, self.allele_two)
+        return None
+
+    @property
+    def unphased_alleles(self) -> tuple[Allele[VariantT], ...]:
+        """Return alleles with uncertain relation to the allele state
+        established by ``allele_one`` and ``allele_two``.
+
+        Returns:
+            (tuple[Allele[VariantT], ...]): Alleles written after the
+                established allele state whose relation to that state is
+                uncertain. Empty when not present.
+
+        Notes:
+            This property exposes the additional alleles stored in
+            ``alleles_unphased``. It does not include ``allele_one`` or
+            ``allele_two``.
+
+        Examples:
+            Uncertain phase between two primary protein alleles does not create
+            an unphased tail:
+
+            >>> from tinyhgvs import parse_hgvs
+            >>> desc = parse_hgvs("NP_003997.1:p.(Ser73Arg)(;)(Asn103del)").description
+            >>> len(desc.unphased_alleles)
+            0
+
+            One additional unphased protein allele to the established state:
+
+            >>> desc = parse_hgvs("p.[Ser68Arg];[Asn594del](;)0").description
+            >>> len(desc.unphased_alleles)
+            1
+            >>> desc.unphased_alleles[0].variants[0].effect.kind
+            'no_protein_produced'
+
+            Uncertain phase between two primary alleles does not create an
+            unphased tail:
+
+            >>> from tinyhgvs import parse_hgvs
+            >>> desc = parse_hgvs("NC_000001.11:g.123G>A(;)345del").description
+            >>> len(desc.unphased_alleles)
+            0
+
+            One additional unphased allele to the established state:
+
+            >>> desc = parse_hgvs(
+            ...     "NM_004006.2:c.[296T>G];[476T>C](;)1083A>C"
+            ... ).description
+            >>> len(desc.unphased_alleles)
+            1
+            >>> len(desc.unphased_alleles[0].variants)
+            1
+
+            Multiple additions of unphased alleles to the established state:
+
+            >>> desc = parse_hgvs(
+            ...     "NM_004006.2:c.[296T>G];[476T>C](;)1083A>C(;)1406del"
+            ... ).description
+            >>> len(desc.unphased_alleles)
+            2
+        """
+        return self.alleles_unphased
+
+
 __all__ = [
     "Accession",
+    "Allele",
+    "AllelePhase",
+    "AlleleVariant",
     "CoordinateSystem",
     "Interval",
     "PositionT",
     "ReferenceSpec",
+    "VariantT",
 ]
