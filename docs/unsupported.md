@@ -34,19 +34,6 @@ the collapsible sections below each table.
 
 ??? Example "More examples"
 
-    === "allele"
-
-        - `NC_000001.11:g.[123G>A];[345del]`
-        - `NC_000001.11:g.123G>A(;)345del`
-
-    === "allele_unknown_variant"
-
-        - `NC_000001.11:g.[123G>A;345del];[?]`
-
-    === "allele_uncertain_variant_state"
-
-        - `NC_000001.11:g.[123G>A](;)(345del)`
-
     === "uncertain_range"
 
         - `NC_000023.11:g.(31060227_31100351)_(33274278_33417151)dup`
@@ -72,19 +59,6 @@ the collapsible sections below each table.
 
 ??? Example "More examples"
 
-    === "allele"
-
-        - `NM_004006.3:r.[123c>a;345del]`
-        - `NM_004006.3:r.123c>a(;)345del`
-
-    === "allele_unknown_variant"
-
-        - `NM_004006.3:r.[123c>a;345del];[?]`
-
-    === "allele_uncertain_variant_state"
-
-        - `NM_004006.3:r.[123c>a](;)(345del)`
-
     === "rna_special_state"
 
         - `NM_004006.3:r.(1388g>a)`
@@ -105,7 +79,10 @@ the collapsible sections below each table.
 
 | Diagnostic code category | Biology category | Representative example | Supported since |
 | --- | --- | --- | --- |
-| `allele` | Protein allele | `NP_003997.1:p.Val7=/del` | `-` |
+| `allele` | Protein allele | `NP_003997.1:p.[Ser68Arg;Asn594del]` | `0.6.1` |
+| `allele_unknown_variant` | Protein allele with variant unknown | `NP_003997.1:p.[(Ser68Arg)];[?]` | `-` |
+| `alternate_allele_state` | Protein allele with alternate allele states | `NP_003997.2:p.[(Asn158Asp)(;)(Asn158Ile)]^[(Asn158Val)]` | `-` |
+| `one_allele_multi_protein` | One protein allele encoding more than one protein | `NP_003997.1:p.[Lys31Asn,Val25_Lys31del]` | `-` |
 | `protein_frameshift` | Protein frameshift | `NP_0123456.1:p.Arg97fs` | `0.3.0` |
 | `protein_extension` | Protein extension | `NP_003997.2:p.Met1ext-5` | `0.4.0` |
 | `protein_repeat` | Protein repeated sequence | `NP_0123456.1:p.Ala2[10]` | `0.2.0` |
@@ -114,11 +91,6 @@ the collapsible sections below each table.
 
 
 ??? Example "More examples"
-
-    === "allele"
-
-        - `LRG_199p1:p.Trp24=/Cys`
-        - `NP_003997.1:p.[(Ser73Arg;Asn103del)]`
 
     === "protein_insertion_payload"
 
