@@ -374,6 +374,124 @@ def test_rejects_malformed_nucleotide_allele_variants():
         assert exc_info.value.code == "invalid.syntax"
 
 
+def test_parses_protein_allele_variants():
+    single = parse_hgvs("p.[Ser73Arg]")
+    cis = parse_hgvs("NP_003997.1:p.[Ser68Arg;Asn594del]")
+    trans = parse_hgvs("NP_003997.1:p.[Ser68Arg];[Ser68=]")
+    uncertain = parse_hgvs("NP_003997.1:p.(Ser73Arg)(;)(Asn103del)")
+    absent = parse_hgvs("p.[Ser86Arg];[0]")
+    mixed = parse_hgvs("p.[Phe233Leu;(Cys690Trp)]")
+    whole_predicted = parse_hgvs("NP_003997.1:p.[(Ser68Arg;Asn594del)]")
+    range_no_change = parse_hgvs("p.[Ser68_Arg70dup];[Ser68_Arg70=]")
+
+    assert isinstance(single.description, AlleleVariant)
+    assert len(single.description.allele_one.variants) == 1
+    assert single.description.allele_two is None
+    assert single.description.phased_alleles is None
+
+    assert isinstance(cis.description, AlleleVariant)
+    assert len(cis.description.allele_one.variants) == 2
+    assert cis.description.allele_two is None
+    assert len(tuple(cis.description)) == 1
+    assert cis.description.phased_alleles is None
+    assert cis.description.unphased_alleles == ()
+    assert cis.description.allele_one.variants[0].is_predicted is False
+    assert isinstance(cis.description.allele_one.variants[0].effect, ProteinEditEffect)
+    assert cis.description.allele_one.variants[0].effect.location.start.residue == "Ser"
+    assert cis.description.allele_one.variants[0].effect.edit.to == "Arg"
+
+    assert isinstance(trans.description, AlleleVariant)
+    assert trans.description.phase is AllelePhase.TRANS
+    assert trans.description.allele_two is not None
+    assert trans.description.phased_alleles is not None
+    assert trans.description.allele_two.variants[0].effect.location.start.residue == "Ser"
+    assert trans.description.allele_two.variants[0].effect.location.end is None
+    assert (
+        trans.description.allele_two.variants[0].effect.edit
+        is ProteinSequenceOmittedEdit.NO_CHANGE
+    )
+
+    assert isinstance(uncertain.description, AlleleVariant)
+    assert uncertain.description.phase is AllelePhase.UNCERTAIN
+    assert uncertain.description.allele_two is not None
+    assert uncertain.description.phased_alleles is None
+    assert uncertain.description.unphased_alleles == ()
+    assert uncertain.description.allele_one.variants[0].is_predicted is True
+    assert uncertain.description.allele_two.variants[0].is_predicted is True
+
+    assert isinstance(absent.description, AlleleVariant)
+    assert absent.description.phase is AllelePhase.TRANS
+    assert absent.description.allele_two is not None
+    assert absent.description.allele_two.variants[0].effect.kind == "no_protein_produced"
+
+    assert isinstance(mixed.description, AlleleVariant)
+    assert len(mixed.description.allele_one.variants) == 2
+    assert mixed.description.allele_one.variants[0].is_predicted is False
+    assert mixed.description.allele_one.variants[1].is_predicted is True
+
+    assert isinstance(whole_predicted.description, AlleleVariant)
+    assert len(whole_predicted.description.allele_one.variants) == 2
+    assert all(
+        variant.is_predicted for variant in whole_predicted.description.allele_one.variants
+    )
+
+    assert isinstance(range_no_change.description, AlleleVariant)
+    assert range_no_change.description.allele_two is not None
+    second_range = range_no_change.description.allele_two.variants[0]
+    assert isinstance(second_range.effect, ProteinEditEffect)
+    assert second_range.effect.location.start.residue == "Ser"
+    assert second_range.effect.location.end is not None
+    assert second_range.effect.location.end.residue == "Arg"
+    assert second_range.effect.edit is ProteinSequenceOmittedEdit.NO_CHANGE
+
+
+def test_reports_protein_allele_helper_views():
+    single = parse_hgvs("p.[Ser73Arg]")
+    trans = parse_hgvs("NP_003997.1:p.[Ser68Arg];[Ser68=]")
+    uncertain = parse_hgvs("NP_003997.1:p.(Ser73Arg)(;)(Asn103del)")
+    mixed = parse_hgvs("p.[Ser68Arg];[Asn594del](;)0")
+
+    assert single.description.phased_alleles is None
+    assert single.description.unphased_alleles == ()
+    assert len(tuple(single.description)) == 1
+
+    trans_pair = trans.description.phased_alleles
+    assert trans_pair is not None
+    assert len(trans_pair[0].variants) == 1
+    assert len(trans_pair[1].variants) == 1
+    assert trans.description.unphased_alleles == ()
+    assert len(tuple(trans.description)) == 2
+
+    assert uncertain.description.phased_alleles is None
+    assert uncertain.description.unphased_alleles == ()
+    assert uncertain.description.allele_two is not None
+    assert uncertain.description.allele_two.variants[0].effect.location.start.residue == "Asn"
+
+    mixed_pair = mixed.description.phased_alleles
+    assert mixed_pair is not None
+    assert len(mixed.description.unphased_alleles) == 1
+    assert mixed.description.unphased_alleles[0].variants[0].effect.kind == "no_protein_produced"
+    assert len(tuple(mixed.description)) == 3
+
+
+def test_rejects_malformed_protein_allele_variants():
+    cases = [
+        "p.([Ser68Arg;Asn594del])",
+        "p.([Ser68Arg];[Ser68Arg])",
+        "p.[Ser68Arg];[=]",
+        "p.[Ser73Arg];[]",
+        "p.[Ser68Arg](;)Asn594del",
+        "p.[Ser73Arg+p.Asn103del]",
+        "p.[Ser73Arg;p.Asn103del]",
+    ]
+
+    for input_value in cases:
+        with pytest.raises(TinyHGVSError) as exc_info:
+            parse_hgvs(input_value)
+
+        assert exc_info.value.code == "invalid.syntax"
+
+
 def test_parses_protein_substitution_and_no_change_variants():
     substitution = parse_hgvs("NP_003997.1:p.Trp24Ter")
     no_change = parse_hgvs("NP_003997.1:p.Cys188=")
@@ -808,10 +926,16 @@ def test_rejects_examples_deferred_to_future_work():
             "::",
         ),
         (
-            "NP_003997.1:p.Val7=/del",
-            "unsupported.protein_allele",
+            "NP_003997.1:p.[Lys31Asn,Val25_Lys31del]",
+            "unsupported.one_allele_multi_protein",
             ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
-            "=/",
+            ",",
+        ),
+        (
+            "NP_003997.2:p.[(Asn158Asp)(;)(Asn158Ile)]^[(Asn158Val)]",
+            "unsupported.alternate_allele_state",
+            ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
+            "^",
         ),
         (
             "p.(Gln18)[(70_80)]",
