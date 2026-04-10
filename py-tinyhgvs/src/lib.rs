@@ -184,6 +184,59 @@ impl<'py> PyModelCodec<'py> {
         self.class("AllelePhase")?.call1((name,))
     }
 
+    fn allele<T>(
+        &self,
+        value: &Allele<T>,
+        map_variant: fn(&Self, &T) -> PyResult<Bound<'py, PyAny>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let variants = value
+            .variants
+            .iter()
+            .map(|item| map_variant(self, item))
+            .collect::<PyResult<Vec<_>>>()?;
+
+        self.class("Allele")?
+            .call1((PyTuple::new(self.py, variants)?,))
+    }
+
+    fn alleles_tuple<T>(
+        &self,
+        value: &[Allele<T>],
+        map_variant: fn(&Self, &T) -> PyResult<Bound<'py, PyAny>>,
+    ) -> PyResult<Bound<'py, PyTuple>> {
+        let alleles = value
+            .iter()
+            .map(|item| self.allele(item, map_variant))
+            .collect::<PyResult<Vec<_>>>()?;
+
+        PyTuple::new(self.py, alleles)
+    }
+
+    fn allele_variant<T>(
+        &self,
+        value: &AlleleVariant<T>,
+        map_variant: fn(&Self, &T) -> PyResult<Bound<'py, PyAny>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let allele_two = value
+            .allele_two
+            .as_ref()
+            .map(|allele| self.allele(allele, map_variant))
+            .transpose()?;
+        let phase = value
+            .phase
+            .map(|phase| self.allele_phase(phase))
+            .transpose()?;
+
+        // Python reuses the same Allele / AlleleVariant container types for
+        // nucleotide and protein allele descriptions.
+        self.class("AlleleVariant")?.call1((
+            self.allele(&value.allele_one, map_variant)?,
+            allele_two,
+            phase,
+            self.alleles_tuple(&value.alleles_unphased, map_variant)?,
+        ))
+    }
+
     fn nucleotide_variant(&self, value: &NucleotideVariant) -> PyResult<Bound<'py, PyAny>> {
         self.class("NucleotideVariant")?.call1((
             self.nucleotide_interval(&value.location)?,
@@ -191,53 +244,9 @@ impl<'py> PyModelCodec<'py> {
         ))
     }
 
-    fn nucleotide_variants_tuple(
-        &self,
-        value: &[NucleotideVariant],
-    ) -> PyResult<Bound<'py, PyTuple>> {
-        let items = value
-            .iter()
-            .map(|item| self.nucleotide_variant(item))
-            .collect::<PyResult<Vec<_>>>()?;
-        PyTuple::new(self.py, items)
-    }
-
-    fn nucleotide_allele(&self, value: &Allele<NucleotideVariant>) -> PyResult<Bound<'py, PyAny>> {
-        self.class("Allele")?
-            .call1((self.nucleotide_variants_tuple(&value.variants)?,))
-    }
-
-    fn nucleotide_alleles_tuple(
-        &self,
-        value: &[Allele<NucleotideVariant>],
-    ) -> PyResult<Bound<'py, PyTuple>> {
-        let items = value
-            .iter()
-            .map(|item| self.nucleotide_allele(item))
-            .collect::<PyResult<Vec<_>>>()?;
-        PyTuple::new(self.py, items)
-    }
-
-    fn nucleotide_allele_variant(
-        &self,
-        value: &AlleleVariant<NucleotideVariant>,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        let allele_two = value
-            .allele_two
-            .as_ref()
-            .map(|allele| self.nucleotide_allele(allele))
-            .transpose()?;
-        let phase = value
-            .phase
-            .map(|phase| self.allele_phase(phase))
-            .transpose()?;
-
-        self.class("AlleleVariant")?.call1((
-            self.nucleotide_allele(&value.allele_one)?,
-            allele_two,
-            phase,
-            self.nucleotide_alleles_tuple(&value.alleles_unphased)?,
-        ))
+    fn protein_variant(&self, value: &tinyhgvs::ProteinVariant) -> PyResult<Bound<'py, PyAny>> {
+        self.class("ProteinVariant")?
+            .call1((value.is_predicted, self.protein_effect(&value.effect)?))
     }
 
     fn protein_sequence(&self, value: &ProteinSequence) -> PyResult<Bound<'py, PyAny>> {
@@ -371,10 +380,13 @@ impl<'py> PyModelCodec<'py> {
     fn description(&self, value: &VariantDescription) -> PyResult<Bound<'py, PyAny>> {
         match value {
             VariantDescription::Nucleotide(value) => self.nucleotide_variant(value),
-            VariantDescription::NucleotideAllele(value) => self.nucleotide_allele_variant(value),
-            VariantDescription::Protein(value) => self
-                .class("ProteinVariant")?
-                .call1((value.is_predicted, self.protein_effect(&value.effect)?)),
+            VariantDescription::NucleotideAllele(value) => {
+                self.allele_variant(value, Self::nucleotide_variant)
+            }
+            VariantDescription::Protein(value) => self.protein_variant(value),
+            VariantDescription::ProteinAllele(value) => {
+                self.allele_variant(value, Self::protein_variant)
+            }
         }
     }
 
