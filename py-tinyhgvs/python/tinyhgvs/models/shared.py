@@ -262,28 +262,6 @@ class AlleleVariant(Generic[VariantT]):
             allele state established by ``allele_one`` and ``allele_two``.
 
     Examples:
-        Two protein alleles *in trans*:
-
-        >>> desc = parse_hgvs("NP_003997.1:p.[Ser68Arg];[Ser68=]").description
-        >>> desc.allele_two is not None
-        True
-        >>> desc.phase
-        <AllelePhase.TRANS: 'trans'>
-        >>> len(desc.allele_one.variants)
-        1
-        >>> len(desc.allele_two.variants)
-        1
-
-        Additional protein alleles with uncertain relation to the established pair:
-
-        >>> desc = parse_hgvs("p.[Ser68Arg];[Asn594del](;)0").description
-        >>> desc.phase
-        <AllelePhase.TRANS: 'trans'>
-        >>> len(desc.unphased_alleles)
-        1
-        >>> desc.unphased_alleles[0].variants[0].effect.kind
-        'no_protein_produced'
-
         Variants *in cis* on a single allele:
 
         >>> from tinyhgvs import parse_hgvs
@@ -297,7 +275,7 @@ class AlleleVariant(Generic[VariantT]):
         >>> len(desc.allele_one.variants)
         2
 
-        Two alleles *in trans*:
+        Two nucleotide alleles *in trans*:
 
         >>> desc = parse_hgvs("NM_004006.2:c.[2376G>C];[3103del]").description
         >>> desc.allele_two is not None
@@ -323,7 +301,6 @@ class AlleleVariant(Generic[VariantT]):
 
         Variants *in cis* on a single protein allele:
 
-        >>> from tinyhgvs import parse_hgvs
         >>> desc = parse_hgvs("NP_003997.1:p.[Ser68Arg;Asn594del]").description
         >>> len(tuple(desc))
         1
@@ -334,6 +311,17 @@ class AlleleVariant(Generic[VariantT]):
         >>> len(desc.allele_one.variants)
         2
 
+        Two protein alleles *in trans*:
+
+        >>> desc = parse_hgvs("NP_003997.1:p.[Ser68Arg];[Ser68=]").description
+        >>> desc.allele_two is not None
+        True
+        >>> desc.phase
+        <AllelePhase.TRANS: 'trans'>
+        >>> len(desc.allele_one.variants)
+        1
+        >>> len(desc.allele_two.variants)
+        1
     """
 
     allele_one: Allele[VariantT]
@@ -355,15 +343,6 @@ class AlleleVariant(Generic[VariantT]):
 
         Examples:
             >>> from tinyhgvs import parse_hgvs
-            >>> desc = parse_hgvs("NP_003997.1:p.[Ser68Arg];[Ser68=]").description
-            >>> len(tuple(desc))
-            2
-
-            >>> desc = parse_hgvs("p.[Ser68Arg];[Asn594del](;)0").description
-            >>> len(tuple(desc))
-            3
-
-            >>> from tinyhgvs import parse_hgvs
             >>> desc = parse_hgvs("NM_004006.2:c.[2376G>C];[3103del]").description
             >>> len(tuple(desc))
             2
@@ -371,6 +350,14 @@ class AlleleVariant(Generic[VariantT]):
             >>> desc = parse_hgvs(
             ...     "NM_004006.2:c.[296T>G;476T>C];[476T>C](;)1083A>C"
             ... ).description
+            >>> len(tuple(desc))
+            3
+
+            >>> desc = parse_hgvs("NP_003997.1:p.[Ser68Arg];[Ser68=]").description
+            >>> len(tuple(desc))
+            2
+
+            >>> desc = parse_hgvs("p.[Ser68Arg];[Asn594del](;)0").description
             >>> len(tuple(desc))
             3
         """
@@ -397,41 +384,6 @@ class AlleleVariant(Generic[VariantT]):
             ``alleles_unphased`` are not included.
 
         Examples:
-            A single protein allele does not establish a phased pair:
-
-            >>> from tinyhgvs import parse_hgvs
-            >>> desc = parse_hgvs("NP_003997.1:p.[Ser68Arg;Asn594del]").description
-            >>> desc.phased_alleles is None
-            True
-
-            Two protein alleles with established phase return a pair:
-
-            >>> desc = parse_hgvs("NP_003997.1:p.[Ser68Arg];[Ser68=]").description
-            >>> desc.phase
-            <AllelePhase.TRANS: 'trans'>
-            >>> pair = desc.phased_alleles
-            >>> pair is not None
-            True
-            >>> len(pair[0].variants), len(pair[1].variants)
-            (1, 1)
-
-            Two protein alleles with uncertain phase do not return a pair:
-
-            >>> desc = parse_hgvs("NP_003997.1:p.(Ser73Arg)(;)(Asn103del)").description
-            >>> desc.phase
-            <AllelePhase.UNCERTAIN: 'uncertain'>
-            >>> pair = desc.phased_alleles
-            >>> pair is None
-            True
-
-            Additional protein alleles with uncertain relation to the established pair:
-
-            >>> desc = parse_hgvs("p.[Ser68Arg];[Asn594del](;)0").description
-            >>> pair = desc.phased_alleles
-            >>> pair is not None
-            True
-            >>> len(desc.alleles_unphased)
-            1
 
             A single allele does not establish a phased pair:
 
@@ -470,6 +422,27 @@ class AlleleVariant(Generic[VariantT]):
             True
             >>> len(desc.alleles_unphased)
             1
+
+            Two protein alleles with known phase:
+
+            >>> desc = parse_hgvs("NP_003997.1:p.[Ser68Arg];[Ser68=]").description
+            >>> desc.phase
+            <AllelePhase.TRANS: 'trans'>
+            >>> pair = desc.phased_alleles
+            >>> pair is not None
+            True
+            >>> len(pair[0].variants), len(pair[1].variants)
+            (1, 1)
+
+            Two predicted protein alleles with unknown phase:
+
+            >>> desc = parse_hgvs("NP_003997.1:p.(Ser73Arg)(;)(Asn103del)").description
+            >>> desc.phase
+            <AllelePhase.UNCERTAIN: 'uncertain'>
+            >>> desc.phased_alleles is None
+            True
+            >>> len(desc.unphased_alleles)
+            0
         """
         if self.phase is AllelePhase.TRANS and self.allele_two is not None:
             return (self.allele_one, self.allele_two)
@@ -491,22 +464,6 @@ class AlleleVariant(Generic[VariantT]):
             ``allele_two``.
 
         Examples:
-            Uncertain phase between two primary protein alleles does not create
-            an unphased tail:
-
-            >>> from tinyhgvs import parse_hgvs
-            >>> desc = parse_hgvs("NP_003997.1:p.(Ser73Arg)(;)(Asn103del)").description
-            >>> len(desc.unphased_alleles)
-            0
-
-            One additional unphased protein allele to the established state:
-
-            >>> desc = parse_hgvs("p.[Ser68Arg];[Asn594del](;)0").description
-            >>> len(desc.unphased_alleles)
-            1
-            >>> desc.unphased_alleles[0].variants[0].effect.kind
-            'no_protein_produced'
-
             Uncertain phase between two primary alleles does not create an
             unphased tail:
 
@@ -532,6 +489,20 @@ class AlleleVariant(Generic[VariantT]):
             ... ).description
             >>> len(desc.unphased_alleles)
             2
+
+            One additional unphased protein allele to the established state:
+
+            >>> desc = parse_hgvs("p.[Ser68Arg];[Asn594del](;)0").description
+            >>> len(desc.unphased_alleles)
+            1
+            >>> desc.unphased_alleles[0].variants[0].effect.kind
+            'no_protein_produced'
+
+            No additional unphased protein alleles:
+
+            >>> desc = parse_hgvs("NP_003997.1:p.(Ser73Arg)(;)(Asn103del)").description
+            >>> len(desc.unphased_alleles)
+            0
         """
         return self.alleles_unphased
 
