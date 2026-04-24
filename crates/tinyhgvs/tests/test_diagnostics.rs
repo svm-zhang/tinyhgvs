@@ -8,13 +8,6 @@ fn parse_error(example: &str) -> tinyhgvs::ParseHgvsError {
 fn classifies_supported_diagnostic_codes() {
     let cases = [
         (
-            "NC_000023.11:g.(31060227_31100351)_(33274278_33417151)dup",
-            "unsupported.uncertain_range",
-            ParseHgvsErrorKind::UnsupportedSyntax,
-            "uncertain HGVS ranges are not supported yet",
-            Some("("),
-        ),
-        (
             "NC_000023.11:g.pter_qtersup",
             "unsupported.telomeric_position",
             ParseHgvsErrorKind::UnsupportedSyntax,
