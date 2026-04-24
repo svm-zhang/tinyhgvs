@@ -39,9 +39,9 @@
 //!
 //! match description {
 //!     VariantDescription::Nucleotide(nucleotide) => {
-//!         assert_eq!(nucleotide.location.start.anchor, NucleotideAnchor::Absolute);
-//!         assert_eq!(nucleotide.location.start.coordinate, 357);
-//!         assert_eq!(nucleotide.location.start.offset, 1);
+//!         assert_eq!(nucleotide.location.start().unwrap().anchor, NucleotideAnchor::Absolute);
+//!         assert_eq!(nucleotide.location.start().unwrap().coordinate, 357);
+//!         assert_eq!(nucleotide.location.start().unwrap().offset, 1);
 //!         assert!(matches!(
 //!             nucleotide.edit,
 //!             NucleotideEdit::Substitution { ref reference, ref alternate }
@@ -103,11 +103,11 @@ mod parser;
 
 pub use error::{ParseHgvsError, ParseHgvsErrorKind};
 pub use model::{
-    Accession, Allele, AllelePhase, AlleleVariant, CoordinateSystem, CopiedSequenceItem,
-    HgvsVariant, Interval, LiteralSequenceItem, NucleotideAnchor, NucleotideCoordinate,
-    NucleotideEdit, NucleotideRepeatBlock, NucleotideSequenceItem, NucleotideVariant,
-    ProteinCoordinate, ProteinEdit, ProteinEffect, ProteinExtensionEdit, ProteinExtensionTerminal,
-    ProteinFrameshiftStop, ProteinFrameshiftStopKind, ProteinSequence, ProteinVariant,
-    ReferenceSpec, RepeatSequenceItem, VariantDescription,
+    Accession, Allele, AllelePhase, AlleleVariant, CoordinateKind, CoordinateSystem,
+    CopiedSequenceItem, HgvsVariant, Interval, LiteralSequenceItem, Location, NucleotideAnchor,
+    NucleotideCoordinate, NucleotideEdit, NucleotideRepeatBlock, NucleotideSequenceItem,
+    NucleotideVariant, ProteinCoordinate, ProteinEdit, ProteinEffect, ProteinExtensionEdit,
+    ProteinExtensionTerminal, ProteinFrameshiftStop, ProteinFrameshiftStopKind, ProteinSequence,
+    ProteinVariant, ReferenceSpec, RepeatSequenceItem, VariantDescription,
 };
 pub use parser::parse_hgvs;
