@@ -475,22 +475,56 @@ fn nucleotide_location(
     input: &str,
 ) -> ParseResult<'_, Location<NucleotideCoordinate>> {
     match coordinate_system {
-        CoordinateSystem::Rna => map(nucleotide_interval, Location::from_known).parse(input),
+        CoordinateSystem::Rna => {
+            map_res(nucleotide_interval, build_known_nucleotide_location).parse(input)
+        }
         CoordinateSystem::Genomic
         | CoordinateSystem::CircularGenomic
         | CoordinateSystem::Mitochondrial
         | CoordinateSystem::CodingDna
         | CoordinateSystem::NonCodingDna => alt((
             // (71_72) and (123_234)_(345_456), (?_87), (123_?)_(?_456)
-            map(nucleotide_uncertain_location, Location::from_uncertain),
+            map_res(
+                nucleotide_uncertain_location,
+                build_uncertain_nucleotide_location,
+            ),
             // 93 and 93_94
-            map(nucleotide_interval, Location::from_known),
+            map_res(nucleotide_interval, build_known_nucleotide_location),
         ))
         .parse(input),
         CoordinateSystem::Protein => {
             unreachable!("nucleotide location on protein coordinate system")
         }
     }
+}
+
+fn build_known_nucleotide_location(
+    interval: Interval<NucleotideCoordinate>,
+) -> Result<Location<NucleotideCoordinate>, ()> {
+    // Reject known-location branches that still contain `?` on either side.
+    if interval.has_unknown_bound() {
+        return Err(());
+    }
+
+    // Build one known nucleotide location from a fully known interval.
+    Ok(Location::from_known(interval))
+}
+
+fn build_uncertain_nucleotide_location(
+    location: Interval<Interval<NucleotideCoordinate>>,
+) -> Result<Location<NucleotideCoordinate>, ()> {
+    // Reject fully unknown uncertain regions such as `(?_?)` and `(?_?)_(A_B)`.
+    if location.start.is_fully_unknown()
+        || location
+            .end
+            .as_ref()
+            .map_or(false, Interval::is_fully_unknown)
+    {
+        return Err(());
+    }
+
+    // Build one uncertain nucleotide location from parenthesized regions.
+    Ok(Location::from_uncertain(location))
 }
 
 /// Parser for digesting the initial allele written in a nucleotide allele
@@ -1109,7 +1143,6 @@ fn protein_interval(input: &str) -> ParseResult<'_, Interval<ProteinCoordinate>>
     alt((
         map(
             separated_pair(protein_coordinate, char('_'), protein_coordinate),
-            // pair(protein_coordinate, preceded(char('_'), protein_coordinate)),
             |(start, end)| Interval {
                 start,
                 end: Some(end),
@@ -1143,10 +1176,6 @@ fn protein_uncertain_location(
                 char('_'),
                 protein_uncertain_interval,
             ),
-            // pair(
-            //     protein_uncertain_region,
-            //     preceded(char('_'), protein_uncertain_region),
-            // ),
             |(start, end)| Interval {
                 start,
                 end: Some(end),

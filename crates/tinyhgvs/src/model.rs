@@ -636,6 +636,11 @@ pub struct NucleotideCoordinate {
 }
 
 impl NucleotideCoordinate {
+    /// Returns `true` when the primary coordinate is written as `?`.
+    pub fn is_unknown(&self) -> bool {
+        matches!(self.coordinate, CoordinateKind::Unknown)
+    }
+
     /// Returns `true` for intronic coordinates such as `357+1`, `-106+2`,
     /// and `*639-1`.
     pub fn is_intronic(&self) -> bool {
@@ -662,6 +667,25 @@ impl NucleotideCoordinate {
     /// Returns `true` for exonic 3' UTR coordinates such as `c.*24`.
     pub fn is_three_prime_utr(&self) -> bool {
         self.is_cds_end_anchored() && self.offset == 0
+    }
+}
+
+impl Interval<NucleotideCoordinate> {
+    fn is_end_bound_unknown(&self) -> bool {
+        self.end
+            .as_ref()
+            .map_or(false, NucleotideCoordinate::is_unknown)
+    }
+
+    /// Returns `true` when either bound of the interval is unknown, i.e. `?_B`,
+    /// `A_?`, `?_?`
+    pub fn has_unknown_bound(&self) -> bool {
+        self.start.is_unknown() || self.is_end_bound_unknown()
+    }
+
+    /// Returns `true` when both sides of the interval are unknown, i.e. ?_?
+    pub fn is_fully_unknown(&self) -> bool {
+        self.start.is_unknown() && self.is_end_bound_unknown()
     }
 }
 
