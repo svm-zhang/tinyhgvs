@@ -26,6 +26,9 @@ use crate::model::{
 
 type ParseResult<'a, T> = IResult<&'a str, T>;
 
+// Same numeric parser, named by semantic role at the frameshift call site.
+use self::parse_quantity as parse_stop_ordinal;
+
 const PROTEIN_SYMBOLS: &[&str] = &[
     "Ter", "Sec", "Pyl", "Xaa", "Ala", "Arg", "Asn", "Asp", "Cys", "Gln", "Glu", "Gly", "His",
     "Ile", "Leu", "Lys", "Met", "Phe", "Pro", "Ser", "Thr", "Trp", "Tyr", "Val", "*", "A", "R",
@@ -361,6 +364,21 @@ where
     separated_list1(char(';'), parse_variant).parse(input)
 }
 
+/// Parses a reusable range surface written as `thing_thing`.
+fn range_with<T, P>(input: &str, parse_item: P) -> ParseResult<'_, Interval<T>>
+where
+    P: Copy + Fn(&str) -> ParseResult<'_, T>,
+{
+    map(
+        separated_pair(parse_item, char('_'), parse_item),
+        |(start, end)| Interval {
+            start,
+            end: Some(end),
+        },
+    )
+    .parse(input)
+}
+
 /// Parser for phase marker written in allele variant description.
 fn phase_marker(input: &str) -> ParseResult<'_, AllelePhase> {
     alt((
@@ -626,13 +644,7 @@ fn next_nucleotide_allele(
 fn nucleotide_interval(input: &str) -> ParseResult<'_, Interval<NucleotideCoordinate>> {
     alt((
         // Interval coordinate, `A_B`
-        map(
-            separated_pair(nucleotide_coordinate, char('_'), nucleotide_coordinate),
-            |(start, end)| Interval {
-                start,
-                end: Some(end),
-            },
-        ),
+        |input| range_with(input, nucleotide_coordinate),
         // Single position coordinate, `A`
         map(nucleotide_coordinate, |start| Interval { start, end: None }),
     ))
@@ -655,17 +667,7 @@ fn nucleotide_uncertain_location(
 ) -> ParseResult<'_, Interval<Interval<NucleotideCoordinate>>> {
     alt((
         // (A_B)_(C_D)
-        map(
-            separated_pair(
-                nucleotide_uncertain_interval,
-                char('_'),
-                nucleotide_uncertain_interval,
-            ),
-            |(start, end)| Interval {
-                start,
-                end: Some(end),
-            },
-        ),
+        |input| range_with(input, nucleotide_uncertain_interval),
         // (A_B)
         map(nucleotide_uncertain_interval, |start| Interval {
             start,
@@ -680,7 +682,7 @@ fn nucleotide_coordinate(input: &str) -> ParseResult<'_, NucleotideCoordinate> {
     alt((
         map(
             pair(
-                preceded(char('-'), parse_nonzero_i32),
+                preceded(char('-'), parse_position),
                 opt(pair(alt((char('+'), char('-'))), parse_i32)),
             ),
             |(coordinate, offset)| {
@@ -697,7 +699,7 @@ fn nucleotide_coordinate(input: &str) -> ParseResult<'_, NucleotideCoordinate> {
         ),
         map(
             pair(
-                preceded(char('*'), parse_nonzero_i32),
+                preceded(char('*'), parse_position),
                 opt(pair(alt((char('+'), char('-'))), parse_i32)),
             ),
             |(coordinate, offset)| {
@@ -745,7 +747,7 @@ fn parse_i32(input: &str) -> ParseResult<'_, i32> {
     map_res(digit1, str::parse::<i32>).parse(input)
 }
 
-fn parse_nonzero_i32(input: &str) -> ParseResult<'_, i32> {
+fn parse_position(input: &str) -> ParseResult<'_, i32> {
     let (input, value) = parse_i32(input)?;
     if value == 0 {
         Err(nom::Err::Error(nom::error::Error::new(
@@ -757,8 +759,8 @@ fn parse_nonzero_i32(input: &str) -> ParseResult<'_, i32> {
     }
 }
 
-/// Parses an unsigned decimal integer into `usize`.
-fn parse_usize(input: &str) -> ParseResult<'_, usize> {
+/// Parses an unsigned decimal integer for counts and amounts.
+fn parse_quantity(input: &str) -> ParseResult<'_, usize> {
     map_res(digit1, str::parse::<usize>).parse(input)
 }
 
@@ -845,7 +847,7 @@ fn sequence_repeat(input: &str) -> ParseResult<'_, RepeatSequenceItem> {
     map(
         pair(
             nucleotide_literal,
-            delimited(char('['), parse_usize, char(']')),
+            delimited(char('['), parse_quantity, char(']')),
         ),
         |(unit, count)| RepeatSequenceItem { unit, count },
     )
@@ -857,7 +859,7 @@ fn repeat_sequence_block(input: &str) -> ParseResult<'_, NucleotideRepeatBlock> 
     map(
         pair(
             nucleotide_literal,
-            delimited(char('['), parse_usize, char(']')),
+            delimited(char('['), parse_quantity, char(']')),
         ),
         |(unit, count)| NucleotideRepeatBlock {
             count,
@@ -870,7 +872,7 @@ fn repeat_sequence_block(input: &str) -> ParseResult<'_, NucleotideRepeatBlock> 
 
 /// Parses the first count-only top-level repeat block after the main location.
 fn repeat_count_only_block(input: &str) -> ParseResult<'_, NucleotideRepeatBlock> {
-    map(delimited(char('['), parse_usize, char(']')), |count| {
+    map(delimited(char('['), parse_quantity, char(']')), |count| {
         NucleotideRepeatBlock {
             count,
             unit: None,
@@ -885,7 +887,7 @@ fn repeat_located_count_block(input: &str) -> ParseResult<'_, NucleotideRepeatBl
     map(
         pair(
             nucleotide_interval,
-            delimited(char('['), parse_usize, char(']')),
+            delimited(char('['), parse_quantity, char(']')),
         ),
         |(location, count)| NucleotideRepeatBlock {
             count,
@@ -1156,13 +1158,7 @@ Parses a single protein position or an interval.
 */
 fn protein_interval(input: &str) -> ParseResult<'_, Interval<ProteinCoordinate>> {
     alt((
-        map(
-            separated_pair(protein_coordinate, char('_'), protein_coordinate),
-            |(start, end)| Interval {
-                start,
-                end: Some(end),
-            },
-        ),
+        |input| range_with(input, protein_coordinate),
         map(protein_coordinate, |start| Interval { start, end: None }),
     ))
     .parse(input)
@@ -1185,17 +1181,7 @@ fn protein_uncertain_location(
     input: &str,
 ) -> ParseResult<'_, Interval<Interval<ProteinCoordinate>>> {
     alt((
-        map(
-            separated_pair(
-                protein_uncertain_interval,
-                char('_'),
-                protein_uncertain_interval,
-            ),
-            |(start, end)| Interval {
-                start,
-                end: Some(end),
-            },
-        ),
+        |input| range_with(input, protein_uncertain_interval),
         map(protein_uncertain_interval, |start| Interval {
             start,
             end: None,
@@ -1222,7 +1208,7 @@ fn protein_edit(input: &str) -> ParseResult<'_, ProteinEdit> {
         }),
         value(ProteinEdit::Deletion, tag("del")),
         value(ProteinEdit::Duplication, tag("dup")),
-        map(delimited(char('['), parse_usize, char(']')), |count| {
+        map(delimited(char('['), parse_quantity, char(']')), |count| {
             ProteinEdit::Repeat { count }
         }),
         protein_extension_edit,
@@ -1334,7 +1320,7 @@ fn protein_frameshift_stop(input: &str) -> ParseResult<'_, ProteinFrameshiftStop
             pair(alt((tag("Ter"), tag("*"))), char('?')),
         ),
         map(
-            preceded(alt((tag("Ter"), tag("*"))), parse_usize),
+            preceded(alt((tag("Ter"), tag("*"))), parse_stop_ordinal),
             |ordinal| ProteinFrameshiftStop {
                 ordinal: Some(ordinal),
                 kind: ProteinFrameshiftStopKind::Known,
