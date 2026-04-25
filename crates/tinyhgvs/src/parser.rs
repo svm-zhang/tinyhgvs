@@ -358,7 +358,7 @@ fn variants_on_allele<T, PVariant>(input: &str, parse_variant: PVariant) -> Pars
 where
     PVariant: Fn(&str) -> ParseResult<'_, T>,
 {
-    separated_list1(char(';'), |input| parse_variant(input)).parse(input)
+    separated_list1(char(';'), parse_variant).parse(input)
 }
 
 /// Parser for phase marker written in allele variant description.
@@ -443,8 +443,10 @@ where
     ))
 }
 
-/// Parses one supported nucleotide variant description such as `123G>A` or
-/// `357+1G>A`, without wrapping it in the top-level description enum.
+/**
+Parses one supported nucleotide variant description such as `123G>A` or
+`357+1G>A`, without wrapping it in the top-level description enum.
+*/
 fn nucleotide_variant_description(
     coordinate_system: CoordinateSystem,
     input: &str,
@@ -475,21 +477,22 @@ fn nucleotide_location(
     input: &str,
 ) -> ParseResult<'_, Location<NucleotideCoordinate>> {
     match coordinate_system {
-        CoordinateSystem::Rna => {
-            map_res(nucleotide_interval, build_known_nucleotide_location).parse(input)
-        }
-        CoordinateSystem::Genomic
+        CoordinateSystem::Rna
+        | CoordinateSystem::Genomic
         | CoordinateSystem::CircularGenomic
         | CoordinateSystem::Mitochondrial
         | CoordinateSystem::CodingDna
         | CoordinateSystem::NonCodingDna => alt((
             // (71_72) and (123_234)_(345_456), (?_87), (123_?)_(?_456)
-            map_res(
-                nucleotide_uncertain_location,
-                build_uncertain_nucleotide_location,
-            ),
-            // 93 and 93_94
-            map_res(nucleotide_interval, build_known_nucleotide_location),
+            |input| {
+                let (input, location) = nucleotide_uncertain_location(input)?;
+                build_uncertain_nucleotide_location(input, location)
+            },
+            // 93 and 93_94, plus whole-location `?_?`
+            |input| {
+                let (input, interval) = nucleotide_interval(input)?;
+                build_known_nucleotide_location(input, interval)
+            },
         ))
         .parse(input),
         CoordinateSystem::Protein => {
@@ -498,33 +501,45 @@ fn nucleotide_location(
     }
 }
 
-fn build_known_nucleotide_location(
+/// Build known nucleotide location model. "Known" means the location where
+/// mutation occurs is certain.
+///
+/// - `NC_000023.10:g.33038255C>A`
+/// - `NC_000023.11:g.33344591del`
+///
+fn build_known_nucleotide_location<'a>(
+    input: &'a str,
     interval: Interval<NucleotideCoordinate>,
-) -> Result<Location<NucleotideCoordinate>, ()> {
-    // Reject known-location branches that still contain `?` on either side.
-    if interval.has_unknown_bound() {
-        return Err(());
+) -> ParseResult<'a, Location<NucleotideCoordinate>> {
+    // Reject unknown location such as `(?_B)`, `(A_?).
+    if interval.has_unknown_bound() && !interval.is_fully_unknown() {
+        return verify_failure(input);
     }
 
-    // Build one known nucleotide location from a fully known interval.
-    Ok(Location::from_known(interval))
+    Ok((input, Location::from_known(interval)))
 }
 
-fn build_uncertain_nucleotide_location(
+/// Build uncertain nucleotide location model. "Uncertain" means the exact
+/// location where mutation occurs is unknown.
+///
+/// - `NC_000023.10:g.(33038277_33038278)C>T`
+/// - `g.(123456_234567)_(345678_456789)del`
+///
+fn build_uncertain_nucleotide_location<'a>(
+    input: &'a str,
     location: Interval<Interval<NucleotideCoordinate>>,
-) -> Result<Location<NucleotideCoordinate>, ()> {
-    // Reject fully unknown uncertain regions such as `(?_?)` and `(?_?)_(A_B)`.
+) -> ParseResult<'a, Location<NucleotideCoordinate>> {
+    // Reject location description such as `(?_?)`, `(?_?)_(?_?)`.
     if location.start.is_fully_unknown()
-        || location
+        && location
             .end
             .as_ref()
-            .map_or(false, Interval::is_fully_unknown)
+            .map_or(true, Interval::is_fully_unknown)
     {
-        return Err(());
+        return verify_failure(input);
     }
 
-    // Build one uncertain nucleotide location from parenthesized regions.
-    Ok(Location::from_uncertain(location))
+    Ok((input, Location::from_uncertain(location)))
 }
 
 /// Parser for digesting the initial allele written in a nucleotide allele
