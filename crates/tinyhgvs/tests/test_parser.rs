@@ -1174,6 +1174,7 @@ fn parses_nucleotide_uncertain_locations() {
     let cdna_uncertain = parse_variant("LRG_199t1:c.(71_72)G>A");
     let rna_unknown_interval = parse_variant("NM_004006.2:r.?_?del");
     let rna_uncertain_interval = parse_variant("NM_004006.2:r.(?_87)del");
+    let rna_uncertain_two_region_interval = parse_variant("NM_004006.2:r.(71_72)_(90_91)del");
     let rna_uncertain_substitution = parse_variant("NM_004006.2:r.(71_72)g>a");
 
     let VariantDescription::Nucleotide(unknown_interval) = unknown_interval.description else {
@@ -1297,6 +1298,25 @@ fn parses_nucleotide_uncertain_locations() {
         tinyhgvs::CoordinateKind::Unknown
     );
     assert_eq!(left_region.end.as_ref().unwrap().coordinate, 87);
+
+    let VariantDescription::Nucleotide(rna_uncertain_two_region_interval) =
+        rna_uncertain_two_region_interval.description
+    else {
+        panic!("expected nucleotide variant");
+    };
+    assert!(rna_uncertain_two_region_interval.location.is_uncertain());
+    let left_region = rna_uncertain_two_region_interval
+        .location
+        .l_interval()
+        .expect("expected left uncertain region");
+    assert_eq!(left_region.start.coordinate, 71);
+    assert_eq!(left_region.end.as_ref().unwrap().coordinate, 72);
+    let right_region = rna_uncertain_two_region_interval
+        .location
+        .r_interval()
+        .expect("expected right uncertain region");
+    assert_eq!(right_region.start.coordinate, 90);
+    assert_eq!(right_region.end.as_ref().unwrap().coordinate, 91);
 
     let VariantDescription::Nucleotide(rna_uncertain_substitution) =
         rna_uncertain_substitution.description
