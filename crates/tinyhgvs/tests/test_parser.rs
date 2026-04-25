@@ -1167,9 +1167,31 @@ fn trims_input_before_parsing() {
 
 #[test]
 fn parses_nucleotide_uncertain_locations() {
+    let unknown_interval = parse_variant("NC_000023.10:g.?_?del");
     let uncertain_position = parse_variant("NC_000023.10:g.(33038277_33038278)C>T");
+    let mixed_uncertain_interval = parse_variant("NC_000023.10:g.(33038277_33038278)_(?_?)del");
     let uncertain_interval = parse_variant("NC_000023.10:g.(?_234567)_(345678_?)del");
     let cdna_uncertain = parse_variant("LRG_199t1:c.(71_72)G>A");
+    let rna_unknown_interval = parse_variant("NM_004006.2:r.?_?del");
+    let rna_uncertain_interval = parse_variant("NM_004006.2:r.(?_87)del");
+    let rna_uncertain_substitution = parse_variant("NM_004006.2:r.(71_72)g>a");
+
+    let VariantDescription::Nucleotide(unknown_interval) = unknown_interval.description else {
+        panic!("expected nucleotide variant");
+    };
+    assert!(!unknown_interval.location.is_uncertain());
+    assert!(!unknown_interval.location.is_pos());
+    assert!(unknown_interval.location.is_interval());
+    assert_eq!(
+        unknown_interval.location.start().unwrap().coordinate,
+        tinyhgvs::CoordinateKind::Unknown
+    );
+    assert_eq!(
+        unknown_interval.location.end().unwrap().coordinate,
+        tinyhgvs::CoordinateKind::Unknown
+    );
+    assert!(unknown_interval.location.l_interval().is_none());
+    assert!(unknown_interval.location.r_interval().is_none());
 
     let VariantDescription::Nucleotide(uncertain_position) = uncertain_position.description else {
         panic!("expected nucleotide variant");
@@ -1186,6 +1208,31 @@ fn parses_nucleotide_uncertain_locations() {
     assert_eq!(left_region.start.coordinate, 33038277);
     assert_eq!(left_region.end.as_ref().unwrap().coordinate, 33038278);
     assert!(uncertain_position.location.r_interval().is_none());
+
+    let VariantDescription::Nucleotide(mixed_uncertain_interval) =
+        mixed_uncertain_interval.description
+    else {
+        panic!("expected nucleotide variant");
+    };
+    assert!(mixed_uncertain_interval.location.is_uncertain());
+    let left_region = mixed_uncertain_interval
+        .location
+        .l_interval()
+        .expect("expected left uncertain region");
+    assert_eq!(left_region.start.coordinate, 33038277);
+    assert_eq!(left_region.end.as_ref().unwrap().coordinate, 33038278);
+    let right_region = mixed_uncertain_interval
+        .location
+        .r_interval()
+        .expect("expected right uncertain region");
+    assert_eq!(
+        right_region.start.coordinate,
+        tinyhgvs::CoordinateKind::Unknown
+    );
+    assert_eq!(
+        right_region.end.as_ref().unwrap().coordinate,
+        tinyhgvs::CoordinateKind::Unknown
+    );
 
     let VariantDescription::Nucleotide(uncertain_interval) = uncertain_interval.description else {
         panic!("expected nucleotide variant");
@@ -1216,6 +1263,48 @@ fn parses_nucleotide_uncertain_locations() {
     };
     assert!(cdna_uncertain.location.is_uncertain());
     let left_region = cdna_uncertain
+        .location
+        .l_interval()
+        .expect("expected left uncertain region");
+    assert_eq!(left_region.start.coordinate, 71);
+    assert_eq!(left_region.end.as_ref().unwrap().coordinate, 72);
+
+    let VariantDescription::Nucleotide(rna_unknown_interval) = rna_unknown_interval.description
+    else {
+        panic!("expected nucleotide variant");
+    };
+    assert!(!rna_unknown_interval.location.is_uncertain());
+    assert_eq!(
+        rna_unknown_interval.location.start().unwrap().coordinate,
+        tinyhgvs::CoordinateKind::Unknown
+    );
+    assert_eq!(
+        rna_unknown_interval.location.end().unwrap().coordinate,
+        tinyhgvs::CoordinateKind::Unknown
+    );
+
+    let VariantDescription::Nucleotide(rna_uncertain_interval) = rna_uncertain_interval.description
+    else {
+        panic!("expected nucleotide variant");
+    };
+    assert!(rna_uncertain_interval.location.is_uncertain());
+    let left_region = rna_uncertain_interval
+        .location
+        .l_interval()
+        .expect("expected left uncertain region");
+    assert_eq!(
+        left_region.start.coordinate,
+        tinyhgvs::CoordinateKind::Unknown
+    );
+    assert_eq!(left_region.end.as_ref().unwrap().coordinate, 87);
+
+    let VariantDescription::Nucleotide(rna_uncertain_substitution) =
+        rna_uncertain_substitution.description
+    else {
+        panic!("expected nucleotide variant");
+    };
+    assert!(rna_uncertain_substitution.location.is_uncertain());
+    let left_region = rna_uncertain_substitution
         .location
         .l_interval()
         .expect("expected left uncertain region");
@@ -1271,9 +1360,22 @@ fn rejects_unknown_nucleotide_bounds_with_offsets() {
 }
 
 #[test]
+fn rejects_malformed_uncertain_range_variants() {
+    for malformed in [
+        "NC_000023.10:g.(?_?)del",
+        "NC_000023.10:g.(?_?)_(?_?)del",
+        "NM_004006.2:r.(?_?)del",
+        "NM_004006.2:r.(?_?)_(?_?)del",
+    ] {
+        let error = parse_hgvs(malformed).unwrap_err();
+        assert_eq!(error.code(), "invalid.syntax");
+    }
+}
+
+#[test]
 fn still_rejects_examples_deferred_to_future_work() {
     let deferred = "r.-128_-126[(600_800)]";
     let error = parse_hgvs(deferred).unwrap_err();
 
-    assert_eq!(error.code(), "unsupported.uncertain_range");
+    assert_eq!(error.code(), "unsupported.uncertain_size");
 }
