@@ -15,7 +15,7 @@
 ///
 /// match variant.description {
 ///     VariantDescription::Nucleotide(description) => {
-///         assert_eq!(description.location.start().unwrap().coordinate, -1);
+///         assert_eq!(description.location.start().unwrap().coordinate().unwrap(), -1);
 ///     }
 ///     _ => unreachable!("expected nucleotide variant"),
 /// }
@@ -275,8 +275,8 @@ impl<'a, T> IntoIterator for &'a AlleleVariant<T> {
 ///             NucleotideEdit::Substitution { ref reference, ref alternate }
 ///                 if reference == "G" && alternate == "A"
 ///         ));
-///         assert_eq!(description.location.start().unwrap().coordinate, 357);
-///         assert_eq!(description.location.start().unwrap().offset, 1);
+///         assert_eq!(description.location.start().unwrap().coordinate().unwrap(), 357);
+///         assert_eq!(description.location.start().unwrap().offset().unwrap(), 1);
 ///     }
 ///     _ => unreachable!("expected nucleotide variant"),
 /// }
@@ -541,35 +541,6 @@ impl<T> Location<T> {
     }
 }
 
-/// Primary nucleotide coordinate value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CoordinateKind {
-    Known(i32),
-    Unknown,
-}
-
-impl CoordinateKind {
-    /// Returns the numeric coordinate when it is known.
-    pub fn value(self) -> Option<i32> {
-        match self {
-            Self::Known(value) => Some(value),
-            Self::Unknown => None,
-        }
-    }
-}
-
-impl PartialEq<i32> for CoordinateKind {
-    fn eq(&self, other: &i32) -> bool {
-        matches!(self, Self::Known(value) if value == other)
-    }
-}
-
-impl PartialEq<CoordinateKind> for i32 {
-    fn eq(&self, other: &CoordinateKind) -> bool {
-        other == self
-    }
-}
-
 /// Anchor used by nucleotide coordinates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NucleotideAnchor {
@@ -581,13 +552,13 @@ pub enum NucleotideAnchor {
     RelativeCdsEnd,
 }
 
-/// Nucleotide coordinate with explicit anchor and offset.
+/// Nucleotide coordinate written as a known position or `?`.
 ///
-/// The primary coordinate keeps the sign written in the HGVS string. For
-/// example, `c.-1` becomes `coordinate == -1`, while `c.*1` becomes
-/// `coordinate == 1`. CDS-anchored intronic positions keep the same primary
-/// coordinate plus a signed secondary offset, e.g. `c.-106+2` becomes
-/// `coordinate == -106` and `offset == 2`.
+/// Known coordinates keep the sign written in the HGVS string. For example,
+/// `c.-1` becomes `coordinate() == Some(-1)`, while `c.*1` becomes
+/// `coordinate() == Some(1)`. CDS-anchored intronic positions keep the same
+/// primary coordinate plus a signed secondary offset, e.g. `c.-106+2` becomes
+/// `coordinate() == Some(-106)` and `offset() == Some(2)`.
 ///
 /// # Examples
 ///
@@ -600,73 +571,113 @@ pub enum NucleotideAnchor {
 ///
 /// match five_prime.description {
 ///     VariantDescription::Nucleotide(description) => {
-///         assert_eq!(description.location.start().unwrap().anchor, NucleotideAnchor::RelativeCdsStart);
-///         assert_eq!(description.location.start().unwrap().coordinate, -1);
-///         assert_eq!(description.location.start().unwrap().offset, 0);
+///         assert_eq!(description.location.start().unwrap().anchor(), Some(NucleotideAnchor::RelativeCdsStart));
+///         assert_eq!(description.location.start().unwrap().coordinate(), Some(-1));
+///         assert_eq!(description.location.start().unwrap().offset(), Some(0));
 ///     }
 ///     _ => unreachable!("expected nucleotide variant"),
 /// }
 ///
 /// match three_prime.description {
 ///     VariantDescription::Nucleotide(description) => {
-///         assert_eq!(description.location.start().unwrap().anchor, NucleotideAnchor::RelativeCdsEnd);
-///         assert_eq!(description.location.start().unwrap().coordinate, 1);
-///         assert_eq!(description.location.start().unwrap().offset, 0);
+///         assert_eq!(description.location.start().unwrap().anchor(), Some(NucleotideAnchor::RelativeCdsEnd));
+///         assert_eq!(description.location.start().unwrap().coordinate(), Some(1));
+///         assert_eq!(description.location.start().unwrap().offset(), Some(0));
 ///     }
 ///     _ => unreachable!("expected nucleotide variant"),
 /// }
 ///
 /// match five_prime_intronic.description {
 ///     VariantDescription::Nucleotide(description) => {
-///         assert_eq!(description.location.start().unwrap().anchor, NucleotideAnchor::RelativeCdsStart);
-///         assert_eq!(description.location.start().unwrap().coordinate, -106);
-///         assert_eq!(description.location.start().unwrap().offset, 2);
+///         assert_eq!(description.location.start().unwrap().anchor(), Some(NucleotideAnchor::RelativeCdsStart));
+///         assert_eq!(description.location.start().unwrap().coordinate(), Some(-106));
+///         assert_eq!(description.location.start().unwrap().offset(), Some(2));
 ///     }
 ///     _ => unreachable!("expected nucleotide variant"),
 /// }
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NucleotideCoordinate {
-    /// Anchor type used to describe `coordinate`.
-    pub anchor: NucleotideAnchor,
-    /// Primary coordinate written in the HGVS string.
-    pub coordinate: CoordinateKind,
-    /// Secondary displacement written after the primary coordinate.
-    pub offset: i32,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NucleotideCoordinate {
+    /// Known nucleotide coordinate with anchor and optional offset.
+    Known {
+        anchor: NucleotideAnchor,
+        coordinate: i32,
+        offset: i32,
+    },
+    /// Unknown nucleotide coordinate written as `?`.
+    Unknown,
 }
 
 impl NucleotideCoordinate {
-    /// Returns `true` when the primary coordinate is written as `?`.
+    /// Builds a known nucleotide coordinate.
+    pub fn known(anchor: NucleotideAnchor, coordinate: i32, offset: i32) -> Self {
+        Self::Known {
+            anchor,
+            coordinate,
+            offset,
+        }
+    }
+
+    /// Returns `true` when this coordinate is known.
+    pub fn is_known(&self) -> bool {
+        matches!(self, Self::Known { .. })
+    }
+
+    /// Returns `true` when this coordinate is written as `?`.
     pub fn is_unknown(&self) -> bool {
-        matches!(self.coordinate, CoordinateKind::Unknown)
+        matches!(self, Self::Unknown)
+    }
+
+    /// Returns the anchor when this coordinate is known.
+    pub fn anchor(&self) -> Option<NucleotideAnchor> {
+        match self {
+            Self::Known { anchor, .. } => Some(*anchor),
+            Self::Unknown => None,
+        }
+    }
+
+    /// Returns the primary coordinate when it is known.
+    pub fn coordinate(&self) -> Option<i32> {
+        match self {
+            Self::Known { coordinate, .. } => Some(*coordinate),
+            Self::Unknown => None,
+        }
+    }
+
+    /// Returns the offset when this coordinate is known.
+    pub fn offset(&self) -> Option<i32> {
+        match self {
+            Self::Known { offset, .. } => Some(*offset),
+            Self::Unknown => None,
+        }
     }
 
     /// Returns `true` for intronic coordinates such as `357+1`, `-106+2`,
     /// and `*639-1`.
     pub fn is_intronic(&self) -> bool {
-        self.offset != 0
+        self.offset().is_some_and(|offset| offset != 0)
     }
 
     /// Returns `true` if variant's location is relative to the CDS start, such
     /// as `c.-1` and `c.-106+2`.
     pub fn is_cds_start_anchored(&self) -> bool {
-        matches!(self.anchor, NucleotideAnchor::RelativeCdsStart)
+        matches!(self.anchor(), Some(NucleotideAnchor::RelativeCdsStart))
     }
 
     /// Returns `true` if variant's location is relative to the CDS end, such
     /// as `c.*1` and `c.*639-1`.
     pub fn is_cds_end_anchored(&self) -> bool {
-        matches!(self.anchor, NucleotideAnchor::RelativeCdsEnd)
+        matches!(self.anchor(), Some(NucleotideAnchor::RelativeCdsEnd))
     }
 
     /// Returns `true` for exonic 5' UTR coordinates such as `c.-81`.
     pub fn is_five_prime_utr(&self) -> bool {
-        self.is_cds_start_anchored() && self.offset == 0
+        self.is_cds_start_anchored() && self.offset() == Some(0)
     }
 
     /// Returns `true` for exonic 3' UTR coordinates such as `c.*24`.
     pub fn is_three_prime_utr(&self) -> bool {
-        self.is_cds_end_anchored() && self.offset == 0
+        self.is_cds_end_anchored() && self.offset() == Some(0)
     }
 }
 
@@ -814,8 +825,8 @@ pub struct NucleotideRepeatBlock {
 ///             unreachable!("expected copied sequence");
 ///         };
 ///         assert!(item.is_from_same_reference());
-///         assert_eq!(item.source_location.start.coordinate, 450);
-///         assert_eq!(item.source_location.end.as_ref().unwrap().coordinate, 470);
+///         assert_eq!(item.source_location.start.coordinate().unwrap(), 450);
+///         assert_eq!(item.source_location.end.as_ref().unwrap().coordinate().unwrap(), 470);
 ///     }
 ///     _ => unreachable!("expected nucleotide variant"),
 /// }

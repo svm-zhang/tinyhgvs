@@ -16,12 +16,12 @@ use nom::{IResult, Parser};
 use crate::diagnostics::classify_parse_failure;
 use crate::error::ParseHgvsError;
 use crate::model::{
-    Accession, Allele, AllelePhase, AlleleVariant, CoordinateKind, CoordinateSystem,
-    CopiedSequenceItem, HgvsVariant, Interval, LiteralSequenceItem, Location, NucleotideAnchor,
-    NucleotideCoordinate, NucleotideEdit, NucleotideRepeatBlock, NucleotideSequenceItem,
-    NucleotideVariant, ProteinCoordinate, ProteinEdit, ProteinEffect, ProteinExtensionEdit,
-    ProteinExtensionTerminal, ProteinFrameshiftStop, ProteinFrameshiftStopKind, ProteinSequence,
-    ProteinVariant, ReferenceSpec, RepeatSequenceItem, VariantDescription,
+    Accession, Allele, AllelePhase, AlleleVariant, CoordinateSystem, CopiedSequenceItem,
+    HgvsVariant, Interval, LiteralSequenceItem, Location, NucleotideAnchor, NucleotideCoordinate,
+    NucleotideEdit, NucleotideRepeatBlock, NucleotideSequenceItem, NucleotideVariant,
+    ProteinCoordinate, ProteinEdit, ProteinEffect, ProteinExtensionEdit, ProteinExtensionTerminal,
+    ProteinFrameshiftStop, ProteinFrameshiftStopKind, ProteinSequence, ProteinVariant,
+    ReferenceSpec, RepeatSequenceItem, VariantDescription,
 };
 
 type ParseResult<'a, T> = IResult<&'a str, T>;
@@ -56,9 +56,9 @@ const PROTEIN_SYMBOLS: &[&str] = &[
 ///
 /// match variant.description {
 ///     VariantDescription::Nucleotide(nucleotide) => {
-///         assert_eq!(nucleotide.location.start().unwrap().anchor, NucleotideAnchor::Absolute);
-///         assert_eq!(nucleotide.location.start().unwrap().coordinate, 357);
-///         assert_eq!(nucleotide.location.start().unwrap().offset, 1);
+///         assert_eq!(nucleotide.location.start().unwrap().anchor().unwrap(), NucleotideAnchor::Absolute);
+///         assert_eq!(nucleotide.location.start().unwrap().coordinate().unwrap(), 357);
+///         assert_eq!(nucleotide.location.start().unwrap().offset().unwrap(), 1);
 ///         assert!(matches!(
 ///             nucleotide.edit,
 ///             NucleotideEdit::Substitution { ref reference, ref alternate }
@@ -78,9 +78,9 @@ const PROTEIN_SYMBOLS: &[&str] = &[
 ///
 /// match variant.description {
 ///     VariantDescription::Nucleotide(nucleotide) => {
-///         assert_eq!(nucleotide.location.start().unwrap().anchor, NucleotideAnchor::RelativeCdsStart);
-///         assert_eq!(nucleotide.location.start().unwrap().coordinate, -1);
-///         assert_eq!(nucleotide.location.start().unwrap().offset, 0);
+///         assert_eq!(nucleotide.location.start().unwrap().anchor().unwrap(), NucleotideAnchor::RelativeCdsStart);
+///         assert_eq!(nucleotide.location.start().unwrap().coordinate().unwrap(), -1);
+///         assert_eq!(nucleotide.location.start().unwrap().offset().unwrap(), 0);
 ///     }
 ///     _ => unreachable!("expected nucleotide variant"),
 /// }
@@ -96,18 +96,18 @@ const PROTEIN_SYMBOLS: &[&str] = &[
 ///
 /// match five_prime_intronic.description {
 ///     VariantDescription::Nucleotide(nucleotide) => {
-///         assert_eq!(nucleotide.location.start().unwrap().anchor, NucleotideAnchor::RelativeCdsStart);
-///         assert_eq!(nucleotide.location.start().unwrap().coordinate, -106);
-///         assert_eq!(nucleotide.location.start().unwrap().offset, 2);
+///         assert_eq!(nucleotide.location.start().unwrap().anchor().unwrap(), NucleotideAnchor::RelativeCdsStart);
+///         assert_eq!(nucleotide.location.start().unwrap().coordinate().unwrap(), -106);
+///         assert_eq!(nucleotide.location.start().unwrap().offset().unwrap(), 2);
 ///     }
 ///     _ => unreachable!("expected nucleotide variant"),
 /// }
 ///
 /// match three_prime_intronic.description {
 ///     VariantDescription::Nucleotide(nucleotide) => {
-///         assert_eq!(nucleotide.location.start().unwrap().anchor, NucleotideAnchor::RelativeCdsEnd);
-///         assert_eq!(nucleotide.location.start().unwrap().coordinate, 639);
-///         assert_eq!(nucleotide.location.start().unwrap().offset, -1);
+///         assert_eq!(nucleotide.location.start().unwrap().anchor().unwrap(), NucleotideAnchor::RelativeCdsEnd);
+///         assert_eq!(nucleotide.location.start().unwrap().coordinate().unwrap(), 639);
+///         assert_eq!(nucleotide.location.start().unwrap().offset().unwrap(), -1);
 ///     }
 ///     _ => unreachable!("expected nucleotide variant"),
 /// }
@@ -537,8 +537,8 @@ fn build_known_nucleotide_location<'a>(
     Ok((input, Location::from_known(interval)))
 }
 
-/// Build uncertain nucleotide location model. "Uncertain" means the exact
-/// location where mutation occurs is unknown.
+/// Build uncertain nucleotide location model. "Uncertain" means the location
+/// where mutation occurs is not fully resolved.
 ///
 /// - `NC_000023.10:g.(33038277_33038278)C>T`
 /// - `g.(123456_234567)_(345678_456789)del`
@@ -690,11 +690,7 @@ fn nucleotide_coordinate(input: &str) -> ParseResult<'_, NucleotideCoordinate> {
                     .map(|(sign, value)| if sign == '-' { -value } else { value })
                     .unwrap_or(0);
 
-                NucleotideCoordinate {
-                    anchor: NucleotideAnchor::RelativeCdsStart,
-                    coordinate: CoordinateKind::Known(-coordinate),
-                    offset,
-                }
+                NucleotideCoordinate::known(NucleotideAnchor::RelativeCdsStart, -coordinate, offset)
             },
         ),
         map(
@@ -707,11 +703,7 @@ fn nucleotide_coordinate(input: &str) -> ParseResult<'_, NucleotideCoordinate> {
                     .map(|(sign, value)| if sign == '-' { -value } else { value })
                     .unwrap_or(0);
 
-                NucleotideCoordinate {
-                    anchor: NucleotideAnchor::RelativeCdsEnd,
-                    coordinate: CoordinateKind::Known(coordinate),
-                    offset,
-                }
+                NucleotideCoordinate::known(NucleotideAnchor::RelativeCdsEnd, coordinate, offset)
             },
         ),
         // A, or A+offset, or A-offset, where A is the coordinate
@@ -722,22 +714,11 @@ fn nucleotide_coordinate(input: &str) -> ParseResult<'_, NucleotideCoordinate> {
                     .map(|(sign, value)| if sign == '-' { -value } else { value })
                     .unwrap_or(0);
 
-                NucleotideCoordinate {
-                    anchor: NucleotideAnchor::Absolute,
-                    coordinate: CoordinateKind::Known(coordinate),
-                    offset,
-                }
+                NucleotideCoordinate::known(NucleotideAnchor::Absolute, coordinate, offset)
             },
         ),
         // ?, unknown coordinate
-        value(
-            NucleotideCoordinate {
-                anchor: NucleotideAnchor::Absolute,
-                coordinate: CoordinateKind::Unknown,
-                offset: 0,
-            },
-            char('?'),
-        ),
+        value(NucleotideCoordinate::Unknown, char('?')),
     ))
     .parse(input)
 }
@@ -1492,50 +1473,62 @@ mod tests {
     #[test]
     fn parses_nucleotide_position_branches() {
         let (_, coding) = all_consuming(nucleotide_coordinate).parse("93+1").unwrap();
-        assert_eq!(coding.anchor, NucleotideAnchor::Absolute);
-        assert_eq!(coding.coordinate, CoordinateKind::Known(93));
-        assert_eq!(coding.offset, 1);
+        assert_eq!(coding.anchor().unwrap(), NucleotideAnchor::Absolute);
+        assert_eq!(coding.coordinate(), Some(93));
+        assert_eq!(coding.offset().unwrap(), 1);
 
         let (_, upstream_intronic) = all_consuming(nucleotide_coordinate).parse("93-2").unwrap();
-        assert_eq!(upstream_intronic.anchor, NucleotideAnchor::Absolute);
-        assert_eq!(upstream_intronic.coordinate, CoordinateKind::Known(93));
-        assert_eq!(upstream_intronic.offset, -2);
+        assert_eq!(
+            upstream_intronic.anchor().unwrap(),
+            NucleotideAnchor::Absolute
+        );
+        assert_eq!(upstream_intronic.coordinate(), Some(93));
+        assert_eq!(upstream_intronic.offset().unwrap(), -2);
 
         let (_, utr5) = all_consuming(nucleotide_coordinate).parse("-18").unwrap();
-        assert_eq!(utr5.anchor, NucleotideAnchor::RelativeCdsStart);
-        assert_eq!(utr5.coordinate, CoordinateKind::Known(-18));
-        assert_eq!(utr5.offset, 0);
+        assert_eq!(utr5.anchor().unwrap(), NucleotideAnchor::RelativeCdsStart);
+        assert_eq!(utr5.coordinate(), Some(-18));
+        assert_eq!(utr5.offset().unwrap(), 0);
 
         let (_, utr5_intronic) = all_consuming(nucleotide_coordinate)
             .parse("-106+2")
             .unwrap();
-        assert_eq!(utr5_intronic.anchor, NucleotideAnchor::RelativeCdsStart);
-        assert_eq!(utr5_intronic.coordinate, CoordinateKind::Known(-106));
-        assert_eq!(utr5_intronic.offset, 2);
+        assert_eq!(
+            utr5_intronic.anchor().unwrap(),
+            NucleotideAnchor::RelativeCdsStart
+        );
+        assert_eq!(utr5_intronic.coordinate(), Some(-106));
+        assert_eq!(utr5_intronic.offset().unwrap(), 2);
 
         let (_, utr5_intronic_upstream) =
             all_consuming(nucleotide_coordinate).parse("-84-1").unwrap();
         assert_eq!(
-            utr5_intronic_upstream.anchor,
+            utr5_intronic_upstream.anchor().unwrap(),
             NucleotideAnchor::RelativeCdsStart
         );
-        assert_eq!(
-            utr5_intronic_upstream.coordinate,
-            CoordinateKind::Known(-84)
-        );
-        assert_eq!(utr5_intronic_upstream.offset, -1);
+        assert_eq!(utr5_intronic_upstream.coordinate().unwrap(), -84);
+        assert_eq!(utr5_intronic_upstream.offset().unwrap(), -1);
 
         let (_, utr3) = all_consuming(nucleotide_coordinate).parse("*18").unwrap();
-        assert_eq!(utr3.anchor, NucleotideAnchor::RelativeCdsEnd);
-        assert_eq!(utr3.coordinate, CoordinateKind::Known(18));
-        assert_eq!(utr3.offset, 0);
+        assert_eq!(utr3.anchor().unwrap(), NucleotideAnchor::RelativeCdsEnd);
+        assert_eq!(utr3.coordinate(), Some(18));
+        assert_eq!(utr3.offset().unwrap(), 0);
 
         let (_, utr3_intronic) = all_consuming(nucleotide_coordinate)
             .parse("*639-1")
             .unwrap();
-        assert_eq!(utr3_intronic.anchor, NucleotideAnchor::RelativeCdsEnd);
-        assert_eq!(utr3_intronic.coordinate, CoordinateKind::Known(639));
-        assert_eq!(utr3_intronic.offset, -1);
+        assert_eq!(
+            utr3_intronic.anchor().unwrap(),
+            NucleotideAnchor::RelativeCdsEnd
+        );
+        assert_eq!(utr3_intronic.coordinate(), Some(639));
+        assert_eq!(utr3_intronic.offset().unwrap(), -1);
+
+        let (_, unknown) = all_consuming(nucleotide_coordinate).parse("?").unwrap();
+        assert!(unknown.is_unknown());
+        assert_eq!(unknown.anchor(), None);
+        assert_eq!(unknown.coordinate(), None);
+        assert_eq!(unknown.offset(), None);
 
         assert!(all_consuming(nucleotide_coordinate).parse("-0").is_err());
         assert!(all_consuming(nucleotide_coordinate).parse("-0+2").is_err());
