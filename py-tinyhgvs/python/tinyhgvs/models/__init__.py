@@ -58,6 +58,7 @@ from .shared import (
     AlleleVariant,
     CoordinateSystem,
     Interval,
+    Location,
     ReferenceSpec,
 )
 
@@ -139,6 +140,7 @@ __all__ = [
     "CoordinateSystem",
     "HgvsVariant",
     "Interval",
+    "Location",
     "LiteralSequenceItem",
     "NucleotideDeletionInsertionEdit",
     "NucleotideAnchor",

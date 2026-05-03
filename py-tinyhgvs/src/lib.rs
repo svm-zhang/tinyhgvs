@@ -1,13 +1,14 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyModule, PyTuple};
 use tinyhgvs::{
-    parse_hgvs as parse_hgvs_core, Accession, Allele, AllelePhase, AlleleVariant, CoordinateSystem,
-    CopiedSequenceItem, HgvsVariant as CoreHgvsVariant, Interval, LiteralSequenceItem,
-    NucleotideAnchor, NucleotideCoordinate, NucleotideEdit, NucleotideRepeatBlock,
-    NucleotideSequenceItem, NucleotideVariant, ParseHgvsError as CoreParseHgvsError,
-    ParseHgvsErrorKind, ProteinCoordinate, ProteinEdit, ProteinEffect, ProteinExtensionEdit,
-    ProteinExtensionTerminal, ProteinFrameshiftStop, ProteinFrameshiftStopKind, ProteinSequence,
-    ReferenceSpec, RepeatSequenceItem, VariantDescription,
+    parse_hgvs as parse_hgvs_core, Accession, Allele, AllelePhase, AlleleVariant, CoordinateKind,
+    CoordinateSystem, CopiedSequenceItem, HgvsVariant as CoreHgvsVariant, Interval,
+    LiteralSequenceItem, Location, NucleotideAnchor, NucleotideCoordinate, NucleotideEdit,
+    NucleotideRepeatBlock, NucleotideSequenceItem, NucleotideVariant,
+    ParseHgvsError as CoreParseHgvsError, ParseHgvsErrorKind, ProteinCoordinate, ProteinEdit,
+    ProteinEffect, ProteinExtensionEdit, ProteinExtensionTerminal, ProteinFrameshiftStop,
+    ProteinFrameshiftStopKind, ProteinSequence, ReferenceSpec, RepeatSequenceItem,
+    VariantDescription,
 };
 
 const PY_ERRORS_MODULE: &str = "tinyhgvs.errors";
@@ -69,9 +70,14 @@ impl<'py> PyModelCodec<'py> {
     }
 
     fn nucleotide_coordinate(&self, value: &NucleotideCoordinate) -> PyResult<Bound<'py, PyAny>> {
+        let coordinate = match value.coordinate {
+            CoordinateKind::Known(coordinate) => Some(coordinate),
+            CoordinateKind::Unknown => None,
+        };
+
         self.class("NucleotideCoordinate")?.call1((
             self.nucleotide_anchor(value.anchor)?,
-            value.coordinate,
+            coordinate,
             value.offset,
         ))
     }
@@ -104,6 +110,61 @@ impl<'py> PyModelCodec<'py> {
 
         self.class("Interval")?
             .call1((self.protein_coordinate(&value.start)?, end))
+    }
+
+    fn nucleotide_uncertain_location(
+        &self,
+        value: &Interval<Interval<NucleotideCoordinate>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let end = value
+            .end
+            .as_ref()
+            .map(|end| self.nucleotide_interval(end))
+            .transpose()?;
+
+        self.class("Interval")?
+            .call1((self.nucleotide_interval(&value.start)?, end))
+    }
+
+    fn nucleotide_location(
+        &self,
+        value: &Location<NucleotideCoordinate>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let (known, uncertain): (Option<Bound<'py, PyAny>>, Option<Bound<'py, PyAny>>) = match value
+        {
+            Location::Known(interval) => (Some(self.nucleotide_interval(interval)?), None),
+            Location::Uncertain(interval) => {
+                (None, Some(self.nucleotide_uncertain_location(interval)?))
+            }
+        };
+
+        self.class("Location")?.call1((known, uncertain))
+    }
+
+    fn protein_uncertain_location(
+        &self,
+        value: &Interval<Interval<ProteinCoordinate>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let end = value
+            .end
+            .as_ref()
+            .map(|end| self.protein_interval(end))
+            .transpose()?;
+
+        self.class("Interval")?
+            .call1((self.protein_interval(&value.start)?, end))
+    }
+
+    fn protein_location(&self, value: &Location<ProteinCoordinate>) -> PyResult<Bound<'py, PyAny>> {
+        let (known, uncertain): (Option<Bound<'py, PyAny>>, Option<Bound<'py, PyAny>>) = match value
+        {
+            Location::Known(interval) => (Some(self.protein_interval(interval)?), None),
+            Location::Uncertain(interval) => {
+                (None, Some(self.protein_uncertain_location(interval)?))
+            }
+        };
+
+        self.class("Location")?.call1((known, uncertain))
     }
 
     fn copied_sequence_item(&self, value: &CopiedSequenceItem) -> PyResult<Bound<'py, PyAny>> {
@@ -239,7 +300,7 @@ impl<'py> PyModelCodec<'py> {
 
     fn nucleotide_variant(&self, value: &NucleotideVariant) -> PyResult<Bound<'py, PyAny>> {
         self.class("NucleotideVariant")?.call1((
-            self.nucleotide_interval(&value.location)?,
+            self.nucleotide_location(&value.location)?,
             self.nucleotide_edit(&value.edit)?,
         ))
     }
@@ -373,7 +434,7 @@ impl<'py> PyModelCodec<'py> {
             }
             ProteinEffect::Edit { location, edit } => self
                 .class("ProteinEditEffect")?
-                .call1((self.protein_interval(location)?, self.protein_edit(edit)?)),
+                .call1((self.protein_location(location)?, self.protein_edit(edit)?)),
         }
     }
 

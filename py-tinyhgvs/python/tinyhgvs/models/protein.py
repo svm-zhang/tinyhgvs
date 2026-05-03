@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal, TypeAlias
 
-from .shared import Interval
+from .shared import Location
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,7 +61,7 @@ class ProteinSequenceOmittedEdit(str, Enum):
     """Protein edits whose altered amino-acid sequence is not written explicitly.
 
     Attributes:
-        UNKNOWN: A protein change is expected, but the exact consequence is not known.
+        UNKNOWN: A protein change is expected, but the consequence is not known.
         NO_CHANGE: No protein change, written as ``=``.
         DELETION: Deletion of the stated amino-acid interval.
         DUPLICATION: Duplication of the stated amino-acid interval.
@@ -413,11 +413,11 @@ class ProteinNoProteinProducedEffect:
 
 @dataclass(frozen=True, slots=True)
 class ProteinEditEffect:
-    """Concrete protein consequence at a known amino-acid interval.
+    """Protein consequence at specified location.
 
     Attributes:
-        location: Amino-acid range where the edit occurs.
-        edit: Protein edit applied at that range.
+        location: [`Location`][tinyhgvs.models.shared.Location] where the edit occurs.
+        edit: Protein edit applied at the location.
         kind: Effect kind.
 
     Examples:
@@ -452,7 +452,7 @@ class ProteinEditEffect:
         17
     """
 
-    location: Interval[ProteinCoordinate]
+    location: Location[ProteinCoordinate]
     edit: ProteinEdit
     kind: Literal["edit"] = field(init=False, default="edit")
 

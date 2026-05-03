@@ -18,8 +18,8 @@ from .shared import (
     AlleleVariant,
     CoordinateSystem,
     Interval,
+    Location,
     ReferenceSpec,
-    VariantT,
 )
 
 
@@ -60,8 +60,8 @@ class NucleotideCoordinate:
 
     Attributes:
         anchor: Reference point used to interpret the coordinate.
-        coordinate: Primary HGVS coordinate as written. For example, ``c.-81``
-            uses ``coordinate == -81`` and ``c.*24`` uses ``coordinate == 24``.
+        coordinate: Primary HGVS coordinate as written. ``None`` when
+            coordinate is unknown: ``?`` in the description.
         offset: Signed secondary displacement from the primary coordinate.
             Positive values move downstream and negative values move upstream.
 
@@ -112,7 +112,7 @@ class NucleotideCoordinate:
     """
 
     anchor: NucleotideAnchor
-    coordinate: int
+    coordinate: int | None
     offset: int = 0
 
     @property
@@ -530,8 +530,9 @@ class NucleotideVariant:
     """Model describing a nucleotide-level variant.
 
     Attributes:
-        location: Inclusive nucleotide interval where the edit is applied.
-        edit: Nucleotide edit applied at that interval.
+        location: [`Location`][tinyhgvs.models.shared.Location] where the
+            nucleotide edit occurs.
+        edit: Nucleotide edit applied at the location.
 
     Examples:
         A splice-site substitution is represented by a nucleotide location and
@@ -547,7 +548,7 @@ class NucleotideVariant:
         1
     """
 
-    location: Interval[NucleotideCoordinate]
+    location: Location[NucleotideCoordinate]
     edit: NucleotideEdit
 
 

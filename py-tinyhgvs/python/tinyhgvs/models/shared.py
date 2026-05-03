@@ -59,7 +59,7 @@ class Accession:
     """Sequence accession with optional version.
 
     Attributes:
-        id: Accession string exactly as it appears in the HGVS expression.
+        id: Accession string as it appears in the HGVS expression.
         version: Parsed version suffix when one is present.
 
     Examples:
@@ -156,6 +156,178 @@ class Interval(Generic[PositionT]):
 
     start: PositionT
     end: PositionT | None = None
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class Location(Generic[PositionT]):
+    """Model describing location in variant description.
+
+    Location can be known or uncertain in a given description.
+    """
+
+    _known: Interval[PositionT] | None
+    _uncertain: Interval[Interval[PositionT]] | None
+
+    def __init__(
+        self,
+        known: Interval[PositionT] | None = None,
+        uncertain: Interval[Interval[PositionT]] | None = None,
+    ) -> None:
+        object.__setattr__(self, "_known", known)
+        object.__setattr__(self, "_uncertain", uncertain)
+
+    @property
+    def is_uncertain(self) -> bool:
+        """Return ``True`` when the location is unknown.
+
+        Examples:
+            DNA substitution with unknown location:
+            >>> from tinyhgvs import parse_hgvs
+            >>> variant = parse_hgvs("NC_000023.10:g.(33038277_33038278)C>T")
+            >>> location = variant.description.location
+            >>> location.is_uncertain
+            True
+
+            Intronic substitution at known location:
+            >>> variant = parse_hgvs("NM_004006.2:c.93+1G>T")
+            >>> location = variant.description.location
+            >>> location.is_uncertain
+            False
+        """
+        return self._uncertain is not None
+
+    @property
+    def is_pos(self) -> bool:
+        """Return ``True`` for a known single-position location.
+
+        Examples:
+            >>> from tinyhgvs import parse_hgvs
+            >>> variant = parse_hgvs("NM_004006.2:c.5697del")
+            >>> location = variant.description.location
+            >>> location.is_pos
+            True
+        """
+        return self._known is not None and self._known.end is None
+
+    @property
+    def is_interval(self) -> bool:
+        """Return ``True`` when location is described as an interval.
+
+        Examples:
+            >>> from tinyhgvs import parse_hgvs
+            >>> variant = parse_hgvs("NC_000023.10:g.(33038277_33038278)C>T")
+            >>> location = variant.description.location
+            >>> location.is_interval
+            True
+
+            >>> variant = parse_hgvs("NM_004006.2:c.93_94del")
+            >>> location = variant.description.location
+            >>> location.is_interval
+            True
+        """
+        return not self.is_pos
+
+    @property
+    def start(self) -> PositionT | None:
+        """Return the left/start position of a known location. None when
+        location is uncertain.
+
+        Examples:
+            >>> from tinyhgvs import parse_hgvs
+            >>> variant = parse_hgvs("NM_004006.2:c.93_94del")
+            >>> location = variant.description.location
+            >>> location.is_uncertain
+            False
+            >>> location.start
+            NucleotideCoordinate(anchor=<NucleotideAnchor.ABSOLUTE: 'absolute'>, coordinate=93, offset=0)
+
+            >>> variant = parse_hgvs("NC_000023.10:g.(33038277_33038278)C>T")
+            >>> location = variant.description.location
+            >>> location.start is None
+            True
+        """
+        if self._known is None:
+            return None
+        return self._known.start
+
+    @property
+    def end(self) -> PositionT | None:
+        """Return the right/right position of a known location. None when
+        location is unknown.
+
+        Examples:
+            >>> from tinyhgvs import parse_hgvs
+            >>> variant = parse_hgvs("NM_004006.2:c.93_94del")
+            >>> location = variant.description.location
+            >>> location.is_uncertain
+            False
+            >>> location.end
+            NucleotideCoordinate(anchor=<NucleotideAnchor.ABSOLUTE: 'absolute'>, coordinate=94, offset=0)
+
+            >>> variant = parse_hgvs("NC_000023.10:g.(33038277_33038278)C>T")
+            >>> location = variant.description.location
+            >>> location.end is None
+            True
+
+        """
+        if self._known is None:
+            return None
+        return self._known.end
+
+    @property
+    def l_interval(self) -> Interval[PositionT] | None:
+        """Return the left uncertain interval for uncertain locations. None
+        when the location is known.
+
+        Examples:
+            >>> from tinyhgvs import parse_hgvs
+            >>> variant = parse_hgvs("NC_000023.10:g.(33038277_33038278)C>T")
+            >>> location = variant.description.location
+            >>> location.is_uncertain
+            True
+            >>> location.l_interval.start.coordinate
+            33038277
+            >>> location.l_interval.end.coordinate
+            33038278
+
+            >>> variant = parse_hgvs("p.(Ala123_Pro131)Ter")
+            >>> location = variant.description.effect.location
+            >>> location.is_uncertain
+            True
+            >>> location.l_interval.start
+            ProteinCoordinate(residue='Ala', ordinal=123)
+            >>> location.l_interval.end
+            ProteinCoordinate(residue='Pro', ordinal=131)
+
+        """
+        if self._uncertain is None:
+            return None
+        return self._uncertain.start
+
+    @property
+    def r_interval(self) -> Interval[PositionT] | None:
+        """Return the right uncertain interval for uncertain locations. None
+        when the location is known.
+
+        Examples:
+            >>> from tinyhgvs import parse_hgvs
+            >>> variant = parse_hgvs("NC_000023.10:g.(?_32238146)_(32984039_?)del")
+            >>> location = variant.description.location
+            >>> location.is_uncertain
+            True
+            >>> location.l_interval.start.coordinate is None
+            True
+            >>> location.l_interval.end.coordinate
+            32238146
+            >>> location.r_interval.start.coordinate
+            32984039
+            >>> location.r_interval.end.coordinate is None
+            True
+
+        """
+        if self._uncertain is None:
+            return None
+        return self._uncertain.end
 
 
 class AllelePhase(str, Enum):
@@ -514,6 +686,7 @@ __all__ = [
     "AlleleVariant",
     "CoordinateSystem",
     "Interval",
+    "Location",
     "PositionT",
     "ReferenceSpec",
     "VariantT",
