@@ -655,7 +655,7 @@ impl NucleotideCoordinate {
     /// Returns `true` for intronic coordinates such as `357+1`, `-106+2`,
     /// and `*639-1`.
     pub fn is_intronic(&self) -> bool {
-        self.offset().is_some_and(|offset| offset != 0)
+        self.offset().map_or(false, |offset| offset != 0)
     }
 
     /// Returns `true` if variant's location is relative to the CDS start, such

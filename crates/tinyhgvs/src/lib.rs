@@ -25,7 +25,7 @@
 //! - `reference`: the reference source for a variant.
 //! - `coordinate_system`: the one-letter HGVS coordinate type.
 //! - `description`: the nucleotide or protein variant description, including
-//!     location and base edits or effects.
+//!   location and base edits or effects.
 //!
 //! # Examples
 //!

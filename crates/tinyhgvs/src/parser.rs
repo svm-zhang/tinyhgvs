@@ -1413,17 +1413,14 @@ fn resolve_nucleotide_location(
     let Some(last_location) = blocks
         .iter()
         .filter_map(|block| block.location.as_ref())
-        .last()
+        .next_back()
     else {
         return Some(Location::from_known(initial_location.clone()));
     };
 
     Some(Location::from_known(Interval {
-        start: initial_location.start.clone(),
-        end: last_location
-            .end
-            .clone()
-            .or_else(|| Some(last_location.start.clone())),
+        start: initial_location.start,
+        end: last_location.end.or(Some(last_location.start)),
     }))
 }
 
