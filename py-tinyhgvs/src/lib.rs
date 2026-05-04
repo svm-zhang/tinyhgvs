@@ -86,12 +86,9 @@ impl<'py> PyModelCodec<'py> {
             )),
             NucleotideCoordinate::Unknown => self.class("NucleotideCoordinate")?.call1((
                 self.nucleotide_coordinate_kind("unknown")?,
-                self.py().None(),
-                self.py().None(),
-                self.py().None(),
-                // Option::<Bound<'py, PyAny>>::None,
-                // Option::<i32>::None,
-                // Option::<i32>::None,
+                self.py.None(),
+                self.py.None(),
+                self.py.None(),
             )),
         }
     }
