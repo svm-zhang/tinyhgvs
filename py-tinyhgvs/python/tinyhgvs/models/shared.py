@@ -178,7 +178,7 @@ class Location(Generic[PositionT]):
 
     @property
     def is_uncertain(self) -> bool:
-        """Return ``True`` when the location is unknown.
+        """Return ``True`` when the location is uncertain.
 
         Examples:
             DNA substitution with unknown location:
@@ -238,11 +238,15 @@ class Location(Generic[PositionT]):
             >>> location = variant.description.location
             >>> location.is_uncertain
             False
-            >>> location.start
-            NucleotideCoordinate(anchor=<NucleotideAnchor.ABSOLUTE: 'absolute'>, coordinate=93, offset=0)
+            >>> location.start.kind
+            <NucleotideCoordinateKind.KNOWN: 'known'>
+            >>> location.start.coordinate
+            93
 
             >>> variant = parse_hgvs("NC_000023.10:g.(33038277_33038278)C>T")
             >>> location = variant.description.location
+            >>> location.is_uncertain
+            True
             >>> location.start is None
             True
         """
@@ -252,8 +256,8 @@ class Location(Generic[PositionT]):
 
     @property
     def end(self) -> PositionT | None:
-        """Return the right/right position of a known location. None when
-        location is unknown.
+        """Return the right position of a known location. None when
+        location is uncertain.
 
         Examples:
             >>> from tinyhgvs import parse_hgvs
@@ -261,11 +265,15 @@ class Location(Generic[PositionT]):
             >>> location = variant.description.location
             >>> location.is_uncertain
             False
-            >>> location.end
-            NucleotideCoordinate(anchor=<NucleotideAnchor.ABSOLUTE: 'absolute'>, coordinate=94, offset=0)
+            >>> location.end.kind
+            <NucleotideCoordinateKind.KNOWN: 'known'>
+            >>> location.end.coordinate
+            94
 
             >>> variant = parse_hgvs("NC_000023.10:g.(33038277_33038278)C>T")
             >>> location = variant.description.location
+            >>> location.is_uncertain
+            True
             >>> location.end is None
             True
 
@@ -289,6 +297,8 @@ class Location(Generic[PositionT]):
             33038277
             >>> location.l_interval.end.coordinate
             33038278
+            >>> location.r_interval is None
+            True
 
             >>> variant = parse_hgvs("p.(Ala123_Pro131)Ter")
             >>> location = variant.description.effect.location
@@ -298,6 +308,8 @@ class Location(Generic[PositionT]):
             ProteinCoordinate(residue='Ala', ordinal=123)
             >>> location.l_interval.end
             ProteinCoordinate(residue='Pro', ordinal=131)
+            >>> location.r_interval is None
+            True
 
         """
         if self._uncertain is None:
@@ -315,12 +327,20 @@ class Location(Generic[PositionT]):
             >>> location = variant.description.location
             >>> location.is_uncertain
             True
+            >>> location.l_interval.start.is_unknown
+            True
             >>> location.l_interval.start.coordinate is None
+            True
+            >>> location.l_interval.end.is_known
             True
             >>> location.l_interval.end.coordinate
             32238146
+            >>> location.r_interval.start.is_known
+            True
             >>> location.r_interval.start.coordinate
             32984039
+            >>> location.r_interval.end.is_unknown
+            True
             >>> location.r_interval.end.coordinate is None
             True
 
