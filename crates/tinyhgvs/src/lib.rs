@@ -6,8 +6,8 @@
 //! - the reference sequence context such as `NM_004006.2` or `NP_003997.1`
 //! - the coordinate type such as coding DNA (`c.`), genomic DNA (`g.`), RNA
 //!   (`r.`), or protein (`p.`)
-//! - the biological description itself, represented as either an exact
-//!   nucleotide variant, a nucleotide allele, or a protein consequence
+//! - the biological description itself, represented as either a nucleotide
+//!   variant, a nucleotide allele, or a protein consequence
 //!
 //! The crate is intentionally small. It aims to represent common, high-value
 //! HGVS syntax clearly, while returning structured errors for syntax families
@@ -25,7 +25,7 @@
 //! - `reference`: the reference source for a variant.
 //! - `coordinate_system`: the one-letter HGVS coordinate type.
 //! - `description`: the nucleotide or protein variant description, including
-//!     location and base edits or effects.
+//!   location and base edits or effects.
 //!
 //! # Examples
 //!
@@ -39,9 +39,9 @@
 //!
 //! match description {
 //!     VariantDescription::Nucleotide(nucleotide) => {
-//!         assert_eq!(nucleotide.location.start.anchor, NucleotideAnchor::Absolute);
-//!         assert_eq!(nucleotide.location.start.coordinate, 357);
-//!         assert_eq!(nucleotide.location.start.offset, 1);
+//!         assert_eq!(nucleotide.location.start().unwrap().anchor().unwrap(), NucleotideAnchor::Absolute);
+//!         assert_eq!(nucleotide.location.start().unwrap().coordinate().unwrap(), 357);
+//!         assert_eq!(nucleotide.location.start().unwrap().offset().unwrap(), 1);
 //!         assert!(matches!(
 //!             nucleotide.edit,
 //!             NucleotideEdit::Substitution { ref reference, ref alternate }
@@ -52,7 +52,7 @@
 //! }
 //! ```
 //!
-//! An exact nucleotide allele keeps one first allele, an optional second
+//! A nucleotide allele keeps one first allele, an optional second
 //! established allele, and any later unphased additions:
 //!
 //! ```rust
@@ -104,7 +104,7 @@ mod parser;
 pub use error::{ParseHgvsError, ParseHgvsErrorKind};
 pub use model::{
     Accession, Allele, AllelePhase, AlleleVariant, CoordinateSystem, CopiedSequenceItem,
-    HgvsVariant, Interval, LiteralSequenceItem, NucleotideAnchor, NucleotideCoordinate,
+    HgvsVariant, Interval, LiteralSequenceItem, Location, NucleotideAnchor, NucleotideCoordinate,
     NucleotideEdit, NucleotideRepeatBlock, NucleotideSequenceItem, NucleotideVariant,
     ProteinCoordinate, ProteinEdit, ProteinEffect, ProteinExtensionEdit, ProteinExtensionTerminal,
     ProteinFrameshiftStop, ProteinFrameshiftStopKind, ProteinSequence, ProteinVariant,

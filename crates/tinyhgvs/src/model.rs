@@ -15,7 +15,7 @@
 ///
 /// match variant.description {
 ///     VariantDescription::Nucleotide(description) => {
-///         assert_eq!(description.location.start.coordinate, -1);
+///         assert_eq!(description.location.start().unwrap().coordinate().unwrap(), -1);
 ///     }
 ///     _ => unreachable!("expected nucleotide variant"),
 /// }
@@ -275,15 +275,15 @@ impl<'a, T> IntoIterator for &'a AlleleVariant<T> {
 ///             NucleotideEdit::Substitution { ref reference, ref alternate }
 ///                 if reference == "G" && alternate == "A"
 ///         ));
-///         assert_eq!(description.location.start.coordinate, 357);
-///         assert_eq!(description.location.start.offset, 1);
+///         assert_eq!(description.location.start().unwrap().coordinate().unwrap(), 357);
+///         assert_eq!(description.location.start().unwrap().offset().unwrap(), 1);
 ///     }
 ///     _ => unreachable!("expected nucleotide variant"),
 /// }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NucleotideVariant {
-    pub location: Interval<NucleotideCoordinate>,
+    pub location: Location<NucleotideCoordinate>,
     pub edit: NucleotideEdit,
 }
 
@@ -325,7 +325,7 @@ pub enum ProteinEffect {
     Unknown,
     NoProteinProduced,
     Edit {
-        location: Interval<ProteinCoordinate>,
+        location: Location<ProteinCoordinate>,
         edit: ProteinEdit,
     },
 }
@@ -457,8 +457,8 @@ pub struct ProteinFrameshiftStop {
 ///             tinyhgvs::ProteinEffect::Edit { ref location, .. } => location,
 ///             _ => unreachable!("expected protein edit"),
 ///         };
-///         assert_eq!(location.start.residue, "Lys");
-///         assert_eq!(location.end.as_ref().unwrap().residue, "Val");
+///         assert_eq!(location.start().unwrap().residue, "Lys");
+///         assert_eq!(location.end().unwrap().residue, "Val");
 ///     }
 ///     _ => unreachable!("expected protein variant"),
 /// }
@@ -467,6 +467,78 @@ pub struct ProteinFrameshiftStop {
 pub struct Interval<T> {
     pub start: T,
     pub end: Option<T>,
+}
+
+/// Main edited location on a nucleotide or protein variant/effect.
+///
+/// Known locations keep the current one-level interval shape. Uncertain
+/// locations wrap the left and right uncertain regions as intervals.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Location<T> {
+    Known(Interval<T>),
+    Uncertain(Interval<Interval<T>>),
+}
+
+impl<T> Location<T> {
+    /// Builds one known location from a plain interval.
+    pub fn from_known(value: Interval<T>) -> Self {
+        Self::Known(value)
+    }
+
+    /// Builds one uncertain location from uncertain left/right regions.
+    pub fn from_uncertain(value: Interval<Interval<T>>) -> Self {
+        Self::Uncertain(value)
+    }
+
+    /// Returns `true` when the location is written with uncertain-region
+    /// syntax.
+    pub fn is_uncertain(&self) -> bool {
+        matches!(self, Self::Uncertain(_))
+    }
+
+    /// Returns `true` for one known position.
+    pub fn is_pos(&self) -> bool {
+        matches!(self, Self::Known(interval) if interval.end.is_none())
+    }
+
+    /// Returns `true` for interval-shaped locations, whether known or
+    /// uncertain.
+    pub fn is_interval(&self) -> bool {
+        !self.is_pos()
+    }
+
+    /// Returns the left known position when the location is known.
+    pub fn start(&self) -> Option<&T> {
+        match self {
+            Self::Known(interval) => Some(&interval.start),
+            Self::Uncertain(_) => None,
+        }
+    }
+
+    /// Returns the right known position when the location is a known interval.
+    pub fn end(&self) -> Option<&T> {
+        match self {
+            Self::Known(interval) => interval.end.as_ref(),
+            Self::Uncertain(_) => None,
+        }
+    }
+
+    /// Returns the left uncertain region when the location is uncertain.
+    pub fn l_interval(&self) -> Option<&Interval<T>> {
+        match self {
+            Self::Known(_) => None,
+            Self::Uncertain(interval) => Some(&interval.start),
+        }
+    }
+
+    /// Returns the right uncertain region when the location is an uncertain
+    /// interval.
+    pub fn r_interval(&self) -> Option<&Interval<T>> {
+        match self {
+            Self::Known(_) => None,
+            Self::Uncertain(interval) => interval.end.as_ref(),
+        }
+    }
 }
 
 /// Anchor used by nucleotide coordinates.
@@ -480,13 +552,13 @@ pub enum NucleotideAnchor {
     RelativeCdsEnd,
 }
 
-/// Nucleotide coordinate with explicit anchor and offset.
+/// Nucleotide coordinate written as a known position or `?`.
 ///
-/// The primary coordinate keeps the sign written in the HGVS string. For
-/// example, `c.-1` becomes `coordinate == -1`, while `c.*1` becomes
-/// `coordinate == 1`. CDS-anchored intronic positions keep the same primary
-/// coordinate plus a signed secondary offset, e.g. `c.-106+2` becomes
-/// `coordinate == -106` and `offset == 2`.
+/// Known coordinates keep the sign written in the HGVS string. For example,
+/// `c.-1` becomes `coordinate() == Some(-1)`, while `c.*1` becomes
+/// `coordinate() == Some(1)`. CDS-anchored intronic positions keep the same
+/// primary coordinate plus a signed secondary offset, e.g. `c.-106+2` becomes
+/// `coordinate() == Some(-106)` and `offset() == Some(2)`.
 ///
 /// # Examples
 ///
@@ -499,68 +571,132 @@ pub enum NucleotideAnchor {
 ///
 /// match five_prime.description {
 ///     VariantDescription::Nucleotide(description) => {
-///         assert_eq!(description.location.start.anchor, NucleotideAnchor::RelativeCdsStart);
-///         assert_eq!(description.location.start.coordinate, -1);
-///         assert_eq!(description.location.start.offset, 0);
+///         assert_eq!(description.location.start().unwrap().anchor(), Some(NucleotideAnchor::RelativeCdsStart));
+///         assert_eq!(description.location.start().unwrap().coordinate(), Some(-1));
+///         assert_eq!(description.location.start().unwrap().offset(), Some(0));
 ///     }
 ///     _ => unreachable!("expected nucleotide variant"),
 /// }
 ///
 /// match three_prime.description {
 ///     VariantDescription::Nucleotide(description) => {
-///         assert_eq!(description.location.start.anchor, NucleotideAnchor::RelativeCdsEnd);
-///         assert_eq!(description.location.start.coordinate, 1);
-///         assert_eq!(description.location.start.offset, 0);
+///         assert_eq!(description.location.start().unwrap().anchor(), Some(NucleotideAnchor::RelativeCdsEnd));
+///         assert_eq!(description.location.start().unwrap().coordinate(), Some(1));
+///         assert_eq!(description.location.start().unwrap().offset(), Some(0));
 ///     }
 ///     _ => unreachable!("expected nucleotide variant"),
 /// }
 ///
 /// match five_prime_intronic.description {
 ///     VariantDescription::Nucleotide(description) => {
-///         assert_eq!(description.location.start.anchor, NucleotideAnchor::RelativeCdsStart);
-///         assert_eq!(description.location.start.coordinate, -106);
-///         assert_eq!(description.location.start.offset, 2);
+///         assert_eq!(description.location.start().unwrap().anchor(), Some(NucleotideAnchor::RelativeCdsStart));
+///         assert_eq!(description.location.start().unwrap().coordinate(), Some(-106));
+///         assert_eq!(description.location.start().unwrap().offset(), Some(2));
 ///     }
 ///     _ => unreachable!("expected nucleotide variant"),
 /// }
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NucleotideCoordinate {
-    /// Anchor type used to describe `coordinate`.
-    pub anchor: NucleotideAnchor,
-    /// Primary coordinate written in the HGVS string.
-    pub coordinate: i32,
-    /// Secondary displacement written after the primary coordinate.
-    pub offset: i32,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NucleotideCoordinate {
+    /// Known nucleotide coordinate with anchor and optional offset.
+    Known {
+        anchor: NucleotideAnchor,
+        coordinate: i32,
+        offset: i32,
+    },
+    /// Unknown nucleotide coordinate written as `?`.
+    Unknown,
 }
 
 impl NucleotideCoordinate {
+    /// Builds a known nucleotide coordinate.
+    pub fn known(anchor: NucleotideAnchor, coordinate: i32, offset: i32) -> Self {
+        Self::Known {
+            anchor,
+            coordinate,
+            offset,
+        }
+    }
+
+    /// Returns `true` when this coordinate is known.
+    pub fn is_known(&self) -> bool {
+        matches!(self, Self::Known { .. })
+    }
+
+    /// Returns `true` when this coordinate is written as `?`.
+    pub fn is_unknown(&self) -> bool {
+        matches!(self, Self::Unknown)
+    }
+
+    /// Returns the anchor when this coordinate is known.
+    pub fn anchor(&self) -> Option<NucleotideAnchor> {
+        match self {
+            Self::Known { anchor, .. } => Some(*anchor),
+            Self::Unknown => None,
+        }
+    }
+
+    /// Returns the primary coordinate when it is known.
+    pub fn coordinate(&self) -> Option<i32> {
+        match self {
+            Self::Known { coordinate, .. } => Some(*coordinate),
+            Self::Unknown => None,
+        }
+    }
+
+    /// Returns the offset when this coordinate is known.
+    pub fn offset(&self) -> Option<i32> {
+        match self {
+            Self::Known { offset, .. } => Some(*offset),
+            Self::Unknown => None,
+        }
+    }
+
     /// Returns `true` for intronic coordinates such as `357+1`, `-106+2`,
     /// and `*639-1`.
     pub fn is_intronic(&self) -> bool {
-        self.offset != 0
+        self.offset().map_or(false, |offset| offset != 0)
     }
 
     /// Returns `true` if variant's location is relative to the CDS start, such
     /// as `c.-1` and `c.-106+2`.
     pub fn is_cds_start_anchored(&self) -> bool {
-        matches!(self.anchor, NucleotideAnchor::RelativeCdsStart)
+        matches!(self.anchor(), Some(NucleotideAnchor::RelativeCdsStart))
     }
 
     /// Returns `true` if variant's location is relative to the CDS end, such
     /// as `c.*1` and `c.*639-1`.
     pub fn is_cds_end_anchored(&self) -> bool {
-        matches!(self.anchor, NucleotideAnchor::RelativeCdsEnd)
+        matches!(self.anchor(), Some(NucleotideAnchor::RelativeCdsEnd))
     }
 
     /// Returns `true` for exonic 5' UTR coordinates such as `c.-81`.
     pub fn is_five_prime_utr(&self) -> bool {
-        self.is_cds_start_anchored() && self.offset == 0
+        self.is_cds_start_anchored() && self.offset() == Some(0)
     }
 
     /// Returns `true` for exonic 3' UTR coordinates such as `c.*24`.
     pub fn is_three_prime_utr(&self) -> bool {
-        self.is_cds_end_anchored() && self.offset == 0
+        self.is_cds_end_anchored() && self.offset() == Some(0)
+    }
+}
+
+impl Interval<NucleotideCoordinate> {
+    fn is_end_bound_unknown(&self) -> bool {
+        self.end
+            .as_ref()
+            .map_or(false, NucleotideCoordinate::is_unknown)
+    }
+
+    /// Returns `true` when either bound of the interval is unknown, i.e. `?_B`,
+    /// `A_?`, `?_?`
+    pub fn has_unknown_bound(&self) -> bool {
+        self.start.is_unknown() || self.is_end_bound_unknown()
+    }
+
+    /// Returns `true` when both sides of the interval are unknown, i.e. ?_?
+    pub fn is_fully_unknown(&self) -> bool {
+        self.start.is_unknown() && self.is_end_bound_unknown()
     }
 }
 
@@ -579,8 +715,8 @@ impl NucleotideCoordinate {
 ///             ProteinEffect::Edit { ref location, .. } => location,
 ///             _ => unreachable!("expected protein edit"),
 ///         };
-///         assert_eq!(location.start.residue, "Trp");
-///         assert_eq!(location.start.ordinal, 24);
+///         assert_eq!(location.start().unwrap().residue, "Trp");
+///         assert_eq!(location.start().unwrap().ordinal, 24);
 ///     }
 ///     _ => unreachable!("expected protein variant"),
 /// }
@@ -689,8 +825,8 @@ pub struct NucleotideRepeatBlock {
 ///             unreachable!("expected copied sequence");
 ///         };
 ///         assert!(item.is_from_same_reference());
-///         assert_eq!(item.source_location.start.coordinate, 450);
-///         assert_eq!(item.source_location.end.as_ref().unwrap().coordinate, 470);
+///         assert_eq!(item.source_location.start.coordinate().unwrap(), 450);
+///         assert_eq!(item.source_location.end.as_ref().unwrap().coordinate().unwrap(), 470);
 ///     }
 ///     _ => unreachable!("expected nucleotide variant"),
 /// }

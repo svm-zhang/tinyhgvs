@@ -1,11 +1,19 @@
 use tinyhgvs::{
-    parse_hgvs, AllelePhase, CoordinateSystem, CopiedSequenceItem, LiteralSequenceItem,
+    parse_hgvs, AllelePhase, CoordinateSystem, CopiedSequenceItem, LiteralSequenceItem, Location,
     NucleotideEdit, NucleotideSequenceItem, ProteinEdit, ProteinEffect, ProteinExtensionTerminal,
     ProteinFrameshiftStopKind, RepeatSequenceItem, VariantDescription,
 };
 
 fn parse_variant(example: &str) -> tinyhgvs::HgvsVariant {
     parse_hgvs(example).unwrap_or_else(|error| panic!("{example} should parse: {error}"))
+}
+
+fn known_start<T>(location: &Location<T>) -> &T {
+    location.start().expect("expected known location start")
+}
+
+fn known_end<T>(location: &Location<T>) -> Option<&T> {
+    location.end()
 }
 
 #[test]
@@ -32,8 +40,8 @@ fn parses_nucleotide_substitution_variants() {
             .id,
         "NM_004006.2"
     );
-    assert_eq!(description.location.start.coordinate, 93);
-    assert_eq!(description.location.start.offset, 1);
+    assert_eq!(known_start(&description.location).coordinate().unwrap(), 93);
+    assert_eq!(known_start(&description.location).offset().unwrap(), 1);
     let NucleotideEdit::Substitution {
         reference,
         alternate,
@@ -57,38 +65,64 @@ fn parses_cdna_offset_anchor_variants() {
         panic!("expected nucleotide variant");
     };
     assert_eq!(
-        five_prime_intronic.location.start.anchor,
+        known_start(&five_prime_intronic.location).anchor().unwrap(),
         tinyhgvs::NucleotideAnchor::RelativeCdsStart
     );
-    assert_eq!(five_prime_intronic.location.start.coordinate, -666);
-    assert_eq!(five_prime_intronic.location.start.offset, 629);
+    assert_eq!(
+        known_start(&five_prime_intronic.location)
+            .coordinate()
+            .unwrap(),
+        -666
+    );
+    assert_eq!(
+        known_start(&five_prime_intronic.location).offset().unwrap(),
+        629
+    );
 
     let VariantDescription::Nucleotide(three_prime_intronic) = three_prime_intronic.description
     else {
         panic!("expected nucleotide variant");
     };
     assert_eq!(
-        three_prime_intronic.location.start.anchor,
+        known_start(&three_prime_intronic.location)
+            .anchor()
+            .unwrap(),
         tinyhgvs::NucleotideAnchor::RelativeCdsEnd
     );
-    assert_eq!(three_prime_intronic.location.start.coordinate, 24);
-    assert_eq!(three_prime_intronic.location.start.offset, -12888);
+    assert_eq!(
+        known_start(&three_prime_intronic.location)
+            .coordinate()
+            .unwrap(),
+        24
+    );
+    assert_eq!(
+        known_start(&three_prime_intronic.location)
+            .offset()
+            .unwrap(),
+        -12888
+    );
 
     let VariantDescription::Nucleotide(five_prime_interval) = five_prime_interval.description
     else {
         panic!("expected nucleotide variant");
     };
-    let start = five_prime_interval.location.start;
+    let start = known_start(&five_prime_interval.location);
     let end = five_prime_interval
         .location
-        .end
+        .end()
         .expect("expected interval end");
-    assert_eq!(start.anchor, tinyhgvs::NucleotideAnchor::RelativeCdsStart);
-    assert_eq!(start.coordinate, -490);
-    assert_eq!(start.offset, -342);
-    assert_eq!(end.anchor, tinyhgvs::NucleotideAnchor::RelativeCdsStart);
-    assert_eq!(end.coordinate, -490);
-    assert_eq!(end.offset, -341);
+    assert_eq!(
+        start.anchor().unwrap(),
+        tinyhgvs::NucleotideAnchor::RelativeCdsStart
+    );
+    assert_eq!(start.coordinate().unwrap(), -490);
+    assert_eq!(start.offset().unwrap(), -342);
+    assert_eq!(
+        end.anchor().unwrap(),
+        tinyhgvs::NucleotideAnchor::RelativeCdsStart
+    );
+    assert_eq!(end.coordinate().unwrap(), -490);
+    assert_eq!(end.offset().unwrap(), -341);
 }
 
 #[test]
@@ -105,7 +139,7 @@ fn parses_nucleotide_no_change_and_deletion_variants() {
 
     match deletion.description {
         VariantDescription::Nucleotide(value) => {
-            assert_eq!(value.location.start.coordinate, 5697);
+            assert_eq!(known_start(&value.location).coordinate().unwrap(), 5697);
             assert_eq!(value.edit, NucleotideEdit::Deletion);
         }
         other => panic!("expected nucleotide variant, found {other:?}"),
@@ -121,8 +155,11 @@ fn parses_nucleotide_duplication_and_inversion_variants() {
 
     match duplication.description {
         VariantDescription::Nucleotide(value) => {
-            assert_eq!(value.location.start.coordinate, 1234);
-            assert_eq!(value.location.end.as_ref().unwrap().coordinate, 2345);
+            assert_eq!(known_start(&value.location).coordinate().unwrap(), 1234);
+            assert_eq!(
+                known_end(&value.location).unwrap().coordinate().unwrap(),
+                2345
+            );
             assert_eq!(value.edit, NucleotideEdit::Duplication);
         }
         other => panic!("expected nucleotide variant, found {other:?}"),
@@ -130,8 +167,11 @@ fn parses_nucleotide_duplication_and_inversion_variants() {
 
     match inversion.description {
         VariantDescription::Nucleotide(value) => {
-            assert_eq!(value.location.start.coordinate, 32361330);
-            assert_eq!(value.location.end.as_ref().unwrap().coordinate, 32361333);
+            assert_eq!(known_start(&value.location).coordinate().unwrap(), 32361330);
+            assert_eq!(
+                known_end(&value.location).unwrap().coordinate().unwrap(),
+                32361333
+            );
             assert_eq!(value.edit, NucleotideEdit::Inversion);
         }
         other => panic!("expected nucleotide variant, found {other:?}"),
@@ -187,8 +227,11 @@ fn parses_nucleotide_insertion_sequence_items() {
                 }) => {
                     assert_eq!(reference.primary.id, "NC_000022.10");
                     assert_eq!(*coordinate_system, CoordinateSystem::Genomic);
-                    assert_eq!(source_location.start.coordinate, 35788169);
-                    assert_eq!(source_location.end.as_ref().unwrap().coordinate, 35788352);
+                    assert_eq!(source_location.start.coordinate().unwrap(), 35788169);
+                    assert_eq!(
+                        source_location.end.as_ref().unwrap().coordinate().unwrap(),
+                        35788352
+                    );
                     assert!(!is_inverted);
                 }
                 other => panic!("expected remote copied item, found {other:?}"),
@@ -247,7 +290,7 @@ fn parses_nucleotide_repeat_variants() {
 
     match dna_repeat.description {
         VariantDescription::Nucleotide(value) => {
-            assert_eq!(value.location.start.coordinate, 123);
+            assert_eq!(known_start(&value.location).coordinate().unwrap(), 123);
             let NucleotideEdit::Repeat { blocks } = value.edit else {
                 panic!("expected repeat edit");
             };
@@ -261,8 +304,11 @@ fn parses_nucleotide_repeat_variants() {
 
     match dna_mixed.description {
         VariantDescription::Nucleotide(value) => {
-            assert_eq!(value.location.start.coordinate, 123);
-            assert_eq!(value.location.end.as_ref().unwrap().coordinate, 191);
+            assert_eq!(known_start(&value.location).coordinate().unwrap(), 123);
+            assert_eq!(
+                known_end(&value.location).unwrap().coordinate().unwrap(),
+                191
+            );
             let NucleotideEdit::Repeat { blocks } = value.edit else {
                 panic!("expected repeat edit");
             };
@@ -279,8 +325,11 @@ fn parses_nucleotide_repeat_variants() {
 
     match rna_position_only.description {
         VariantDescription::Nucleotide(value) => {
-            assert_eq!(value.location.start.coordinate, -124);
-            assert_eq!(value.location.end.as_ref().unwrap().coordinate, -123);
+            assert_eq!(known_start(&value.location).coordinate().unwrap(), -124);
+            assert_eq!(
+                known_end(&value.location).unwrap().coordinate().unwrap(),
+                -123
+            );
             let NucleotideEdit::Repeat { blocks } = value.edit else {
                 panic!("expected repeat edit");
             };
@@ -294,8 +343,8 @@ fn parses_nucleotide_repeat_variants() {
 
     match rna_sequence_given.description {
         VariantDescription::Nucleotide(value) => {
-            assert_eq!(value.location.start.coordinate, -110);
-            assert!(value.location.end.is_none());
+            assert_eq!(known_start(&value.location).coordinate().unwrap(), -110);
+            assert!(known_end(&value.location).is_none());
             let NucleotideEdit::Repeat { blocks } = value.edit else {
                 panic!("expected repeat edit");
             };
@@ -309,8 +358,11 @@ fn parses_nucleotide_repeat_variants() {
 
     match rna_composite.description {
         VariantDescription::Nucleotide(value) => {
-            assert_eq!(value.location.start.coordinate, 456);
-            assert_eq!(value.location.end.as_ref().unwrap().coordinate, 499);
+            assert_eq!(known_start(&value.location).coordinate().unwrap(), 456);
+            assert_eq!(
+                known_end(&value.location).unwrap().coordinate().unwrap(),
+                499
+            );
             let NucleotideEdit::Repeat { blocks } = value.edit else {
                 panic!("expected repeat edit");
             };
@@ -319,7 +371,16 @@ fn parses_nucleotide_repeat_variants() {
             assert_eq!(blocks[0].unit, None);
             assert_eq!(blocks[0].location, None);
             assert_eq!(blocks[1].count, 9);
-            assert_eq!(blocks[1].location.as_ref().unwrap().start.coordinate, 466);
+            assert_eq!(
+                blocks[1]
+                    .location
+                    .as_ref()
+                    .unwrap()
+                    .start
+                    .coordinate()
+                    .unwrap(),
+                466
+            );
             assert_eq!(
                 blocks[1]
                     .location
@@ -328,11 +389,21 @@ fn parses_nucleotide_repeat_variants() {
                     .end
                     .as_ref()
                     .unwrap()
-                    .coordinate,
+                    .coordinate()
+                    .unwrap(),
                 489
             );
             assert_eq!(blocks[2].count, 3);
-            assert_eq!(blocks[2].location.as_ref().unwrap().start.coordinate, 490);
+            assert_eq!(
+                blocks[2]
+                    .location
+                    .as_ref()
+                    .unwrap()
+                    .start
+                    .coordinate()
+                    .unwrap(),
+                490
+            );
             assert_eq!(
                 blocks[2]
                     .location
@@ -341,7 +412,8 @@ fn parses_nucleotide_repeat_variants() {
                     .end
                     .as_ref()
                     .unwrap()
-                    .coordinate,
+                    .coordinate()
+                    .unwrap(),
                 499
             );
         }
@@ -370,7 +442,12 @@ fn parses_nucleotide_allele_variants() {
         NucleotideEdit::Substitution { ref reference, ref alternate }
             if reference == "G" && alternate == "A"
     ));
-    assert_eq!(cis.allele_one.variants[1].location.start.coordinate, 345);
+    assert_eq!(
+        known_start(&cis.allele_one.variants[1].location)
+            .coordinate()
+            .unwrap(),
+        345
+    );
     assert_eq!(cis.allele_one.variants[1].edit, NucleotideEdit::Deletion);
 
     let VariantDescription::NucleotideAllele(trans) = trans.description else {
@@ -381,7 +458,12 @@ fn parses_nucleotide_allele_variants() {
     let trans_allele_two = trans.allele_two.as_ref().expect("expected allele two");
     assert_eq!(trans_allele_two.variants.len(), 1);
     assert!(trans.alleles_unphased.is_empty());
-    assert_eq!(trans_allele_two.variants[0].location.start.coordinate, 345);
+    assert_eq!(
+        known_start(&trans_allele_two.variants[0].location)
+            .coordinate()
+            .unwrap(),
+        345
+    );
 
     let VariantDescription::NucleotideAllele(uncertain) = uncertain.description else {
         panic!("expected nucleotide allele");
@@ -391,7 +473,9 @@ fn parses_nucleotide_allele_variants() {
     let uncertain_allele_two = uncertain.allele_two.as_ref().expect("expected allele two");
     assert!(uncertain.alleles_unphased.is_empty());
     assert_eq!(
-        uncertain_allele_two.variants[0].location.start.coordinate,
+        known_start(&uncertain_allele_two.variants[0].location)
+            .coordinate()
+            .unwrap(),
         345
     );
     assert_eq!(
@@ -407,7 +491,9 @@ fn parses_nucleotide_allele_variants() {
     let unchanged_allele_two = unchanged.allele_two.as_ref().expect("expected allele two");
     assert!(unchanged.alleles_unphased.is_empty());
     assert_eq!(
-        unchanged_allele_two.variants[0].location.start.coordinate,
+        known_start(&unchanged_allele_two.variants[0].location)
+            .coordinate()
+            .unwrap(),
         2376
     );
     assert_eq!(
@@ -422,12 +508,16 @@ fn parses_nucleotide_allele_variants() {
     assert_eq!(mixed.phase, Some(AllelePhase::Trans));
     let mixed_allele_two = mixed.allele_two.as_ref().expect("expected allele two");
     assert_eq!(mixed.alleles_unphased.len(), 1);
-    assert_eq!(mixed_allele_two.variants[0].location.start.coordinate, 476);
     assert_eq!(
-        mixed.alleles_unphased[0].variants[0]
-            .location
-            .start
-            .coordinate,
+        known_start(&mixed_allele_two.variants[0].location)
+            .coordinate()
+            .unwrap(),
+        476
+    );
+    assert_eq!(
+        known_start(&mixed.alleles_unphased[0].variants[0].location)
+            .coordinate()
+            .unwrap(),
         1083
     );
 }
@@ -472,14 +562,16 @@ fn reports_nucleotide_allele_helper_views() {
     assert_eq!(uncertain.unphased_alleles().len(), 0);
     assert_eq!(uncertain.allele_one.variants.len(), 1);
     assert_eq!(
-        uncertain
-            .allele_two
-            .as_ref()
-            .expect("expected second haplotype")
-            .variants[0]
-            .location
-            .start
-            .coordinate,
+        known_start(
+            &uncertain
+                .allele_two
+                .as_ref()
+                .expect("expected second haplotype")
+                .variants[0]
+                .location
+        )
+        .coordinate()
+        .unwrap(),
         345
     );
 
@@ -490,28 +582,28 @@ fn reports_nucleotide_allele_helper_views() {
     assert_eq!(mixed.unphased_alleles().len(), 2);
     assert_eq!(mixed.allele_one.variants.len(), 1);
     assert_eq!(
-        mixed
-            .allele_two
-            .as_ref()
-            .expect("expected second haplotype")
-            .variants[0]
-            .location
-            .start
-            .coordinate,
+        known_start(
+            &mixed
+                .allele_two
+                .as_ref()
+                .expect("expected second haplotype")
+                .variants[0]
+                .location
+        )
+        .coordinate()
+        .unwrap(),
         476
     );
     assert_eq!(
-        mixed.unphased_alleles()[0].variants[0]
-            .location
-            .start
-            .coordinate,
+        known_start(&mixed.unphased_alleles()[0].variants[0].location)
+            .coordinate()
+            .unwrap(),
         1083
     );
     assert_eq!(
-        mixed.unphased_alleles()[1].variants[0]
-            .location
-            .start
-            .coordinate,
+        known_start(&mixed.unphased_alleles()[1].variants[0].location)
+            .coordinate()
+            .unwrap(),
         1406
     );
 }
@@ -571,7 +663,7 @@ fn parses_protein_allele_variants() {
     let ProteinEffect::Edit { location, edit } = &first_cis.effect else {
         panic!("expected protein edit");
     };
-    assert_eq!(location.start.residue, "Ser");
+    assert_eq!(known_start(location).residue, "Ser");
     let ProteinEdit::Substitution { to } = edit else {
         panic!("expected substitution edit");
     };
@@ -587,8 +679,8 @@ fn parses_protein_allele_variants() {
     let ProteinEffect::Edit { location, edit } = &second_trans.effect else {
         panic!("expected protein edit");
     };
-    assert_eq!(location.start.residue, "Ser");
-    assert!(location.end.is_none());
+    assert_eq!(known_start(location).residue, "Ser");
+    assert!(known_end(location).is_none());
     assert_eq!(*edit, ProteinEdit::NoChange);
 
     let VariantDescription::ProteinAllele(uncertain) = uncertain.description else {
@@ -634,8 +726,8 @@ fn parses_protein_allele_variants() {
     let ProteinEffect::Edit { location, edit } = &second_range.effect else {
         panic!("expected protein edit");
     };
-    assert_eq!(location.start.residue, "Ser");
-    assert_eq!(location.end.as_ref().unwrap().residue, "Arg");
+    assert_eq!(known_start(location).residue, "Ser");
+    assert_eq!(known_end(location).unwrap().residue, "Arg");
     assert_eq!(*edit, ProteinEdit::NoChange);
 }
 
@@ -670,8 +762,8 @@ fn parses_protein_substitution_and_no_change_variants() {
         VariantDescription::Protein(value) => match value.effect {
             ProteinEffect::Edit { location, edit } => {
                 assert!(!value.is_predicted);
-                assert_eq!(location.start.residue, "Trp");
-                assert_eq!(location.start.ordinal, 24);
+                assert_eq!(known_start(&location).residue, "Trp");
+                assert_eq!(known_start(&location).ordinal, 24);
                 let ProteinEdit::Substitution { to } = edit else {
                     panic!("expected substitution edit");
                 };
@@ -712,8 +804,8 @@ fn parses_protein_unknown_and_predicted_effects() {
             assert!(value.is_predicted);
             match value.effect {
                 ProteinEffect::Edit { location, edit } => {
-                    assert_eq!(location.start.residue, "Met");
-                    assert_eq!(location.start.ordinal, 1);
+                    assert_eq!(known_start(&location).residue, "Met");
+                    assert_eq!(known_start(&location).ordinal, 1);
                     assert_eq!(edit, ProteinEdit::Unknown);
                 }
                 other => panic!("expected protein edit, found {other:?}"),
@@ -741,8 +833,8 @@ fn parses_protein_deletion_duplication_insertion_and_delins_variants() {
     match deletion.description {
         VariantDescription::Protein(value) => match value.effect {
             ProteinEffect::Edit { edit, location } => {
-                assert_eq!(location.start.residue, "Lys");
-                assert_eq!(location.end.as_ref().unwrap().residue, "Val");
+                assert_eq!(known_start(&location).residue, "Lys");
+                assert_eq!(known_end(&location).unwrap().residue, "Val");
                 assert_eq!(edit, ProteinEdit::Deletion);
             }
             other => panic!("expected protein edit, found {other:?}"),
@@ -789,8 +881,8 @@ fn parses_protein_deletion_duplication_insertion_and_delins_variants() {
     match repeat.description {
         VariantDescription::Protein(value) => match value.effect {
             ProteinEffect::Edit { edit, location } => {
-                assert_eq!(location.start.residue, "Arg");
-                assert_eq!(location.end.as_ref().unwrap().residue, "Ser");
+                assert_eq!(known_start(&location).residue, "Arg");
+                assert_eq!(known_end(&location).unwrap().residue, "Ser");
                 let ProteinEdit::Repeat { count } = edit else {
                     panic!("expected repeat edit");
                 };
@@ -815,8 +907,8 @@ fn parses_protein_frameshift_variants() {
         VariantDescription::Protein(value) => match value.effect {
             ProteinEffect::Edit { location, edit } => {
                 assert!(!value.is_predicted);
-                assert_eq!(location.start.residue, "Arg");
-                assert_eq!(location.start.ordinal, 97);
+                assert_eq!(known_start(&location).residue, "Arg");
+                assert_eq!(known_start(&location).ordinal, 97);
                 let ProteinEdit::Frameshift { to_residue, stop } = edit else {
                     panic!("expected frameshift edit");
                 };
@@ -862,8 +954,8 @@ fn parses_protein_frameshift_variants() {
     match unknown_stop.description {
         VariantDescription::Protein(value) => match value.effect {
             ProteinEffect::Edit { location, edit } => {
-                assert_eq!(location.start.residue, "Ile");
-                assert_eq!(location.start.ordinal, 327);
+                assert_eq!(known_start(&location).residue, "Ile");
+                assert_eq!(known_start(&location).ordinal, 327);
                 let ProteinEdit::Frameshift { to_residue, stop } = edit else {
                     panic!("expected frameshift edit");
                 };
@@ -923,8 +1015,8 @@ fn parses_protein_extension_variants() {
         VariantDescription::Protein(value) => match value.effect {
             ProteinEffect::Edit { location, edit } => {
                 assert!(!value.is_predicted);
-                assert_eq!(location.start.residue, "Met");
-                assert_eq!(location.start.ordinal, 1);
+                assert_eq!(known_start(&location).residue, "Met");
+                assert_eq!(known_start(&location).ordinal, 1);
                 let ProteinEdit::Extension(extension) = edit else {
                     panic!("expected extension edit");
                 };
@@ -955,8 +1047,8 @@ fn parses_protein_extension_variants() {
     match c_terminal.description {
         VariantDescription::Protein(value) => match value.effect {
             ProteinEffect::Edit { location, edit } => {
-                assert_eq!(location.start.residue, "Ter");
-                assert_eq!(location.start.ordinal, 110);
+                assert_eq!(known_start(&location).residue, "Ter");
+                assert_eq!(known_start(&location).ordinal, 110);
                 let ProteinEdit::Extension(extension) = edit else {
                     panic!("expected extension edit");
                 };
@@ -972,8 +1064,8 @@ fn parses_protein_extension_variants() {
     match c_terminal_symbolic.description {
         VariantDescription::Protein(value) => match value.effect {
             ProteinEffect::Edit { location, edit } => {
-                assert_eq!(location.start.residue, "Ter");
-                assert_eq!(location.start.ordinal, 110);
+                assert_eq!(known_start(&location).residue, "Ter");
+                assert_eq!(known_start(&location).ordinal, 110);
                 let ProteinEdit::Extension(extension) = edit else {
                     panic!("expected extension edit");
                 };
@@ -989,8 +1081,8 @@ fn parses_protein_extension_variants() {
     match unknown_stop.description {
         VariantDescription::Protein(value) => match value.effect {
             ProteinEffect::Edit { location, edit } => {
-                assert_eq!(location.start.residue, "Ter");
-                assert_eq!(location.start.ordinal, 327);
+                assert_eq!(known_start(&location).residue, "Ter");
+                assert_eq!(known_start(&location).ordinal, 327);
                 let ProteinEdit::Extension(extension) = edit else {
                     panic!("expected extension edit");
                 };
@@ -1006,8 +1098,8 @@ fn parses_protein_extension_variants() {
     match unknown_stop_symbolic.description {
         VariantDescription::Protein(value) => match value.effect {
             ProteinEffect::Edit { location, edit } => {
-                assert_eq!(location.start.residue, "Ter");
-                assert_eq!(location.start.ordinal, 327);
+                assert_eq!(known_start(&location).residue, "Ter");
+                assert_eq!(known_start(&location).ordinal, 327);
                 let ProteinEdit::Extension(extension) = edit else {
                     panic!("expected extension edit");
                 };
@@ -1097,7 +1189,7 @@ fn reports_intronic_and_utr_coordinate_properties_from_parsed_variants() {
     let VariantDescription::Nucleotide(intronic) = intronic.description else {
         panic!("expected nucleotide variant");
     };
-    let intronic = intronic.location.start;
+    let intronic = known_start(&intronic.location);
     assert!(intronic.is_intronic());
     assert!(!intronic.is_cds_start_anchored());
     assert!(!intronic.is_cds_end_anchored());
@@ -1108,7 +1200,7 @@ fn reports_intronic_and_utr_coordinate_properties_from_parsed_variants() {
     else {
         panic!("expected nucleotide variant");
     };
-    let five_prime_intronic = five_prime_intronic.location.start;
+    let five_prime_intronic = known_start(&five_prime_intronic.location);
     assert!(five_prime_intronic.is_intronic());
     assert!(five_prime_intronic.is_cds_start_anchored());
     assert!(!five_prime_intronic.is_cds_end_anchored());
@@ -1118,7 +1210,7 @@ fn reports_intronic_and_utr_coordinate_properties_from_parsed_variants() {
     let VariantDescription::Nucleotide(five_prime_utr) = five_prime_utr.description else {
         panic!("expected nucleotide variant");
     };
-    let five_prime_utr = five_prime_utr.location.start;
+    let five_prime_utr = known_start(&five_prime_utr.location);
     assert!(!five_prime_utr.is_intronic());
     assert!(five_prime_utr.is_cds_start_anchored());
     assert!(!five_prime_utr.is_cds_end_anchored());
@@ -1129,7 +1221,7 @@ fn reports_intronic_and_utr_coordinate_properties_from_parsed_variants() {
     else {
         panic!("expected nucleotide variant");
     };
-    let three_prime_intronic = three_prime_intronic.location.start;
+    let three_prime_intronic = known_start(&three_prime_intronic.location);
     assert!(three_prime_intronic.is_intronic());
     assert!(!three_prime_intronic.is_cds_start_anchored());
     assert!(three_prime_intronic.is_cds_end_anchored());
@@ -1139,7 +1231,7 @@ fn reports_intronic_and_utr_coordinate_properties_from_parsed_variants() {
     let VariantDescription::Nucleotide(three_prime_utr) = three_prime_utr.description else {
         panic!("expected nucleotide variant");
     };
-    let three_prime_utr = three_prime_utr.location.start;
+    let three_prime_utr = known_start(&three_prime_utr.location);
     assert!(!three_prime_utr.is_intronic());
     assert!(!three_prime_utr.is_cds_start_anchored());
     assert!(three_prime_utr.is_cds_end_anchored());
@@ -1156,9 +1248,227 @@ fn trims_input_before_parsing() {
 }
 
 #[test]
-fn rejects_examples_deferred_to_future_work() {
-    let deferred = "NC_000023.11:g.(31060227_31100351)_(33274278_33417151)dup";
+fn parses_nucleotide_uncertain_locations() {
+    let unknown_interval = parse_variant("NC_000023.10:g.?_?del");
+    let uncertain_position = parse_variant("NC_000023.10:g.(33038277_33038278)C>T");
+    let mixed_uncertain_interval = parse_variant("NC_000023.10:g.(33038277_33038278)_(?_?)del");
+    let uncertain_interval = parse_variant("NC_000023.10:g.(?_234567)_(345678_?)del");
+    let cdna_uncertain = parse_variant("LRG_199t1:c.(71_72)G>A");
+    let rna_unknown_interval = parse_variant("NM_004006.2:r.?_?del");
+    let rna_uncertain_interval = parse_variant("NM_004006.2:r.(?_87)del");
+    let rna_uncertain_two_region_interval = parse_variant("NM_004006.2:r.(71_72)_(90_91)del");
+    let rna_uncertain_substitution = parse_variant("NM_004006.2:r.(71_72)g>a");
+
+    let VariantDescription::Nucleotide(unknown_interval) = unknown_interval.description else {
+        panic!("expected nucleotide variant");
+    };
+    assert!(!unknown_interval.location.is_uncertain());
+    assert!(!unknown_interval.location.is_pos());
+    assert!(unknown_interval.location.is_interval());
+    let start = unknown_interval.location.start().unwrap();
+    let end = unknown_interval.location.end().unwrap();
+    assert!(start.is_unknown());
+    assert!(!start.is_known());
+    assert_eq!(start.anchor(), None);
+    assert_eq!(start.coordinate(), None);
+    assert_eq!(start.offset(), None);
+    assert!(end.is_unknown());
+    assert_eq!(end.anchor(), None);
+    assert_eq!(end.coordinate(), None);
+    assert_eq!(end.offset(), None);
+    assert!(unknown_interval.location.l_interval().is_none());
+    assert!(unknown_interval.location.r_interval().is_none());
+
+    let VariantDescription::Nucleotide(uncertain_position) = uncertain_position.description else {
+        panic!("expected nucleotide variant");
+    };
+    assert!(uncertain_position.location.is_uncertain());
+    assert!(!uncertain_position.location.is_pos());
+    assert!(uncertain_position.location.is_interval());
+    assert!(uncertain_position.location.start().is_none());
+    assert!(uncertain_position.location.end().is_none());
+    let left_region = uncertain_position
+        .location
+        .l_interval()
+        .expect("expected left uncertain region");
+    assert_eq!(left_region.start.coordinate().unwrap(), 33038277);
+    assert_eq!(
+        left_region.end.as_ref().unwrap().coordinate().unwrap(),
+        33038278
+    );
+    assert!(uncertain_position.location.r_interval().is_none());
+
+    let VariantDescription::Nucleotide(mixed_uncertain_interval) =
+        mixed_uncertain_interval.description
+    else {
+        panic!("expected nucleotide variant");
+    };
+    assert!(mixed_uncertain_interval.location.is_uncertain());
+    let left_region = mixed_uncertain_interval
+        .location
+        .l_interval()
+        .expect("expected left uncertain region");
+    assert_eq!(left_region.start.coordinate().unwrap(), 33038277);
+    assert_eq!(
+        left_region.end.as_ref().unwrap().coordinate().unwrap(),
+        33038278
+    );
+    let right_region = mixed_uncertain_interval
+        .location
+        .r_interval()
+        .expect("expected right uncertain region");
+    assert!(right_region.start.is_unknown());
+    assert!(right_region.end.as_ref().unwrap().is_unknown());
+
+    let VariantDescription::Nucleotide(uncertain_interval) = uncertain_interval.description else {
+        panic!("expected nucleotide variant");
+    };
+    assert!(uncertain_interval.location.is_uncertain());
+    assert!(uncertain_interval.location.is_interval());
+    let left_region = uncertain_interval
+        .location
+        .l_interval()
+        .expect("expected left uncertain region");
+    assert!(left_region.start.is_unknown());
+    assert_eq!(
+        left_region.end.as_ref().unwrap().coordinate().unwrap(),
+        234567
+    );
+    let right_region = uncertain_interval
+        .location
+        .r_interval()
+        .expect("expected right uncertain region");
+    assert_eq!(right_region.start.coordinate().unwrap(), 345678);
+    assert!(right_region.end.as_ref().unwrap().is_unknown());
+
+    let VariantDescription::Nucleotide(cdna_uncertain) = cdna_uncertain.description else {
+        panic!("expected nucleotide variant");
+    };
+    assert!(cdna_uncertain.location.is_uncertain());
+    let left_region = cdna_uncertain
+        .location
+        .l_interval()
+        .expect("expected left uncertain region");
+    assert_eq!(left_region.start.coordinate().unwrap(), 71);
+    assert_eq!(left_region.end.as_ref().unwrap().coordinate().unwrap(), 72);
+
+    let VariantDescription::Nucleotide(rna_unknown_interval) = rna_unknown_interval.description
+    else {
+        panic!("expected nucleotide variant");
+    };
+    assert!(!rna_unknown_interval.location.is_uncertain());
+    assert!(rna_unknown_interval.location.start().unwrap().is_unknown());
+    assert!(rna_unknown_interval.location.end().unwrap().is_unknown());
+
+    let VariantDescription::Nucleotide(rna_uncertain_interval) = rna_uncertain_interval.description
+    else {
+        panic!("expected nucleotide variant");
+    };
+    assert!(rna_uncertain_interval.location.is_uncertain());
+    let left_region = rna_uncertain_interval
+        .location
+        .l_interval()
+        .expect("expected left uncertain region");
+    assert!(left_region.start.is_unknown());
+    assert_eq!(left_region.end.as_ref().unwrap().coordinate().unwrap(), 87);
+
+    let VariantDescription::Nucleotide(rna_uncertain_two_region_interval) =
+        rna_uncertain_two_region_interval.description
+    else {
+        panic!("expected nucleotide variant");
+    };
+    assert!(rna_uncertain_two_region_interval.location.is_uncertain());
+    let left_region = rna_uncertain_two_region_interval
+        .location
+        .l_interval()
+        .expect("expected left uncertain region");
+    assert_eq!(left_region.start.coordinate().unwrap(), 71);
+    assert_eq!(left_region.end.as_ref().unwrap().coordinate().unwrap(), 72);
+    let right_region = rna_uncertain_two_region_interval
+        .location
+        .r_interval()
+        .expect("expected right uncertain region");
+    assert_eq!(right_region.start.coordinate().unwrap(), 90);
+    assert_eq!(right_region.end.as_ref().unwrap().coordinate().unwrap(), 91);
+
+    let VariantDescription::Nucleotide(rna_uncertain_substitution) =
+        rna_uncertain_substitution.description
+    else {
+        panic!("expected nucleotide variant");
+    };
+    assert!(rna_uncertain_substitution.location.is_uncertain());
+    let left_region = rna_uncertain_substitution
+        .location
+        .l_interval()
+        .expect("expected left uncertain region");
+    assert_eq!(left_region.start.coordinate().unwrap(), 71);
+    assert_eq!(left_region.end.as_ref().unwrap().coordinate().unwrap(), 72);
+}
+
+#[test]
+fn parses_protein_uncertain_locations() {
+    let uncertain_ter = parse_variant("p.(Ala123_Pro131)Ter");
+    let uncertain_frameshift = parse_variant("p.(Ala123_Pro131)fs");
+
+    let VariantDescription::Protein(uncertain_ter) = uncertain_ter.description else {
+        panic!("expected protein variant");
+    };
+    let ProteinEffect::Edit { location, edit } = uncertain_ter.effect else {
+        panic!("expected protein edit");
+    };
+    assert!(location.is_uncertain());
+    assert!(!location.is_pos());
+    assert!(location.is_interval());
+    assert!(matches!(edit, ProteinEdit::Substitution { ref to } if to == "Ter"));
+    let left_region = location
+        .l_interval()
+        .expect("expected uncertain protein region");
+    assert_eq!(left_region.start.residue, "Ala");
+    assert_eq!(left_region.start.ordinal, 123);
+    assert_eq!(left_region.end.as_ref().unwrap().residue, "Pro");
+    assert_eq!(left_region.end.as_ref().unwrap().ordinal, 131);
+    assert!(location.r_interval().is_none());
+
+    let VariantDescription::Protein(uncertain_frameshift) = uncertain_frameshift.description else {
+        panic!("expected protein variant");
+    };
+    let ProteinEffect::Edit { location, edit } = uncertain_frameshift.effect else {
+        panic!("expected protein edit");
+    };
+    assert!(location.is_uncertain());
+    assert!(matches!(edit, ProteinEdit::Frameshift { .. }));
+    assert!(location.l_interval().is_some());
+}
+
+#[test]
+fn rejects_unknown_nucleotide_bounds_with_offsets() {
+    for malformed in [
+        "NC_000023.10:g.?+1C>T",
+        "NC_000023.10:g.(?+1_5)del",
+        "NC_000023.10:g.(?-2_5)del",
+    ] {
+        let error = parse_hgvs(malformed).unwrap_err();
+        assert_eq!(error.code(), "invalid.syntax");
+    }
+}
+
+#[test]
+fn rejects_malformed_uncertain_range_variants() {
+    for malformed in [
+        "NC_000023.10:g.(?_?)del",
+        "NC_000023.10:g.(?_?)_(?_?)del",
+        "NM_004006.2:r.(?_?)del",
+        "NM_004006.2:r.(?_?)_(?_?)del",
+    ] {
+        let error = parse_hgvs(malformed).unwrap_err();
+        assert_eq!(error.code(), "invalid.syntax");
+    }
+}
+
+#[test]
+fn still_rejects_examples_deferred_to_future_work() {
+    let deferred = "r.-128_-126[(600_800)]";
     let error = parse_hgvs(deferred).unwrap_err();
 
-    assert_eq!(error.code(), "unsupported.uncertain_range");
+    assert_eq!(error.code(), "unsupported.uncertain_size");
 }

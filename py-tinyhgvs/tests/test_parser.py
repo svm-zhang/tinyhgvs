@@ -10,7 +10,9 @@ from tinyhgvs import (
     CoordinateSystem,
     CopiedSequenceItem,
     LiteralSequenceItem,
+    Location,
     NucleotideAnchor,
+    NucleotideCoordinateKind,
     NucleotideDeletionInsertionEdit,
     NucleotideInsertionEdit,
     NucleotideRepeatEdit,
@@ -29,6 +31,8 @@ def test_public_package_exports_version_and_core_api():
     assert tinyhgvs_package.__version__
     assert "parse_hgvs" in tinyhgvs_package.__all__
     assert "TinyHGVSError" in tinyhgvs_package.__all__
+    assert "Location" in tinyhgvs_package.__all__
+    assert "NucleotideCoordinateKind" in tinyhgvs_package.__all__
 
 
 def test_public_package_falls_back_to_unknown_version_when_metadata_is_missing(
@@ -58,6 +62,7 @@ def test_parses_nucleotide_substitution_variants():
     assert variant.reference.primary.id == "NG_012232.1"
     assert variant.reference.context is not None
     assert variant.reference.context.id == "NM_004006.2"
+    assert variant.description.location.start.kind is NucleotideCoordinateKind.KNOWN
     assert variant.description.location.start.coordinate == 93
     assert variant.description.location.start.offset == 1
     assert variant.description.edit.reference == "G"
@@ -73,7 +78,9 @@ def test_parses_cdna_offset_anchor_variants():
     three_prime_intronic = parse_hgvs(
         "ENSG00000050628.16(ENST00000351052.5):c.*24-12888C>T"
     )
-    five_prime_interval = parse_hgvs("ENST00000440857.1:c.-490-342_-490-341del")
+    five_prime_interval = parse_hgvs(
+        "ENST00000440857.1:c.-490-342_-490-341del"
+    )
 
     assert (
         five_prime_intronic.description.location.start.anchor
@@ -139,6 +146,128 @@ def test_parses_nucleotide_duplication_and_inversion_variants():
     assert (
         inversion.description.edit is NucleotideSequenceOmittedEdit.INVERSION
     )
+
+
+def test_reports_known_nucleotide_location_helper_views():
+    single = parse_hgvs("NM_004006.2:c.5697del")
+    location = single.description.location
+
+    assert location.is_uncertain is False
+    assert location.is_pos is True
+    assert location.is_interval is False
+    assert location.start.kind is NucleotideCoordinateKind.KNOWN
+    assert location.start.coordinate == 5697
+    assert location.end is None
+    assert location.l_interval is None
+    assert location.r_interval is None
+
+    interval = parse_hgvs("NM_004006.2:c.93_94del")
+    location = interval.description.location
+
+    assert location.is_uncertain is False
+    assert location.is_pos is False
+    assert location.is_interval is True
+    assert location.start.kind is NucleotideCoordinateKind.KNOWN
+    assert location.start.coordinate == 93
+    assert location.end is not None
+    assert location.end.kind is NucleotideCoordinateKind.KNOWN
+    assert location.end.coordinate == 94
+    assert location.l_interval is None
+    assert location.r_interval is None
+
+
+def test_parses_uncertain_nucleotide_locations():
+    unknown_range = parse_hgvs("NC_000023.10:g.?_?del")
+    assert isinstance(unknown_range.description.location, Location)
+    assert unknown_range.description.location.is_uncertain is False
+    assert unknown_range.description.location.is_interval is True
+    assert unknown_range.description.location.is_pos is False
+    assert unknown_range.description.location.start.kind is NucleotideCoordinateKind.UNKNOWN
+    assert unknown_range.description.location.start.is_unknown is True
+    assert unknown_range.description.location.start.is_known is False
+    assert unknown_range.description.location.start.anchor is None
+    assert unknown_range.description.location.start.coordinate is None
+    assert unknown_range.description.location.start.offset is None
+    assert unknown_range.description.location.end is not None
+    assert unknown_range.description.location.end.kind is NucleotideCoordinateKind.UNKNOWN
+    assert unknown_range.description.location.end.anchor is None
+    assert unknown_range.description.location.end.coordinate is None
+    assert unknown_range.description.location.end.offset is None
+    assert unknown_range.description.location.l_interval is None
+    assert unknown_range.description.location.r_interval is None
+
+    single_region = parse_hgvs("NC_000023.10:g.(33038277_33038278)C>T")
+    location = single_region.description.location
+    assert location.is_uncertain is True
+    assert location.is_interval is True
+    assert location.is_pos is False
+    assert location.start is None
+    assert location.end is None
+    assert location.l_interval is not None
+    assert location.l_interval.start.kind is NucleotideCoordinateKind.KNOWN
+    assert location.l_interval.start.coordinate == 33038277
+    assert location.l_interval.end is not None
+    assert location.l_interval.end.coordinate == 33038278
+    assert location.r_interval is None
+
+    mixed_unknown = parse_hgvs("NC_000023.10:g.(?_32238146)_(32984039_?)del")
+    location = mixed_unknown.description.location
+    assert location.is_uncertain is True
+    assert location.l_interval is not None
+    assert location.l_interval.start.kind is NucleotideCoordinateKind.UNKNOWN
+    assert location.l_interval.start.anchor is None
+    assert location.l_interval.start.coordinate is None
+    assert location.l_interval.start.offset is None
+    assert location.l_interval.end is not None
+    assert location.l_interval.end.kind is NucleotideCoordinateKind.KNOWN
+    assert location.l_interval.end.coordinate == 32238146
+    assert location.r_interval is not None
+    assert location.r_interval.start.kind is NucleotideCoordinateKind.KNOWN
+    assert location.r_interval.start.coordinate == 32984039
+    assert location.r_interval.end is not None
+    assert location.r_interval.end.kind is NucleotideCoordinateKind.UNKNOWN
+    assert location.r_interval.end.anchor is None
+    assert location.r_interval.end.coordinate is None
+    assert location.r_interval.end.offset is None
+
+    uncertain_range = parse_hgvs("NM_004006.2:r.(71_72)_(90_91)del")
+    location = uncertain_range.description.location
+    assert location.is_uncertain is True
+    assert location.l_interval is not None
+    assert location.l_interval.start.coordinate == 71
+    assert location.l_interval.end is not None
+    assert location.l_interval.end.coordinate == 72
+    assert location.r_interval is not None
+    assert location.r_interval.start.coordinate == 90
+    assert location.r_interval.end is not None
+    assert location.r_interval.end.coordinate == 91
+
+    rna_insertion = parse_hgvs("NM_004006.2:r.(222_226)insg")
+    location = rna_insertion.description.location
+    assert location.is_uncertain is True
+    assert location.l_interval is not None
+    assert location.l_interval.start.coordinate == 222
+    assert location.l_interval.end is not None
+    assert location.l_interval.end.coordinate == 226
+    assert isinstance(rna_insertion.description.edit, NucleotideInsertionEdit)
+    assert isinstance(
+        rna_insertion.description.edit.items[0], LiteralSequenceItem
+    )
+    assert rna_insertion.description.edit.items[0].value == "g"
+
+
+def test_rejects_malformed_uncertain_nucleotide_locations():
+    cases = [
+        "NC_000023.10:g.(?_?)del",
+        "NC_000023.10:g.(?_?)_(?_?)del",
+        "NM_004006.2:r.(?_?)del",
+    ]
+
+    for input_value in cases:
+        with pytest.raises(TinyHGVSError) as exc_info:
+            parse_hgvs(input_value)
+
+        assert exc_info.value.code == "invalid.syntax"
 
 
 def test_parses_nucleotide_insertion_sequence_items():
@@ -273,7 +402,9 @@ def test_parses_nucleotide_allele_variants():
     assert len(tuple(cis.description)) == 1
     assert cis.description.allele_one.variants[0].edit.reference == "G"
     assert cis.description.allele_one.variants[0].edit.alternate == "A"
-    assert cis.description.allele_one.variants[1].location.start.coordinate == 345
+    assert (
+        cis.description.allele_one.variants[1].location.start.coordinate == 345
+    )
     assert (
         cis.description.allele_one.variants[1].edit
         is NucleotideSequenceOmittedEdit.DELETION
@@ -285,31 +416,51 @@ def test_parses_nucleotide_allele_variants():
     assert trans.description.allele_two is not None
     assert len(trans.description.allele_two.variants) == 1
     assert trans.description.alleles_unphased == ()
-    assert trans.description.allele_two.variants[0].location.start.coordinate == 345
+    assert (
+        trans.description.allele_two.variants[0].location.start.coordinate
+        == 345
+    )
 
     assert isinstance(uncertain.description, AlleleVariant)
     assert len(uncertain.description.allele_one.variants) == 1
     assert uncertain.description.phase is AllelePhase.UNCERTAIN
     assert uncertain.description.allele_two is not None
-    assert uncertain.description.allele_two.variants[0].location.start.coordinate == 345
+    assert (
+        uncertain.description.allele_two.variants[0].location.start.coordinate
+        == 345
+    )
     assert uncertain.description.alleles_unphased == ()
-    assert uncertain.description.allele_two.variants[0].edit is NucleotideSequenceOmittedEdit.DELETION
+    assert (
+        uncertain.description.allele_two.variants[0].edit
+        is NucleotideSequenceOmittedEdit.DELETION
+    )
 
     assert isinstance(unchanged.description, AlleleVariant)
     assert len(unchanged.description.allele_one.variants) == 1
     assert unchanged.description.phase is AllelePhase.TRANS
     assert unchanged.description.allele_two is not None
-    assert unchanged.description.allele_two.variants[0].location.start.coordinate == 2376
-    assert unchanged.description.allele_two.variants[0].edit is NucleotideSequenceOmittedEdit.NO_CHANGE
+    assert (
+        unchanged.description.allele_two.variants[0].location.start.coordinate
+        == 2376
+    )
+    assert (
+        unchanged.description.allele_two.variants[0].edit
+        is NucleotideSequenceOmittedEdit.NO_CHANGE
+    )
 
     assert isinstance(mixed.description, AlleleVariant)
     assert len(mixed.description.allele_one.variants) == 2
     assert mixed.description.phase is AllelePhase.TRANS
     assert mixed.description.allele_two is not None
     assert len(mixed.description.alleles_unphased) == 1
-    assert mixed.description.allele_two.variants[0].location.start.coordinate == 476
     assert (
-        mixed.description.alleles_unphased[0].variants[0].location.start.coordinate
+        mixed.description.allele_two.variants[0].location.start.coordinate
+        == 476
+    )
+    assert (
+        mixed.description.alleles_unphased[0]
+        .variants[0]
+        .location.start.coordinate
         == 1083
     )
 
@@ -333,7 +484,10 @@ def test_reports_nucleotide_allele_helper_views():
     assert trans.description.unphased_alleles == ()
     assert len(trans.description.allele_one.variants) == 1
     assert trans.description.allele_two is not None
-    assert trans.description.allele_two.variants[0].location.start.coordinate == 345
+    assert (
+        trans.description.allele_two.variants[0].location.start.coordinate
+        == 345
+    )
     assert len(tuple(trans.description)) == 2
 
     assert uncertain.description.phased_alleles is None
@@ -350,9 +504,22 @@ def test_reports_nucleotide_allele_helper_views():
     assert len(mixed.description.unphased_alleles) == 2
     assert len(mixed.description.allele_one.variants) == 1
     assert mixed.description.allele_two is not None
-    assert mixed.description.allele_two.variants[0].location.start.coordinate == 476
-    assert mixed.description.unphased_alleles[0].variants[0].location.start.coordinate == 1083
-    assert mixed.description.unphased_alleles[1].variants[0].location.start.coordinate == 1406
+    assert (
+        mixed.description.allele_two.variants[0].location.start.coordinate
+        == 476
+    )
+    assert (
+        mixed.description.unphased_alleles[0]
+        .variants[0]
+        .location.start.coordinate
+        == 1083
+    )
+    assert (
+        mixed.description.unphased_alleles[1]
+        .variants[0]
+        .location.start.coordinate
+        == 1406
+    )
 
 
 def test_rejects_malformed_nucleotide_allele_variants():
@@ -396,15 +563,23 @@ def test_parses_protein_allele_variants():
     assert cis.description.phased_alleles is None
     assert cis.description.unphased_alleles == ()
     assert cis.description.allele_one.variants[0].is_predicted is False
-    assert isinstance(cis.description.allele_one.variants[0].effect, ProteinEditEffect)
-    assert cis.description.allele_one.variants[0].effect.location.start.residue == "Ser"
+    assert isinstance(
+        cis.description.allele_one.variants[0].effect, ProteinEditEffect
+    )
+    assert (
+        cis.description.allele_one.variants[0].effect.location.start.residue
+        == "Ser"
+    )
     assert cis.description.allele_one.variants[0].effect.edit.to == "Arg"
 
     assert isinstance(trans.description, AlleleVariant)
     assert trans.description.phase is AllelePhase.TRANS
     assert trans.description.allele_two is not None
     assert trans.description.phased_alleles is not None
-    assert trans.description.allele_two.variants[0].effect.location.start.residue == "Ser"
+    assert (
+        trans.description.allele_two.variants[0].effect.location.start.residue
+        == "Ser"
+    )
     assert trans.description.allele_two.variants[0].effect.location.end is None
     assert (
         trans.description.allele_two.variants[0].effect.edit
@@ -422,7 +597,10 @@ def test_parses_protein_allele_variants():
     assert isinstance(absent.description, AlleleVariant)
     assert absent.description.phase is AllelePhase.TRANS
     assert absent.description.allele_two is not None
-    assert absent.description.allele_two.variants[0].effect.kind == "no_protein_produced"
+    assert (
+        absent.description.allele_two.variants[0].effect.kind
+        == "no_protein_produced"
+    )
 
     assert isinstance(mixed.description, AlleleVariant)
     assert len(mixed.description.allele_one.variants) == 2
@@ -432,7 +610,8 @@ def test_parses_protein_allele_variants():
     assert isinstance(whole_predicted.description, AlleleVariant)
     assert len(whole_predicted.description.allele_one.variants) == 2
     assert all(
-        variant.is_predicted for variant in whole_predicted.description.allele_one.variants
+        variant.is_predicted
+        for variant in whole_predicted.description.allele_one.variants
     )
 
     assert isinstance(range_no_change.description, AlleleVariant)
@@ -465,12 +644,20 @@ def test_reports_protein_allele_helper_views():
     assert uncertain.description.phased_alleles is None
     assert uncertain.description.unphased_alleles == ()
     assert uncertain.description.allele_two is not None
-    assert uncertain.description.allele_two.variants[0].effect.location.start.residue == "Asn"
+    assert (
+        uncertain.description.allele_two.variants[
+            0
+        ].effect.location.start.residue
+        == "Asn"
+    )
 
     mixed_pair = mixed.description.phased_alleles
     assert mixed_pair is not None
     assert len(mixed.description.unphased_alleles) == 1
-    assert mixed.description.unphased_alleles[0].variants[0].effect.kind == "no_protein_produced"
+    assert (
+        mixed.description.unphased_alleles[0].variants[0].effect.kind
+        == "no_protein_produced"
+    )
     assert len(tuple(mixed.description)) == 3
 
 
@@ -508,6 +695,27 @@ def test_parses_protein_substitution_and_no_change_variants():
         no_change.description.effect.edit
         is ProteinSequenceOmittedEdit.NO_CHANGE
     )
+
+
+def test_parses_uncertain_protein_locations():
+    variant = parse_hgvs("NP_003997.1:p.(Ala123_Pro131)Ter")
+
+    assert isinstance(variant.description.effect, ProteinEditEffect)
+    location = variant.description.effect.location
+    assert isinstance(location, Location)
+    assert location.is_uncertain is True
+    assert location.is_interval is True
+    assert location.is_pos is False
+    assert location.start is None
+    assert location.end is None
+    assert location.l_interval is not None
+    assert location.l_interval.start.residue == "Ala"
+    assert location.l_interval.start.ordinal == 123
+    assert location.l_interval.end is not None
+    assert location.l_interval.end.residue == "Pro"
+    assert location.l_interval.end.ordinal == 131
+    assert location.r_interval is None
+    assert variant.description.effect.edit.to == "Ter"
 
 
 def test_parses_protein_unknown_and_predicted_effects():
@@ -662,7 +870,9 @@ def test_parses_protein_extension_variants():
     assert n_terminal.description.effect.edit.to_residue is None
     assert n_terminal.description.effect.edit.terminal_ordinal == -5
 
-    assert isinstance(predicted_n_terminal.description.effect, ProteinEditEffect)
+    assert isinstance(
+        predicted_n_terminal.description.effect, ProteinEditEffect
+    )
     assert predicted_n_terminal.description.is_predicted is True
     assert (
         predicted_n_terminal.description.effect.edit.to_terminal
@@ -681,8 +891,12 @@ def test_parses_protein_extension_variants():
     assert c_terminal.description.effect.edit.to_residue == "Gln"
     assert c_terminal.description.effect.edit.terminal_ordinal == 17
 
-    assert isinstance(c_terminal_symbolic.description.effect, ProteinEditEffect)
-    assert c_terminal_symbolic.description.effect.location.start.residue == "Ter"
+    assert isinstance(
+        c_terminal_symbolic.description.effect, ProteinEditEffect
+    )
+    assert (
+        c_terminal_symbolic.description.effect.location.start.residue == "Ter"
+    )
     assert c_terminal_symbolic.description.effect.location.start.ordinal == 110
     assert (
         c_terminal_symbolic.description.effect.edit.to_terminal
@@ -701,17 +915,24 @@ def test_parses_protein_extension_variants():
     assert unknown_stop.description.effect.edit.to_residue == "Arg"
     assert unknown_stop.description.effect.edit.terminal_ordinal is None
 
-    assert isinstance(unknown_stop_symbolic.description.effect, ProteinEditEffect)
-    assert (
-        unknown_stop_symbolic.description.effect.location.start.residue == "Ter"
+    assert isinstance(
+        unknown_stop_symbolic.description.effect, ProteinEditEffect
     )
-    assert unknown_stop_symbolic.description.effect.location.start.ordinal == 327
+    assert (
+        unknown_stop_symbolic.description.effect.location.start.residue
+        == "Ter"
+    )
+    assert (
+        unknown_stop_symbolic.description.effect.location.start.ordinal == 327
+    )
     assert (
         unknown_stop_symbolic.description.effect.edit.to_terminal
         is ProteinExtensionTerminal.C
     )
     assert unknown_stop_symbolic.description.effect.edit.to_residue == "Arg"
-    assert unknown_stop_symbolic.description.effect.edit.terminal_ordinal is None
+    assert (
+        unknown_stop_symbolic.description.effect.edit.terminal_ordinal is None
+    )
 
 
 def test_reports_intronic_and_utr_coordinate_properties_from_parsed_variants():
@@ -846,25 +1067,29 @@ def test_rejects_malformed_protein_extension_variants(example: str):
     assert exc_info.value.kind is ParseHgvsErrorKind.INVALID_SYNTAX
 
 
-def test_rejects_examples_deferred_to_future_work():
-    deferred = "NC_000023.11:g.(31060227_31100351)_(33274278_33417151)dup"
-
-    with pytest.raises(TinyHGVSError) as exc_info:
-        parse_hgvs(deferred)
-
-    assert exc_info.value.code == "unsupported.uncertain_range"
-    assert exc_info.value.kind is ParseHgvsErrorKind.UNSUPPORTED_SYNTAX
+# def test_parses_uncertain_range_example_previously_deferred():
+#     variant = parse_hgvs(
+#         "NC_000023.11:g.(31060227_31100351)_(33274278_33417151)dup"
+#     )
+#
+#     location = variant.description.location
+#     assert location.is_uncertain is True
+#     assert location.l_interval is not None
+#     assert location.l_interval.start.coordinate == 31060227
+#     assert location.l_interval.end is not None
+#     assert location.l_interval.end.coordinate == 31100351
+#     assert location.r_interval is not None
+#     assert location.r_interval.start.coordinate == 33274278
+#     assert location.r_interval.end is not None
+#     assert location.r_interval.end.coordinate == 33417151
+#     assert (
+#         variant.description.edit is NucleotideSequenceOmittedEdit.DUPLICATION
+#     )
 
 
 @pytest.mark.parametrize(
     ("example", "code", "kind", "fragment"),
     [
-        (
-            "NC_000023.11:g.(31060227_31100351)_(33274278_33417151)dup",
-            "unsupported.uncertain_range",
-            ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
-            "(",
-        ),
         (
             "NM_004006.2:c.[2376G>C];[?]",
             "unsupported.allele_unknown_variant",
@@ -902,14 +1127,8 @@ def test_rejects_examples_deferred_to_future_work():
             "r.spl",
         ),
         (
-            "NM_004006.2:r.(222_226)insg",
-            "unsupported.rna_uncertain_position",
-            ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
-            "r.(...)",
-        ),
-        (
             "r.-128_-126[(600_800)]",
-            "unsupported.uncertain_range",
+            "unsupported.uncertain_size",
             ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
             "[(...)]",
         ),

@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.2]
+
+### Uncertain location support
+- Added support for uncertain location syntax across DNA, RNA, and protein
+  descriptions, including:
+  - DNA uncertain single-region locations such as
+    `NC_000023.10:g.(33038277_33038278)C>T`
+  - DNA variant with uncertain left and right breakpoints such as
+    `NC_000023.10:g.(?_234567)_(345678_?)del`
+  - RNA uncertain locations such as `NM_004006.2:r.(71_72)_(90_91)del`
+  - Protein uncertain locations such as `p.(Ala123_Pro131)Ter`
+
+### Rust and Python models
+- Added a shared Rust `Location<T>` model for known and uncertain locations.
+- Updated nucleotide and protein descriptions to use `Location<T>` for edited
+  locations.
+- Added Rust helpers for known starts/ends and uncertain left/right regions.
+- Mirrored the location model through the PyO3 bridge and Python surface.
+
+### Diagnostics and tests
+- Moved uncertain location syntax out of the unsupported boundary.
+- Kept uncertain size syntax under `unsupported.uncertain_size`.
+- Kept uncertain protein consequence forms under
+  `unsupported.protein_uncertain_consequence`.
+- Added Rust and Python coverage for valid DNA, RNA, and protein uncertain
+  locations, malformed uncertain locations, and remaining unsupported uncertain
+  syntax.
+
+### Documentation and support inventory
+- Updated the unsupported syntax inventory to mark uncertain location support
+  as available since `0.6.2`.
+- Updated Python docstrings for the location model and coordinate state helpers.
+
 ## [0.6.1]
 
 ### Protein allele support
@@ -40,12 +73,12 @@ All notable changes to this project will be documented in this file.
 ## [0.6.0]
 
 ### Nucleotide allele support
-- Added support for exact DNA and RNA allele syntax, including:
+- Added support for supported DNA and RNA allele syntax, including:
   - single-allele cis forms such as `g.[123G>A;345del]`
   - variants *in trans* such as `r.[123c>a];[345del]`
   - uncertain-phase forms such as `g.123G>A(;)345del`
   - mixed-phase chains such as `c.[296T>G;476T>C];[476T>C](;)1083A>C`
-- Removed exact DNA/RNA allele syntax from the unsupported parser boundary.
+- Removed supported DNA/RNA allele syntax from the unsupported parser boundary.
 
 ### Rust and Python models
 - Added allele container model on Rust backend and mirrored in Python surface:
@@ -147,9 +180,9 @@ This patch addresses the security alerts from dependabot.
 ## [0.3.0]
 
 ### Protein frameshift support
-- Added support for exact HGVS protein frameshift syntax, including short form
+- Added support for supported HGVS protein frameshift syntax, including short form
   such as `p.Arg97fs` and long form such as `p.Arg97ProfsTer23` and `p.Arg97ProfsTer?`.
-- Removed exact protein frameshift syntax from the unsupported parser boundary
+- Removed supported protein frameshift syntax from the unsupported parser boundary
   while keeping adjacent unsupported protein families unchanged.
 
 ### Rust and Python models
@@ -171,7 +204,7 @@ This patch addresses the security alerts from dependabot.
   variants.
 - Added top-level repeat edit models on the Rust and Python sides, including
   nucleotide repeat blocks and protein repeat counts.
-- Removed exact repeat families from the unsupported parser boundary while
+- Removed supported repeat families from the unsupported parser boundary while
   keeping repeat-adjacent allele and uncertain-count diagnostics explicit.
 
 ### Python and typing

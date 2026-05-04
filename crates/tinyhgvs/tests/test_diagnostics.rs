@@ -8,13 +8,6 @@ fn parse_error(example: &str) -> tinyhgvs::ParseHgvsError {
 fn classifies_supported_diagnostic_codes() {
     let cases = [
         (
-            "NC_000023.11:g.(31060227_31100351)_(33274278_33417151)dup",
-            "unsupported.uncertain_range",
-            ParseHgvsErrorKind::UnsupportedSyntax,
-            "uncertain HGVS ranges are not supported yet",
-            Some("("),
-        ),
-        (
             "NC_000023.11:g.pter_qtersup",
             "unsupported.telomeric_position",
             ParseHgvsErrorKind::UnsupportedSyntax,
@@ -34,13 +27,6 @@ fn classifies_supported_diagnostic_codes() {
             ParseHgvsErrorKind::UnsupportedSyntax,
             "RNA consequence states such as r.spl, r.?, and r.0 are not supported yet",
             Some("r.spl"),
-        ),
-        (
-            "NM_004006.2:r.(222_226)insg",
-            "unsupported.rna_uncertain_position",
-            ParseHgvsErrorKind::UnsupportedSyntax,
-            "RNA variants with uncertain positions are not supported yet",
-            Some("r.(...)"),
         ),
         (
             "NC_000023.11(NM_004006.2):r.[897u>g,832_960del]",
@@ -93,9 +79,9 @@ fn classifies_supported_diagnostic_codes() {
         ),
         (
             "r.-128_-126[(600_800)]",
-            "unsupported.uncertain_range",
+            "unsupported.uncertain_size",
             ParseHgvsErrorKind::UnsupportedSyntax,
-            "uncertain HGVS ranges are not supported yet",
+            "uncertain HGVS size syntax is not supported yet",
             Some("[(...)]"),
         ),
         (
@@ -143,13 +129,11 @@ fn classifies_supported_diagnostic_codes() {
 #[test]
 fn prioritizes_specific_rna_codes_before_generic_ones() {
     let splicing = parse_error("NC_000023.11(NM_004006.2):r.spl");
-    let uncertain = parse_error("NM_004006.2:r.(222_226)insg");
     let unknown_member = parse_error("NM_004006.2:c.[2376G>C];[?]");
     let protein_unknown_member = parse_error("NP_003997.1:p.[(Ser68Arg)];[?]");
     let uncertain_state = parse_error("NM_004006.2:c.2376G>C(;)(2376G>C)");
 
     assert_eq!(splicing.code(), "unsupported.rna_splicing_outcome");
-    assert_eq!(uncertain.code(), "unsupported.rna_uncertain_position");
     assert_eq!(unknown_member.code(), "unsupported.allele_unknown_variant");
     assert_eq!(
         protein_unknown_member.code(),
@@ -170,6 +154,25 @@ fn falls_back_to_invalid_syntax_for_unclassified_failures() {
     assert_eq!(error.message(), "failed to parse HGVS variant");
     assert_eq!(error.input(), "not-hgvs");
     assert_eq!(error.fragment(), None);
+}
+
+#[test]
+fn malformed_uncertain_range_now_falls_back_to_generic_invalid_syntax() {
+    let cases = [
+        "NC_000023.10:g.(?_?)del",
+        "NC_000023.10:g.(?_?)_(?_?)del",
+        "NM_004006.2:r.(?_?)del",
+        "NM_004006.2:r.(?_?)_(?_?)del",
+    ];
+
+    for input in cases {
+        let error = parse_error(input);
+
+        assert_eq!(error.code(), "invalid.syntax");
+        assert_eq!(error.kind(), ParseHgvsErrorKind::InvalidSyntax);
+        assert_eq!(error.message(), "failed to parse HGVS variant");
+        assert_eq!(error.fragment(), None);
+    }
 }
 
 #[test]

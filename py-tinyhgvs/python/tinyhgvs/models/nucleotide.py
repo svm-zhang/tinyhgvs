@@ -18,8 +18,8 @@ from .shared import (
     AlleleVariant,
     CoordinateSystem,
     Interval,
+    Location,
     ReferenceSpec,
-    VariantT,
 )
 
 
@@ -54,16 +54,31 @@ class NucleotideAnchor(str, Enum):
     RELATIVE_CDS_END = "relative_cds_end"
 
 
-@dataclass(frozen=True, slots=True)
-class NucleotideCoordinate:
-    """Nucleotide coordinate with anchor and signed offset semantics.
+class NucleotideCoordinateKind(str, Enum):
+    """Known/unknown state for a nucleotide coordinate.
 
     Attributes:
-        anchor: Reference point used to interpret the coordinate.
-        coordinate: Primary HGVS coordinate as written. For example, ``c.-81``
-            uses ``coordinate == -81`` and ``c.*24`` uses ``coordinate == 24``.
+        KNOWN: Coordinate has anchor, coordinate, and offset values.
+        UNKNOWN: Coordinate is written as ``?``.
+    """
+
+    KNOWN = "known"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True, slots=True)
+class NucleotideCoordinate:
+    """Nucleotide coordinate written as a known position or ``?``.
+
+    Attributes:
+        kind: Whether this coordinate is known or unknown.
+        anchor: Reference point used to interpret the coordinate. ``None`` for
+            unknown coordinates.
+        coordinate: Primary HGVS coordinate as written. ``None`` for unknown
+            coordinates.
         offset: Signed secondary displacement from the primary coordinate.
-            Positive values move downstream and negative values move upstream.
+            ``None`` for unknown coordinates. Positive values move downstream
+            and negative values move upstream.
 
     Examples:
         Duplication crossing an exon/intron border:
@@ -111,9 +126,20 @@ class NucleotideCoordinate:
         2
     """
 
-    anchor: NucleotideAnchor
-    coordinate: int
-    offset: int = 0
+    kind: NucleotideCoordinateKind
+    anchor: NucleotideAnchor | None = None
+    coordinate: int | None = None
+    offset: int | None = None
+
+    @property
+    def is_known(self) -> bool:
+        """Return ``True`` when this coordinate has a known value."""
+        return self.kind is NucleotideCoordinateKind.KNOWN
+
+    @property
+    def is_unknown(self) -> bool:
+        """Return ``True`` when this coordinate is written as ``?``."""
+        return self.kind is NucleotideCoordinateKind.UNKNOWN
 
     @property
     def is_intronic(self) -> bool:
@@ -128,7 +154,7 @@ class NucleotideCoordinate:
             >>> variant.description.location.start.is_intronic
             True
         """
-        return self.offset != 0
+        return self.offset is not None and self.offset != 0
 
     @property
     def is_cds_start_anchored(self) -> bool:
@@ -530,8 +556,9 @@ class NucleotideVariant:
     """Model describing a nucleotide-level variant.
 
     Attributes:
-        location: Inclusive nucleotide interval where the edit is applied.
-        edit: Nucleotide edit applied at that interval.
+        location: [`Location`][tinyhgvs.models.shared.Location] where the
+            nucleotide edit occurs.
+        edit: Nucleotide edit applied at the location.
 
     Examples:
         A splice-site substitution is represented by a nucleotide location and
@@ -547,7 +574,7 @@ class NucleotideVariant:
         1
     """
 
-    location: Interval[NucleotideCoordinate]
+    location: Location[NucleotideCoordinate]
     edit: NucleotideEdit
 
 
@@ -559,6 +586,7 @@ __all__ = [
     "NucleotideDeletionInsertionEdit",
     "NucleotideAnchor",
     "NucleotideCoordinate",
+    "NucleotideCoordinateKind",
     "NucleotideEdit",
     "NucleotideInsertionEdit",
     "NucleotideRepeatBlock",

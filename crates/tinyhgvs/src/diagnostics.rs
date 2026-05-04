@@ -55,23 +55,17 @@ const UNSUPPORTED_MATCHERS: &[DiagnosticMatcher] = &[
         message: "uncertain protein consequence syntax is not supported yet",
         detect: protein_uncertain_consequence_fragment,
     },
-    // Example: `NM_004006.2:r.(222_226)insg`
-    DiagnosticMatcher {
-        code: "unsupported.rna_uncertain_position",
-        message: "RNA variants with uncertain positions are not supported yet",
-        detect: rna_uncertain_position_fragment,
-    },
     // Examples: `NM_004006.3:r.spl`, `r.?`, `r.0`, `r.(1388g>a)`
     DiagnosticMatcher {
         code: "unsupported.rna_special_state",
         message: "RNA consequence states such as r.spl, r.?, and r.0 are not supported yet",
         detect: rna_special_state_fragment,
     },
-    // Examples: `g.(?_234567)_(345678_?)del`, `g.(33038277_33038278)C>T`
+    // Example: `r.-128_-126[(600_800)]`
     DiagnosticMatcher {
-        code: "unsupported.uncertain_range",
-        message: "uncertain HGVS ranges are not supported yet",
-        detect: uncertain_range_fragment,
+        code: "unsupported.uncertain_size",
+        message: "uncertain HGVS size syntax is not supported yet",
+        detect: uncertain_size_fragment,
     },
     // Example: `c.[2376G>C];[?]`
     DiagnosticMatcher {
@@ -202,30 +196,19 @@ fn protein_uncertain_consequence_fragment(input: &str) -> Option<String> {
     }
 }
 
-/// Detects RNA edits with uncertain positions such as `r.(222_226)insg`.
-fn rna_uncertain_position_fragment(input: &str) -> Option<String> {
-    let description = coordinate_description_fragment(input, "r.")?;
-    (description.starts_with('(')
-        && (description.contains("ins")
-            || description.contains("del")
-            || description.contains("dup")
-            || description.contains("inv")))
-    .then(|| "r.(...)".to_string())
-}
-
 // The current RNA model assumes a direct `location + edit` shape, so special states and
 // slash-style outcome forms are grouped here until RNA consequence types expand.
 /// Detects RNA special states such as `r.?`, `r.spl`, and `r.0`.
 fn rna_special_state_fragment(input: &str) -> Option<String> {
     let description = coordinate_description_fragment(input, "r.")?;
 
-    if description.starts_with('?') {
+    if description == "?" {
         Some("r.?".to_string())
     } else if description.starts_with("spl") {
         Some("r.spl".to_string())
     } else if description.starts_with('0') {
         Some("r.0".to_string())
-    } else if description.starts_with('(') {
+    } else if description.starts_with('(') && description.ends_with(')') {
         Some("r.(...)".to_string())
     } else if description.contains("=/") || description.contains("//") {
         Some("=/".to_string())
@@ -234,22 +217,18 @@ fn rna_special_state_fragment(input: &str) -> Option<String> {
     }
 }
 
-// This remains deliberately broad until uncertainty gets its own richer model.
-/// Detects uncertainty wrappers and range forms handled by the broad fallback.
-fn uncertain_range_fragment(input: &str) -> Option<String> {
+// Uncertain location syntax on DNA and protein is now parsed directly, so this
+// fallback stays only for still-unsupported quantified or ranged count forms.
+/// Detects remaining uncertain-size forms that stay unsupported.
+fn uncertain_size_fragment(input: &str) -> Option<String> {
     let description = variant_description_fragment(input)?;
+
     if protein_description_fragment(input).is_some() && description.contains('[') {
         return None;
     }
 
-    if description.contains('^') {
-        Some("^".to_string())
-    } else if description.contains("[(") {
+    if description.contains("[(") {
         Some("[(...)]".to_string())
-    } else if description.contains("(?") || description.contains("?)") {
-        Some("(?)".to_string())
-    } else if description.starts_with('(') || description.contains("_(") {
-        Some("(".to_string())
     } else {
         None
     }

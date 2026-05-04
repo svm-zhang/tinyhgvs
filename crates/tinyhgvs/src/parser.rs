@@ -10,14 +10,14 @@ use nom::bytes::complete::{tag, take_while1};
 use nom::character::complete::{char, digit1};
 use nom::combinator::{all_consuming, map, map_res, opt, value};
 use nom::multi::{many0, many1, separated_list1};
-use nom::sequence::{delimited, pair, preceded};
+use nom::sequence::{delimited, pair, preceded, separated_pair};
 use nom::{IResult, Parser};
 
 use crate::diagnostics::classify_parse_failure;
 use crate::error::ParseHgvsError;
 use crate::model::{
     Accession, Allele, AllelePhase, AlleleVariant, CoordinateSystem, CopiedSequenceItem,
-    HgvsVariant, Interval, LiteralSequenceItem, NucleotideAnchor, NucleotideCoordinate,
+    HgvsVariant, Interval, LiteralSequenceItem, Location, NucleotideAnchor, NucleotideCoordinate,
     NucleotideEdit, NucleotideRepeatBlock, NucleotideSequenceItem, NucleotideVariant,
     ProteinCoordinate, ProteinEdit, ProteinEffect, ProteinExtensionEdit, ProteinExtensionTerminal,
     ProteinFrameshiftStop, ProteinFrameshiftStopKind, ProteinSequence, ProteinVariant,
@@ -25,6 +25,9 @@ use crate::model::{
 };
 
 type ParseResult<'a, T> = IResult<&'a str, T>;
+
+// Same numeric parser, named by semantic role at the frameshift call site.
+use self::parse_quantity as parse_stop_ordinal;
 
 const PROTEIN_SYMBOLS: &[&str] = &[
     "Ter", "Sec", "Pyl", "Xaa", "Ala", "Arg", "Asn", "Asp", "Cys", "Gln", "Glu", "Gly", "His",
@@ -53,9 +56,9 @@ const PROTEIN_SYMBOLS: &[&str] = &[
 ///
 /// match variant.description {
 ///     VariantDescription::Nucleotide(nucleotide) => {
-///         assert_eq!(nucleotide.location.start.anchor, NucleotideAnchor::Absolute);
-///         assert_eq!(nucleotide.location.start.coordinate, 357);
-///         assert_eq!(nucleotide.location.start.offset, 1);
+///         assert_eq!(nucleotide.location.start().unwrap().anchor().unwrap(), NucleotideAnchor::Absolute);
+///         assert_eq!(nucleotide.location.start().unwrap().coordinate().unwrap(), 357);
+///         assert_eq!(nucleotide.location.start().unwrap().offset().unwrap(), 1);
 ///         assert!(matches!(
 ///             nucleotide.edit,
 ///             NucleotideEdit::Substitution { ref reference, ref alternate }
@@ -75,9 +78,9 @@ const PROTEIN_SYMBOLS: &[&str] = &[
 ///
 /// match variant.description {
 ///     VariantDescription::Nucleotide(nucleotide) => {
-///         assert_eq!(nucleotide.location.start.anchor, NucleotideAnchor::RelativeCdsStart);
-///         assert_eq!(nucleotide.location.start.coordinate, -1);
-///         assert_eq!(nucleotide.location.start.offset, 0);
+///         assert_eq!(nucleotide.location.start().unwrap().anchor().unwrap(), NucleotideAnchor::RelativeCdsStart);
+///         assert_eq!(nucleotide.location.start().unwrap().coordinate().unwrap(), -1);
+///         assert_eq!(nucleotide.location.start().unwrap().offset().unwrap(), 0);
 ///     }
 ///     _ => unreachable!("expected nucleotide variant"),
 /// }
@@ -93,18 +96,18 @@ const PROTEIN_SYMBOLS: &[&str] = &[
 ///
 /// match five_prime_intronic.description {
 ///     VariantDescription::Nucleotide(nucleotide) => {
-///         assert_eq!(nucleotide.location.start.anchor, NucleotideAnchor::RelativeCdsStart);
-///         assert_eq!(nucleotide.location.start.coordinate, -106);
-///         assert_eq!(nucleotide.location.start.offset, 2);
+///         assert_eq!(nucleotide.location.start().unwrap().anchor().unwrap(), NucleotideAnchor::RelativeCdsStart);
+///         assert_eq!(nucleotide.location.start().unwrap().coordinate().unwrap(), -106);
+///         assert_eq!(nucleotide.location.start().unwrap().offset().unwrap(), 2);
 ///     }
 ///     _ => unreachable!("expected nucleotide variant"),
 /// }
 ///
 /// match three_prime_intronic.description {
 ///     VariantDescription::Nucleotide(nucleotide) => {
-///         assert_eq!(nucleotide.location.start.anchor, NucleotideAnchor::RelativeCdsEnd);
-///         assert_eq!(nucleotide.location.start.coordinate, 639);
-///         assert_eq!(nucleotide.location.start.offset, -1);
+///         assert_eq!(nucleotide.location.start().unwrap().anchor().unwrap(), NucleotideAnchor::RelativeCdsEnd);
+///         assert_eq!(nucleotide.location.start().unwrap().coordinate().unwrap(), 639);
+///         assert_eq!(nucleotide.location.start().unwrap().offset().unwrap(), -1);
 ///     }
 ///     _ => unreachable!("expected nucleotide variant"),
 /// }
@@ -358,7 +361,22 @@ fn variants_on_allele<T, PVariant>(input: &str, parse_variant: PVariant) -> Pars
 where
     PVariant: Fn(&str) -> ParseResult<'_, T>,
 {
-    separated_list1(char(';'), |input| parse_variant(input)).parse(input)
+    separated_list1(char(';'), parse_variant).parse(input)
+}
+
+/// Parses a reusable range surface written as `thing_thing`.
+fn range_with<T, P>(input: &str, parse_item: P) -> ParseResult<'_, Interval<T>>
+where
+    P: Copy + Fn(&str) -> ParseResult<'_, T>,
+{
+    map(
+        separated_pair(parse_item, char('_'), parse_item),
+        |(start, end)| Interval {
+            start,
+            end: Some(end),
+        },
+    )
+    .parse(input)
 }
 
 /// Parser for phase marker written in allele variant description.
@@ -443,13 +461,15 @@ where
     ))
 }
 
-/// Parses one supported nucleotide variant description such as `123G>A` or
-/// `357+1G>A`, without wrapping it in the top-level description enum.
+/**
+Parses one supported nucleotide variant description such as `123G>A` or
+`357+1G>A`, without wrapping it in the top-level description enum.
+*/
 fn nucleotide_variant_description(
     coordinate_system: CoordinateSystem,
     input: &str,
 ) -> ParseResult<'_, NucleotideVariant> {
-    let (input, initial_location) = nucleotide_interval(input)?;
+    let (input, initial_location) = nucleotide_location(coordinate_system, input)?;
     let (input, edit) = nucleotide_edit(input)?;
 
     if !is_valid_nucleotide_repeat(coordinate_system, &initial_location, &edit) {
@@ -459,9 +479,85 @@ fn nucleotide_variant_description(
         )));
     }
 
-    let location = resolve_nucleotide_location(&initial_location, &edit);
+    let Some(location) = resolve_nucleotide_location(&initial_location, &edit) else {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Verify,
+        )));
+    };
 
     Ok((input, NucleotideVariant { location, edit }))
+}
+
+/// Parses one supported nucleotide location, known or uncertain.
+fn nucleotide_location(
+    coordinate_system: CoordinateSystem,
+    input: &str,
+) -> ParseResult<'_, Location<NucleotideCoordinate>> {
+    match coordinate_system {
+        CoordinateSystem::Rna
+        | CoordinateSystem::Genomic
+        | CoordinateSystem::CircularGenomic
+        | CoordinateSystem::Mitochondrial
+        | CoordinateSystem::CodingDna
+        | CoordinateSystem::NonCodingDna => alt((
+            // (71_72) and (123_234)_(345_456), (?_87), (123_?)_(?_456)
+            |input| {
+                let (input, location) = nucleotide_uncertain_location(input)?;
+                build_uncertain_nucleotide_location(input, location)
+            },
+            // 93 and 93_94, plus whole-location `?_?`
+            |input| {
+                let (input, interval) = nucleotide_interval(input)?;
+                build_known_nucleotide_location(input, interval)
+            },
+        ))
+        .parse(input),
+        CoordinateSystem::Protein => {
+            unreachable!("nucleotide location on protein coordinate system")
+        }
+    }
+}
+
+/// Build known nucleotide location model. "Known" means the location where
+/// mutation occurs is certain.
+///
+/// - `NC_000023.10:g.33038255C>A`
+/// - `NC_000023.11:g.33344591del`
+///
+fn build_known_nucleotide_location<'a>(
+    input: &'a str,
+    interval: Interval<NucleotideCoordinate>,
+) -> ParseResult<'a, Location<NucleotideCoordinate>> {
+    // Reject unknown location such as `(?_B)`, `(A_?).
+    if interval.has_unknown_bound() && !interval.is_fully_unknown() {
+        return verify_failure(input);
+    }
+
+    Ok((input, Location::from_known(interval)))
+}
+
+/// Build uncertain nucleotide location model. "Uncertain" means the location
+/// where mutation occurs is not fully resolved.
+///
+/// - `NC_000023.10:g.(33038277_33038278)C>T`
+/// - `g.(123456_234567)_(345678_456789)del`
+///
+fn build_uncertain_nucleotide_location<'a>(
+    input: &'a str,
+    location: Interval<Interval<NucleotideCoordinate>>,
+) -> ParseResult<'a, Location<NucleotideCoordinate>> {
+    // Reject location description such as `(?_?)`, `(?_?)_(?_?)`.
+    if location.start.is_fully_unknown()
+        && location
+            .end
+            .as_ref()
+            .map_or(true, Interval::is_fully_unknown)
+    {
+        return verify_failure(input);
+    }
+
+    Ok((input, Location::from_uncertain(location)))
 }
 
 /// Parser for digesting the initial allele written in a nucleotide allele
@@ -540,19 +636,43 @@ fn next_nucleotide_allele(
 
 /// Parses nucleotide location as a single position/coordinate or an interval
 /// joined by `_`.
+/// - A
+/// - A_B
+/// - ?_B
+/// - A_?
+/// - ?_?
 fn nucleotide_interval(input: &str) -> ParseResult<'_, Interval<NucleotideCoordinate>> {
     alt((
-        map(
-            pair(
-                nucleotide_coordinate,
-                preceded(char('_'), nucleotide_coordinate),
-            ),
-            |(start, end)| Interval {
-                start,
-                end: Some(end),
-            },
-        ),
+        // Interval coordinate, `A_B`
+        |input| range_with(input, nucleotide_coordinate),
+        // Single position coordinate, `A`
         map(nucleotide_coordinate, |start| Interval { start, end: None }),
+    ))
+    .parse(input)
+}
+
+/// Parses one uncertain interval unit (with parenthesis)
+///
+/// - (A_B)
+/// - (A_?)
+/// - (?_B)
+fn nucleotide_uncertain_interval(input: &str) -> ParseResult<'_, Interval<NucleotideCoordinate>> {
+    delimited(char('('), nucleotide_interval, char(')')).parse(input)
+}
+
+/// Parses nucleotide uncertain location. One location can be either one
+/// or two uncertain interval units (separated by '_')
+fn nucleotide_uncertain_location(
+    input: &str,
+) -> ParseResult<'_, Interval<Interval<NucleotideCoordinate>>> {
+    alt((
+        // (A_B)_(C_D)
+        |input| range_with(input, nucleotide_uncertain_interval),
+        // (A_B)
+        map(nucleotide_uncertain_interval, |start| Interval {
+            start,
+            end: None,
+        }),
     ))
     .parse(input)
 }
@@ -562,7 +682,7 @@ fn nucleotide_coordinate(input: &str) -> ParseResult<'_, NucleotideCoordinate> {
     alt((
         map(
             pair(
-                preceded(char('-'), parse_nonzero_i32),
+                preceded(char('-'), parse_position),
                 opt(pair(alt((char('+'), char('-'))), parse_i32)),
             ),
             |(coordinate, offset)| {
@@ -570,16 +690,12 @@ fn nucleotide_coordinate(input: &str) -> ParseResult<'_, NucleotideCoordinate> {
                     .map(|(sign, value)| if sign == '-' { -value } else { value })
                     .unwrap_or(0);
 
-                NucleotideCoordinate {
-                    anchor: NucleotideAnchor::RelativeCdsStart,
-                    coordinate: -coordinate,
-                    offset,
-                }
+                NucleotideCoordinate::known(NucleotideAnchor::RelativeCdsStart, -coordinate, offset)
             },
         ),
         map(
             pair(
-                preceded(char('*'), parse_nonzero_i32),
+                preceded(char('*'), parse_position),
                 opt(pair(alt((char('+'), char('-'))), parse_i32)),
             ),
             |(coordinate, offset)| {
@@ -587,13 +703,10 @@ fn nucleotide_coordinate(input: &str) -> ParseResult<'_, NucleotideCoordinate> {
                     .map(|(sign, value)| if sign == '-' { -value } else { value })
                     .unwrap_or(0);
 
-                NucleotideCoordinate {
-                    anchor: NucleotideAnchor::RelativeCdsEnd,
-                    coordinate,
-                    offset,
-                }
+                NucleotideCoordinate::known(NucleotideAnchor::RelativeCdsEnd, coordinate, offset)
             },
         ),
+        // A, or A+offset, or A-offset, where A is the coordinate
         map(
             pair(parse_i32, opt(pair(alt((char('+'), char('-'))), parse_i32))),
             |(coordinate, offset)| {
@@ -601,13 +714,11 @@ fn nucleotide_coordinate(input: &str) -> ParseResult<'_, NucleotideCoordinate> {
                     .map(|(sign, value)| if sign == '-' { -value } else { value })
                     .unwrap_or(0);
 
-                NucleotideCoordinate {
-                    anchor: NucleotideAnchor::Absolute,
-                    coordinate,
-                    offset,
-                }
+                NucleotideCoordinate::known(NucleotideAnchor::Absolute, coordinate, offset)
             },
         ),
+        // ?, unknown coordinate
+        value(NucleotideCoordinate::Unknown, char('?')),
     ))
     .parse(input)
 }
@@ -617,7 +728,7 @@ fn parse_i32(input: &str) -> ParseResult<'_, i32> {
     map_res(digit1, str::parse::<i32>).parse(input)
 }
 
-fn parse_nonzero_i32(input: &str) -> ParseResult<'_, i32> {
+fn parse_position(input: &str) -> ParseResult<'_, i32> {
     let (input, value) = parse_i32(input)?;
     if value == 0 {
         Err(nom::Err::Error(nom::error::Error::new(
@@ -629,8 +740,8 @@ fn parse_nonzero_i32(input: &str) -> ParseResult<'_, i32> {
     }
 }
 
-/// Parses an unsigned decimal integer into `usize`.
-fn parse_usize(input: &str) -> ParseResult<'_, usize> {
+/// Parses an unsigned decimal integer for counts and amounts.
+fn parse_quantity(input: &str) -> ParseResult<'_, usize> {
     map_res(digit1, str::parse::<usize>).parse(input)
 }
 
@@ -717,7 +828,7 @@ fn sequence_repeat(input: &str) -> ParseResult<'_, RepeatSequenceItem> {
     map(
         pair(
             nucleotide_literal,
-            delimited(char('['), parse_usize, char(']')),
+            delimited(char('['), parse_quantity, char(']')),
         ),
         |(unit, count)| RepeatSequenceItem { unit, count },
     )
@@ -729,7 +840,7 @@ fn repeat_sequence_block(input: &str) -> ParseResult<'_, NucleotideRepeatBlock> 
     map(
         pair(
             nucleotide_literal,
-            delimited(char('['), parse_usize, char(']')),
+            delimited(char('['), parse_quantity, char(']')),
         ),
         |(unit, count)| NucleotideRepeatBlock {
             count,
@@ -742,7 +853,7 @@ fn repeat_sequence_block(input: &str) -> ParseResult<'_, NucleotideRepeatBlock> 
 
 /// Parses the first count-only top-level repeat block after the main location.
 fn repeat_count_only_block(input: &str) -> ParseResult<'_, NucleotideRepeatBlock> {
-    map(delimited(char('['), parse_usize, char(']')), |count| {
+    map(delimited(char('['), parse_quantity, char(']')), |count| {
         NucleotideRepeatBlock {
             count,
             unit: None,
@@ -757,7 +868,7 @@ fn repeat_located_count_block(input: &str) -> ParseResult<'_, NucleotideRepeatBl
     map(
         pair(
             nucleotide_interval,
-            delimited(char('['), parse_usize, char(']')),
+            delimited(char('['), parse_quantity, char(']')),
         ),
         |(location, count)| NucleotideRepeatBlock {
             count,
@@ -957,6 +1068,7 @@ fn predicted_protein_allele(input: &str) -> ParseResult<'_, Allele<ProteinVarian
 /// phase marker in the protein allele description, such as:
 ///
 /// - `[Ser68_Arg70=]` in `p.[Ser68_Arg70dup];[Ser68_Arg70=]` after `;`
+///
 /// Like in the nucleotide case, the phase marker after the initial allele
 /// imposes syntactic rule.
 fn next_protein_allele(phase: AllelePhase, input: &str) -> ParseResult<'_, Allele<ProteinVariant>> {
@@ -984,7 +1096,7 @@ fn next_protein_allele(phase: AllelePhase, input: &str) -> ParseResult<'_, Allel
 /// The parser does not digest `?` and `0`.
 fn protein_known_consequence(input: &str) -> ParseResult<'_, ProteinEffect> {
     map_res(
-        pair(protein_interval, protein_edit),
+        pair(protein_location, protein_edit),
         build_protein_edit_effect,
     )
     .parse(input)
@@ -1002,23 +1114,59 @@ fn protein_effect(input: &str) -> ParseResult<'_, ProteinEffect> {
 }
 
 fn build_protein_edit_effect(
-    (location, edit): (Interval<ProteinCoordinate>, ProteinEdit),
+    (location, edit): (Location<ProteinCoordinate>, ProteinEdit),
 ) -> Result<ProteinEffect, ()> {
     let location = resolve_protein_effect_location(&location, &edit).ok_or(())?;
     Ok(ProteinEffect::Edit { location, edit })
 }
 
-/// Parses a single protein position or an interval.
+/// Parses one supported protein location, known or uncertain.
+fn protein_location(input: &str) -> ParseResult<'_, Location<ProteinCoordinate>> {
+    alt((
+        // (Ala123_Pro131) and (Ala123_Pro131)_(Gly140_Leu142)
+        map(protein_uncertain_location, Location::from_uncertain),
+        // Trp24 and Lys23_Val25
+        map(protein_interval, Location::from_known),
+    ))
+    .parse(input)
+}
+
+/**
+Parses a single protein position or an interval.
+
+- Single position: `Ala237`
+- Interval: `Ala237_Pro161`
+*/
 fn protein_interval(input: &str) -> ParseResult<'_, Interval<ProteinCoordinate>> {
     alt((
-        map(
-            pair(protein_coordinate, preceded(char('_'), protein_coordinate)),
-            |(start, end)| Interval {
-                start,
-                end: Some(end),
-            },
-        ),
+        |input| range_with(input, protein_coordinate),
         map(protein_coordinate, |start| Interval { start, end: None }),
+    ))
+    .parse(input)
+}
+
+/**
+Parse one protein uncertain interval unit (with parenthesis). This is a wrapper
+over protein_interval parser.
+
+- `(Ala237_Pro161)`
+*/
+fn protein_uncertain_interval(input: &str) -> ParseResult<'_, Interval<ProteinCoordinate>> {
+    delimited(char('('), protein_interval, char(')')).parse(input)
+}
+
+/**
+Parses protein locations written with uncertain-region syntax.
+*/
+fn protein_uncertain_location(
+    input: &str,
+) -> ParseResult<'_, Interval<Interval<ProteinCoordinate>>> {
+    alt((
+        |input| range_with(input, protein_uncertain_interval),
+        map(protein_uncertain_interval, |start| Interval {
+            start,
+            end: None,
+        }),
     ))
     .parse(input)
 }
@@ -1041,7 +1189,7 @@ fn protein_edit(input: &str) -> ParseResult<'_, ProteinEdit> {
         }),
         value(ProteinEdit::Deletion, tag("del")),
         value(ProteinEdit::Duplication, tag("dup")),
-        map(delimited(char('['), parse_usize, char(']')), |count| {
+        map(delimited(char('['), parse_quantity, char(']')), |count| {
             ProteinEdit::Repeat { count }
         }),
         protein_extension_edit,
@@ -1153,7 +1301,7 @@ fn protein_frameshift_stop(input: &str) -> ParseResult<'_, ProteinFrameshiftStop
             pair(alt((tag("Ter"), tag("*"))), char('?')),
         ),
         map(
-            preceded(alt((tag("Ter"), tag("*"))), parse_usize),
+            preceded(alt((tag("Ter"), tag("*"))), parse_stop_ordinal),
             |ordinal| ProteinFrameshiftStop {
                 ordinal: Some(ordinal),
                 kind: ProteinFrameshiftStopKind::Known,
@@ -1208,11 +1356,15 @@ fn normalize_protein_symbol(symbol: &str) -> String {
 }
 
 fn resolve_protein_effect_location(
-    location: &Interval<ProteinCoordinate>,
+    location: &Location<ProteinCoordinate>,
     edit: &ProteinEdit,
-) -> Option<Interval<ProteinCoordinate>> {
+) -> Option<Location<ProteinCoordinate>> {
     let ProteinEdit::Extension(extension) = edit else {
         return Some(location.clone());
+    };
+
+    let Location::Known(location) = location else {
+        return None;
     };
 
     if location.end.is_some() {
@@ -1242,43 +1394,48 @@ fn resolve_protein_effect_location(
         }
     }
 
-    Some(Interval { start, end: None })
+    Some(Location::from_known(Interval { start, end: None }))
 }
 
 /// Returns the top-level nucleotide location to expose on the parsed variant.
 fn resolve_nucleotide_location(
-    initial_location: &Interval<NucleotideCoordinate>,
+    initial_location: &Location<NucleotideCoordinate>,
     edit: &NucleotideEdit,
-) -> Interval<NucleotideCoordinate> {
+) -> Option<Location<NucleotideCoordinate>> {
     let NucleotideEdit::Repeat { blocks } = edit else {
-        return initial_location.clone();
+        return Some(initial_location.clone());
+    };
+
+    let Location::Known(initial_location) = initial_location else {
+        return None;
     };
 
     let Some(last_location) = blocks
         .iter()
         .filter_map(|block| block.location.as_ref())
-        .last()
+        .next_back()
     else {
-        return initial_location.clone();
+        return Some(Location::from_known(initial_location.clone()));
     };
 
-    Interval {
-        start: initial_location.start.clone(),
-        end: last_location
-            .end
-            .clone()
-            .or_else(|| Some(last_location.start.clone())),
-    }
+    Some(Location::from_known(Interval {
+        start: initial_location.start,
+        end: last_location.end.or(Some(last_location.start)),
+    }))
 }
 
 /// Validates molecule-specific rules for repeated-sequence descriptions.
 fn is_valid_nucleotide_repeat(
     coordinate_system: CoordinateSystem,
-    initial_location: &Interval<NucleotideCoordinate>,
+    initial_location: &Location<NucleotideCoordinate>,
     edit: &NucleotideEdit,
 ) -> bool {
     let NucleotideEdit::Repeat { blocks } = edit else {
         return true;
+    };
+
+    let Location::Known(initial_location) = initial_location else {
+        return false;
     };
 
     let all_have_units = blocks.iter().all(|block| block.unit.is_some());
@@ -1313,47 +1470,62 @@ mod tests {
     #[test]
     fn parses_nucleotide_position_branches() {
         let (_, coding) = all_consuming(nucleotide_coordinate).parse("93+1").unwrap();
-        assert_eq!(coding.anchor, NucleotideAnchor::Absolute);
-        assert_eq!(coding.coordinate, 93);
-        assert_eq!(coding.offset, 1);
+        assert_eq!(coding.anchor().unwrap(), NucleotideAnchor::Absolute);
+        assert_eq!(coding.coordinate(), Some(93));
+        assert_eq!(coding.offset().unwrap(), 1);
 
         let (_, upstream_intronic) = all_consuming(nucleotide_coordinate).parse("93-2").unwrap();
-        assert_eq!(upstream_intronic.anchor, NucleotideAnchor::Absolute);
-        assert_eq!(upstream_intronic.coordinate, 93);
-        assert_eq!(upstream_intronic.offset, -2);
+        assert_eq!(
+            upstream_intronic.anchor().unwrap(),
+            NucleotideAnchor::Absolute
+        );
+        assert_eq!(upstream_intronic.coordinate(), Some(93));
+        assert_eq!(upstream_intronic.offset().unwrap(), -2);
 
         let (_, utr5) = all_consuming(nucleotide_coordinate).parse("-18").unwrap();
-        assert_eq!(utr5.anchor, NucleotideAnchor::RelativeCdsStart);
-        assert_eq!(utr5.coordinate, -18);
-        assert_eq!(utr5.offset, 0);
+        assert_eq!(utr5.anchor().unwrap(), NucleotideAnchor::RelativeCdsStart);
+        assert_eq!(utr5.coordinate(), Some(-18));
+        assert_eq!(utr5.offset().unwrap(), 0);
 
         let (_, utr5_intronic) = all_consuming(nucleotide_coordinate)
             .parse("-106+2")
             .unwrap();
-        assert_eq!(utr5_intronic.anchor, NucleotideAnchor::RelativeCdsStart);
-        assert_eq!(utr5_intronic.coordinate, -106);
-        assert_eq!(utr5_intronic.offset, 2);
+        assert_eq!(
+            utr5_intronic.anchor().unwrap(),
+            NucleotideAnchor::RelativeCdsStart
+        );
+        assert_eq!(utr5_intronic.coordinate(), Some(-106));
+        assert_eq!(utr5_intronic.offset().unwrap(), 2);
 
         let (_, utr5_intronic_upstream) =
             all_consuming(nucleotide_coordinate).parse("-84-1").unwrap();
         assert_eq!(
-            utr5_intronic_upstream.anchor,
+            utr5_intronic_upstream.anchor().unwrap(),
             NucleotideAnchor::RelativeCdsStart
         );
-        assert_eq!(utr5_intronic_upstream.coordinate, -84);
-        assert_eq!(utr5_intronic_upstream.offset, -1);
+        assert_eq!(utr5_intronic_upstream.coordinate().unwrap(), -84);
+        assert_eq!(utr5_intronic_upstream.offset().unwrap(), -1);
 
         let (_, utr3) = all_consuming(nucleotide_coordinate).parse("*18").unwrap();
-        assert_eq!(utr3.anchor, NucleotideAnchor::RelativeCdsEnd);
-        assert_eq!(utr3.coordinate, 18);
-        assert_eq!(utr3.offset, 0);
+        assert_eq!(utr3.anchor().unwrap(), NucleotideAnchor::RelativeCdsEnd);
+        assert_eq!(utr3.coordinate(), Some(18));
+        assert_eq!(utr3.offset().unwrap(), 0);
 
         let (_, utr3_intronic) = all_consuming(nucleotide_coordinate)
             .parse("*639-1")
             .unwrap();
-        assert_eq!(utr3_intronic.anchor, NucleotideAnchor::RelativeCdsEnd);
-        assert_eq!(utr3_intronic.coordinate, 639);
-        assert_eq!(utr3_intronic.offset, -1);
+        assert_eq!(
+            utr3_intronic.anchor().unwrap(),
+            NucleotideAnchor::RelativeCdsEnd
+        );
+        assert_eq!(utr3_intronic.coordinate(), Some(639));
+        assert_eq!(utr3_intronic.offset().unwrap(), -1);
+
+        let (_, unknown) = all_consuming(nucleotide_coordinate).parse("?").unwrap();
+        assert!(unknown.is_unknown());
+        assert_eq!(unknown.anchor(), None);
+        assert_eq!(unknown.coordinate(), None);
+        assert_eq!(unknown.offset(), None);
 
         assert!(all_consuming(nucleotide_coordinate).parse("-0").is_err());
         assert!(all_consuming(nucleotide_coordinate).parse("-0+2").is_err());

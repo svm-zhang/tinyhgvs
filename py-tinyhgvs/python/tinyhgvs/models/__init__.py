@@ -20,6 +20,7 @@ from .nucleotide import (
     LiteralSequenceItem,
     NucleotideAnchor,
     NucleotideCoordinate,
+    NucleotideCoordinateKind,
     NucleotideDeletionInsertionEdit,
     NucleotideEdit,
     NucleotideInsertionEdit,
@@ -58,6 +59,7 @@ from .shared import (
     AlleleVariant,
     CoordinateSystem,
     Interval,
+    Location,
     ReferenceSpec,
 )
 
@@ -139,10 +141,12 @@ __all__ = [
     "CoordinateSystem",
     "HgvsVariant",
     "Interval",
+    "Location",
     "LiteralSequenceItem",
     "NucleotideDeletionInsertionEdit",
     "NucleotideAnchor",
     "NucleotideCoordinate",
+    "NucleotideCoordinateKind",
     "NucleotideEdit",
     "NucleotideInsertionEdit",
     "NucleotideRepeatBlock",
