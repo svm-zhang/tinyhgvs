@@ -8,7 +8,9 @@ detected, the parser raises a structured error:
 - Rust: `ParseHgvsError.code`
 
 All unsupported diagnostic codes exposed by tinyhgvs begin with the prefix `unsupported.`.
-For readability, the tables below show only the category suffix.
+For readability, the tables below show only the category suffix. Rows already
+marked as supported may use the historical category name rather than a current
+diagnostic code.
 
 The tables below track syntax families by molecule type. Rows with `-` in the
 `Supported since` column are still unsupported in the current release. Rows
@@ -25,7 +27,8 @@ the collapsible sections below each table.
 | `allele` | DNA allele | `NC_000001.11:g.[123G>A;345del]` | `0.6.0` |
 | `allele_unknown_variant` | DNA allele with variant unknown | `NC_000001.11:g.[123G>A];[?]` | `-` |
 | `allele_uncertain_variant_state` | DNA allele with uncertain variant state | `NC_000001.11:g.[123G>A](;)(345del)` | `-` |
-| `uncertain_range` | DNA range-uncertain edit | `NC_000023.10:g.(33038277_33038278)C>T` | `-` |
+| `uncertain_range` | DNA uncertain location | `NC_000023.10:g.(33038277_33038278)C>T` | `0.6.2` |
+| `uncertain_size` | DNA uncertain size | `NC_000003.12:g.(63912602_63912844)insN[(150_180)]` | `-` |
 | `dna_repeat` | DNA repeated sequence | `NC_000014.8:g.123CAG[23]` | `0.2.0` |
 | `telomeric_position` | DNA telomeric coordinate | `NC_000023.11:g.pter_qtersup` | `-` |
 | `epigenetic_edit` | DNA epigenetic edit | `NC_000011.10:g.1999904_1999946|gom` | `-` |
@@ -34,10 +37,9 @@ the collapsible sections below each table.
 
 ??? Example "More examples"
 
-    === "uncertain_range"
+    === "uncertain_size"
 
-        - `NC_000023.11:g.(31060227_31100351)_(33274278_33417151)dup`
-        - `NC_000023.11:g.(?_31120496)_(33339477_?)del`
+        - `NC_000003.12:g.(63912602_63912844)insN[(150_180)]`
 
     === "telomeric_position"
 
@@ -51,7 +53,8 @@ the collapsible sections below each table.
 | `allele_unknown_variant` | RNA allele with variant unknown | `NM_004006.3:r.[123c>a];[?]` | `-` |
 | `allele_uncertain_variant_state` | RNA allele with uncertain variant state | `NM_004006.3:r.[123c>a](;)(345del)` | `-` |
 | `rna_special_state` | RNA special-state outcome | `NM_004006.3:r.?` | `-` |
-| `rna_uncertain_position` | RNA uncertain insertion | `NM_004006.2:r.(222_226)insg` | `-` |
+| `uncertain_range` | RNA uncertain location | `NM_004006.2:r.(222_226)insg` | `0.6.2` |
+| `uncertain_size` | RNA uncertain size | `r.-128_-126[(600_800)]` | `-` |
 | `rna_repeat` | RNA repeated sequence | `NM_004006.3:r.-124_-123[14]` | `0.2.0` |
 | `rna_splicing_outcome` | RNA uncertain splicing | `NC_000023.11(NM_004006.2):r.spl` | `-` |
 | `rna_adjoined_transcript` | RNA adjoined transcript | `NM_002354.2:r.-358_555::NM_000251.2:r.212_*279` | `-` |
@@ -64,6 +67,10 @@ the collapsible sections below each table.
         - `NM_004006.3:r.(1388g>a)`
         - `NM_004006.3:r.0`
         - `NM_004006.3:r.spl`
+
+    === "uncertain_size"
+
+        - `r.-128_-126[(600_800)]`
 
     === "rna_splicing_outcome"
 
@@ -86,13 +93,14 @@ the collapsible sections below each table.
 | `protein_frameshift` | Protein frameshift | `NP_0123456.1:p.Arg97fs` | `0.3.0` |
 | `protein_extension` | Protein extension | `NP_003997.2:p.Met1ext-5` | `0.4.0` |
 | `protein_repeat` | Protein repeated sequence | `NP_0123456.1:p.Ala2[10]` | `0.2.0` |
-| `protein_insertion_payload` | Unknown/truncating protein insertion | `p.Arg78_Gly79insXaa[23]` | `-` |
+| `uncertain_range` | Protein uncertain location | `p.(Ala123_Pro131)Ter` | `0.6.2` |
+| `protein_insertion_content` | Unknown/truncating protein insertion | `p.Arg78_Gly79insXaa[23]` | `-` |
 | `protein_uncertain_consequence` | Protein uncertain consequence | `p.(Gly719Ala^Ser)` | `-` |
 
 
 ??? Example "More examples"
 
-    === "protein_insertion_payload"
+    === "protein_insertion_content"
 
         - `NP_060250.2:p.Gln746_Lys747ins*63`
         - `NP_003997.1:p.(Val582_Asn583insXaa[5])`
