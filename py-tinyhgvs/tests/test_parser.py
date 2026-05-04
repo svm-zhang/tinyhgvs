@@ -12,6 +12,7 @@ from tinyhgvs import (
     LiteralSequenceItem,
     Location,
     NucleotideAnchor,
+    NucleotideCoordinateKind,
     NucleotideDeletionInsertionEdit,
     NucleotideInsertionEdit,
     NucleotideRepeatEdit,
@@ -31,6 +32,7 @@ def test_public_package_exports_version_and_core_api():
     assert "parse_hgvs" in tinyhgvs_package.__all__
     assert "TinyHGVSError" in tinyhgvs_package.__all__
     assert "Location" in tinyhgvs_package.__all__
+    assert "NucleotideCoordinateKind" in tinyhgvs_package.__all__
 
 
 def test_public_package_falls_back_to_unknown_version_when_metadata_is_missing(
@@ -60,6 +62,7 @@ def test_parses_nucleotide_substitution_variants():
     assert variant.reference.primary.id == "NG_012232.1"
     assert variant.reference.context is not None
     assert variant.reference.context.id == "NM_004006.2"
+    assert variant.description.location.start.kind is NucleotideCoordinateKind.KNOWN
     assert variant.description.location.start.coordinate == 93
     assert variant.description.location.start.offset == 1
     assert variant.description.edit.reference == "G"
@@ -145,15 +148,51 @@ def test_parses_nucleotide_duplication_and_inversion_variants():
     )
 
 
+def test_reports_known_nucleotide_location_helper_views():
+    single = parse_hgvs("NM_004006.2:c.5697del")
+    location = single.description.location
+
+    assert location.is_uncertain is False
+    assert location.is_pos is True
+    assert location.is_interval is False
+    assert location.start.kind is NucleotideCoordinateKind.KNOWN
+    assert location.start.coordinate == 5697
+    assert location.end is None
+    assert location.l_interval is None
+    assert location.r_interval is None
+
+    interval = parse_hgvs("NM_004006.2:c.93_94del")
+    location = interval.description.location
+
+    assert location.is_uncertain is False
+    assert location.is_pos is False
+    assert location.is_interval is True
+    assert location.start.kind is NucleotideCoordinateKind.KNOWN
+    assert location.start.coordinate == 93
+    assert location.end is not None
+    assert location.end.kind is NucleotideCoordinateKind.KNOWN
+    assert location.end.coordinate == 94
+    assert location.l_interval is None
+    assert location.r_interval is None
+
+
 def test_parses_uncertain_nucleotide_locations():
     unknown_range = parse_hgvs("NC_000023.10:g.?_?del")
     assert isinstance(unknown_range.description.location, Location)
     assert unknown_range.description.location.is_uncertain is False
     assert unknown_range.description.location.is_interval is True
     assert unknown_range.description.location.is_pos is False
+    assert unknown_range.description.location.start.kind is NucleotideCoordinateKind.UNKNOWN
+    assert unknown_range.description.location.start.is_unknown is True
+    assert unknown_range.description.location.start.is_known is False
+    assert unknown_range.description.location.start.anchor is None
     assert unknown_range.description.location.start.coordinate is None
+    assert unknown_range.description.location.start.offset is None
     assert unknown_range.description.location.end is not None
+    assert unknown_range.description.location.end.kind is NucleotideCoordinateKind.UNKNOWN
+    assert unknown_range.description.location.end.anchor is None
     assert unknown_range.description.location.end.coordinate is None
+    assert unknown_range.description.location.end.offset is None
     assert unknown_range.description.location.l_interval is None
     assert unknown_range.description.location.r_interval is None
 
@@ -165,10 +204,31 @@ def test_parses_uncertain_nucleotide_locations():
     assert location.start is None
     assert location.end is None
     assert location.l_interval is not None
+    assert location.l_interval.start.kind is NucleotideCoordinateKind.KNOWN
     assert location.l_interval.start.coordinate == 33038277
     assert location.l_interval.end is not None
     assert location.l_interval.end.coordinate == 33038278
     assert location.r_interval is None
+
+    mixed_unknown = parse_hgvs("NC_000023.10:g.(?_32238146)_(32984039_?)del")
+    location = mixed_unknown.description.location
+    assert location.is_uncertain is True
+    assert location.l_interval is not None
+    assert location.l_interval.start.kind is NucleotideCoordinateKind.UNKNOWN
+    assert location.l_interval.start.anchor is None
+    assert location.l_interval.start.coordinate is None
+    assert location.l_interval.start.offset is None
+    assert location.l_interval.end is not None
+    assert location.l_interval.end.kind is NucleotideCoordinateKind.KNOWN
+    assert location.l_interval.end.coordinate == 32238146
+    assert location.r_interval is not None
+    assert location.r_interval.start.kind is NucleotideCoordinateKind.KNOWN
+    assert location.r_interval.start.coordinate == 32984039
+    assert location.r_interval.end is not None
+    assert location.r_interval.end.kind is NucleotideCoordinateKind.UNKNOWN
+    assert location.r_interval.end.anchor is None
+    assert location.r_interval.end.coordinate is None
+    assert location.r_interval.end.offset is None
 
     uncertain_range = parse_hgvs("NM_004006.2:r.(71_72)_(90_91)del")
     location = uncertain_range.description.location
