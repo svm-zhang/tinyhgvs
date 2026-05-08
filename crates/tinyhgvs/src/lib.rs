@@ -81,7 +81,7 @@
 //! match variant.description {
 //!     VariantDescription::Protein(protein) => {
 //!         assert!(!protein.is_predicted);
-//!         assert!(matches!(protein.effect, ProteinEffect::Edit { .. }));
+//!         assert!(matches!(protein.effect, ProteinEffect::Known { .. }));
 //!     }
 //!     _ => unreachable!("expected protein variant"),
 //! }
@@ -100,14 +100,15 @@ mod diagnostics;
 mod error;
 mod model;
 mod parser;
+mod validator;
 
 pub use error::{ParseHgvsError, ParseHgvsErrorKind};
 pub use model::{
     Accession, Allele, AllelePhase, AlleleVariant, CoordinateSystem, CopiedSequenceItem,
     HgvsVariant, Interval, LiteralSequenceItem, Location, NucleotideAnchor, NucleotideCoordinate,
-    NucleotideEdit, NucleotideRepeatBlock, NucleotideSequenceItem, NucleotideVariant,
-    ProteinCoordinate, ProteinEdit, ProteinEffect, ProteinExtensionEdit, ProteinExtensionTerminal,
-    ProteinFrameshiftStop, ProteinFrameshiftStopKind, ProteinSequence, ProteinVariant,
-    ReferenceSpec, RepeatSequenceItem, VariantDescription,
+    NucleotideEdit, NucleotideSequenceItem, NucleotideVariant, ProteinCoordinate, ProteinEdit,
+    ProteinEffect, ProteinExtensionEdit, ProteinExtensionTerminal, ProteinFrameshiftStop,
+    ProteinFrameshiftStopKind, ProteinSequence, ProteinVariant, Quantity, ReferenceSpec,
+    RepeatEdit, RepeatSequenceUnit, VariantDescription,
 };
 pub use parser::parse_hgvs;
