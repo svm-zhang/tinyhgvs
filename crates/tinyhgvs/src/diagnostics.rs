@@ -62,11 +62,11 @@ const UNSUPPORTED_MATCHERS: &[DiagnosticMatcher] = &[
         detect: rna_special_state_fragment,
     },
     // Example: `r.-128_-126[(600_800)]`
-    DiagnosticMatcher {
-        code: "unsupported.uncertain_size",
-        message: "uncertain HGVS size syntax is not supported yet",
-        detect: uncertain_size_fragment,
-    },
+    // DiagnosticMatcher {
+    //     code: "unsupported.uncertain_size",
+    //     message: "uncertain HGVS size syntax is not supported yet",
+    //     detect: uncertain_size_fragment,
+    // },
     // Example: `c.[2376G>C];[?]`
     DiagnosticMatcher {
         code: "unsupported.allele_unknown_variant",
@@ -217,23 +217,6 @@ fn rna_special_state_fragment(input: &str) -> Option<String> {
     }
 }
 
-// Uncertain location syntax on DNA and protein is now parsed directly, so this
-// fallback stays only for still-unsupported quantified or ranged count forms.
-/// Detects remaining uncertain-size forms that stay unsupported.
-fn uncertain_size_fragment(input: &str) -> Option<String> {
-    let description = variant_description_fragment(input)?;
-
-    if protein_description_fragment(input).is_some() && description.contains('[') {
-        return None;
-    }
-
-    if description.contains("[(") {
-        Some("[(...)]".to_string())
-    } else {
-        None
-    }
-}
-
 /// Detects allele variants written as `[?]`.
 fn allele_unknown_variant_fragment(input: &str) -> Option<String> {
     let description = variant_description_fragment(input)?;
@@ -258,7 +241,7 @@ fn one_allele_multi_protein_fragment(input: &str) -> Option<String> {
     description.contains(',').then(|| ",".to_string())
 }
 
-/// Detects other still-unsupported allele containers.
+// Detects other still-unsupported allele containers.
 fn allele_fragment(input: &str) -> Option<String> {
     if protein_description_fragment(input).is_some() {
         return None;

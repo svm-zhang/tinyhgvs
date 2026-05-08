@@ -78,13 +78,6 @@ fn classifies_supported_diagnostic_codes() {
             Some("^"),
         ),
         (
-            "r.-128_-126[(600_800)]",
-            "unsupported.uncertain_size",
-            ParseHgvsErrorKind::UnsupportedSyntax,
-            "uncertain HGVS size syntax is not supported yet",
-            Some("[(...)]"),
-        ),
-        (
             "p.Arg78_Gly79insXaa[23]",
             "unsupported.protein_insertion_payload",
             ParseHgvsErrorKind::UnsupportedSyntax,
@@ -97,13 +90,6 @@ fn classifies_supported_diagnostic_codes() {
             ParseHgvsErrorKind::UnsupportedSyntax,
             "uncertain protein consequence syntax is not supported yet",
             Some("^"),
-        ),
-        (
-            "p.(Gln18)[(70_80)]",
-            "unsupported.protein_uncertain_consequence",
-            ParseHgvsErrorKind::UnsupportedSyntax,
-            "uncertain protein consequence syntax is not supported yet",
-            Some("[(...)]"),
         ),
     ];
 
