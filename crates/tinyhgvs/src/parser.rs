@@ -7,8 +7,8 @@
 
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while1};
-use nom::character::complete::{char, digit1};
-use nom::combinator::{all_consuming, map, map_res, opt, value};
+use nom::character::complete::{char, digit1, one_of};
+use nom::combinator::{all_consuming, map, map_res, opt, value, verify};
 use nom::multi::{many0, many1, separated_list1};
 use nom::sequence::{delimited, pair, preceded, separated_pair};
 use nom::{IResult, Parser};
@@ -18,11 +18,12 @@ use crate::error::ParseHgvsError;
 use crate::model::{
     Accession, Allele, AllelePhase, AlleleVariant, CoordinateSystem, CopiedSequenceItem,
     HgvsVariant, Interval, LiteralSequenceItem, Location, NucleotideAnchor, NucleotideCoordinate,
-    NucleotideEdit, NucleotideRepeatBlock, NucleotideSequenceItem, NucleotideVariant,
-    ProteinCoordinate, ProteinEdit, ProteinEffect, ProteinExtensionEdit, ProteinExtensionTerminal,
-    ProteinFrameshiftStop, ProteinFrameshiftStopKind, ProteinSequence, ProteinVariant,
-    ReferenceSpec, RepeatSequenceItem, VariantDescription,
+    NucleotideEdit, NucleotideSequenceItem, NucleotideVariant, ProteinCoordinate, ProteinEdit,
+    ProteinEffect, ProteinExtensionEdit, ProteinExtensionTerminal, ProteinFrameshiftStop,
+    ProteinFrameshiftStopKind, ProteinSequence, ProteinVariant, Quantity, ReferenceSpec,
+    RepeatEdit, RepeatSequenceUnit, VariantDescription,
 };
+use crate::validator::validate_nucleotide_description;
 
 type ParseResult<'a, T> = IResult<&'a str, T>;
 
@@ -123,7 +124,7 @@ const PROTEIN_SYMBOLS: &[&str] = &[
 /// match variant.description {
 ///     VariantDescription::Protein(protein) => {
 ///         assert!(!protein.is_predicted);
-///         assert!(matches!(protein.effect, ProteinEffect::Edit { .. }));
+///         assert!(matches!(protein.effect, ProteinEffect::Known { .. }));
 ///     }
 ///     _ => unreachable!("expected protein variant"),
 /// }
@@ -132,7 +133,7 @@ const PROTEIN_SYMBOLS: &[&str] = &[
 /// A repeated sequence is returned as a repeat edit:
 ///
 /// ```rust
-/// use tinyhgvs::{NucleotideEdit, VariantDescription, parse_hgvs};
+/// use tinyhgvs::{NucleotideEdit, RepeatEdit, Quantity, VariantDescription, parse_hgvs};
 ///
 /// let variant = parse_hgvs("NM_004006.3:r.-124_-123[14]").unwrap();
 ///
@@ -141,8 +142,9 @@ const PROTEIN_SYMBOLS: &[&str] = &[
 ///         let NucleotideEdit::Repeat { blocks } = nucleotide.edit else {
 ///             unreachable!("expected repeat edit");
 ///         };
-///         assert_eq!(blocks[0].count, 14);
-///         assert_eq!(blocks[0].unit, None);
+///         assert_eq!(blocks, &[RepeatEdit {
+///             unit: None, quantity: Quantity::Known {count: 14}
+///         }]);
 ///     }
 ///     _ => unreachable!("expected nucleotide variant"),
 /// }
@@ -174,7 +176,7 @@ const PROTEIN_SYMBOLS: &[&str] = &[
 ///
 /// match variant.description {
 ///     VariantDescription::Protein(protein) => match protein.effect {
-///         ProteinEffect::Edit { edit: ProteinEdit::Frameshift { to_residue, stop }, .. } => {
+///         ProteinEffect::Known { edit: ProteinEdit::Frameshift { to_residue, stop }, .. } => {
 ///             assert_eq!(to_residue.as_deref(), Some("Pro"));
 ///             assert_eq!(stop.ordinal, Some(23));
 ///         }
@@ -194,7 +196,7 @@ const PROTEIN_SYMBOLS: &[&str] = &[
 ///
 /// match variant.description {
 ///     VariantDescription::Protein(protein) => match protein.effect {
-///         ProteinEffect::Edit { edit: ProteinEdit::Extension(extension), .. } => {
+///         ProteinEffect::Known { edit: ProteinEdit::Extension(extension), .. } => {
 ///             assert_eq!(extension.to_residue.as_deref(), Some("Gln"));
 ///             assert_eq!(extension.terminal_ordinal, Some(17));
 ///         }
@@ -240,6 +242,14 @@ fn variant_with_reference(input: &str) -> ParseResult<'_, HgvsVariant> {
     let (input, _) = char('.')(input)?;
     // Parses the description syntax
     let (input, description) = variant_description(coordinate_system, input)?;
+
+    // Enforce some additional rules
+    if validate_nucleotide_description(coordinate_system, &description) {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Verify,
+        )));
+    }
 
     Ok((
         input,
@@ -469,24 +479,26 @@ fn nucleotide_variant_description(
     coordinate_system: CoordinateSystem,
     input: &str,
 ) -> ParseResult<'_, NucleotideVariant> {
-    let (input, initial_location) = nucleotide_location(coordinate_system, input)?;
+    let (input, location) = nucleotide_location(coordinate_system, input)?;
     let (input, edit) = nucleotide_edit(input)?;
 
-    if !is_valid_nucleotide_repeat(coordinate_system, &initial_location, &edit) {
-        return Err(nom::Err::Error(nom::error::Error::new(
-            input,
-            nom::error::ErrorKind::Verify,
-        )));
-    }
-
-    let Some(location) = resolve_nucleotide_location(&initial_location, &edit) else {
-        return Err(nom::Err::Error(nom::error::Error::new(
-            input,
-            nom::error::ErrorKind::Verify,
-        )));
-    };
-
     Ok((input, NucleotideVariant { location, edit }))
+
+    // if !is_valid_nucleotide_repeat(coordinate_system, &initial_location, &edit) {
+    //     return Err(nom::Err::Error(nom::error::Error::new(
+    //         input,
+    //         nom::error::ErrorKind::Verify,
+    //     )));
+    // }
+
+    // let Some(location) = resolve_nucleotide_location(&initial_location, &edit) else {
+    //     return Err(nom::Err::Error(nom::error::Error::new(
+    //         input,
+    //         nom::error::ErrorKind::Verify,
+    //     )));
+    // };
+
+    // Ok((input, NucleotideVariant { location, edit }))
 }
 
 /// Parses one supported nucleotide location, known or uncertain.
@@ -755,8 +767,9 @@ fn nucleotide_edit(input: &str) -> ParseResult<'_, NucleotideEdit> {
         ),
         value(NucleotideEdit::Deletion, tag("del")),
         value(NucleotideEdit::Duplication, tag("dup")),
-        nucleotide_repeat_without_sequence,
-        nucleotide_repeat_with_sequence,
+        // nucleotide_repeat_without_sequence,
+        // nucleotide_repeat_with_sequence,
+        repeat_edits,
         map(preceded(tag("ins"), nucleotide_sequence_items), |items| {
             NucleotideEdit::Insertion { items }
         }),
@@ -772,30 +785,8 @@ fn nucleotide_edit(input: &str) -> ParseResult<'_, NucleotideEdit> {
     .parse(input)
 }
 
-/// Parses repeated-sequence syntax where only copy counts are written after
-/// the top-level location.
-fn nucleotide_repeat_without_sequence(input: &str) -> ParseResult<'_, NucleotideEdit> {
-    map(
-        pair(repeat_count_only_block, many0(repeat_located_count_block)),
-        |(first, rest)| {
-            let mut blocks = Vec::with_capacity(rest.len() + 1);
-            blocks.push(first);
-            blocks.extend(rest);
-            NucleotideEdit::Repeat { blocks }
-        },
-    )
-    .parse(input)
-}
-
-/// Parses repeated-sequence syntax where the repeated unit is written explicitly.
-fn nucleotide_repeat_with_sequence(input: &str) -> ParseResult<'_, NucleotideEdit> {
-    map(many1(repeat_sequence_block), |blocks| {
-        NucleotideEdit::Repeat { blocks }
-    })
-    .parse(input)
-}
-
-/// Parses inserted or replacement sequence items in an `ins` or `delins` variant.
+/// Parses inserted or replacement sequence items in an `ins` or `delins`
+/// variant.
 fn nucleotide_sequence_items(input: &str) -> ParseResult<'_, Vec<NucleotideSequenceItem>> {
     map(
         alt((
@@ -814,7 +805,16 @@ fn nucleotide_sequence_items(input: &str) -> ParseResult<'_, Vec<NucleotideSeque
 /// Parses one sequence item as literal, repeat, or copied sequence.
 fn nucleotide_sequence_item(input: &str) -> ParseResult<'_, NucleotideSequenceItem> {
     alt((
-        map(sequence_repeat, NucleotideSequenceItem::Repeat),
+        // map(sequence_repeat, NucleotideSequenceItem::Repeat),
+        // This creates one possible concern that it allows N[80], N[(80-100)],
+        // and N[?] as one item of the insertion/delins edit items. However,
+        // the HGVS standard does not say it is invalid syntax either.
+        // - NC_000006.11:g.10791926_10791927ins[NC_000004.11:g.106370094_106370420;A[26]]
+        // - NC_000006.11:g.10791926_10791927ins[NC_000004.11:g.106370094_106370420;N[26]]
+        map(
+            alt((known_repeat_edit, unknown_repeat_edit)),
+            NucleotideSequenceItem::Repeat,
+        ),
         map(sequence_segment, NucleotideSequenceItem::Copied),
         map(nucleotide_literal, |value| {
             NucleotideSequenceItem::Literal(LiteralSequenceItem { value })
@@ -823,58 +823,112 @@ fn nucleotide_sequence_item(input: &str) -> ParseResult<'_, NucleotideSequenceIt
     .parse(input)
 }
 
-/// Parses repeat expression such as `T[12]`.
-fn sequence_repeat(input: &str) -> ParseResult<'_, RepeatSequenceItem> {
+fn known_repeat_unit(input: &str) -> ParseResult<'_, RepeatSequenceUnit> {
     map(
-        pair(
-            nucleotide_literal,
-            delimited(char('['), parse_quantity, char(']')),
-        ),
-        |(unit, count)| RepeatSequenceItem { unit, count },
+        // Because nucleotide_literal consumes any alphabetic string, it also
+        // consumes "N" or "n", the verify function makes sure when that happens,
+        // this parser fails. This makes sure `N[12]` is captured by the
+        // unknown_repeat_edit correctly. Without using the verify function,
+        //  I need to swap the order inside alt as: alt((unknown, known))
+        //  inside nucleotide_sequence_item parser.
+        verify(nucleotide_literal, |seq: &String| seq != "N" && seq != "n"),
+        |seq| RepeatSequenceUnit::Known(LiteralSequenceItem { value: (seq) }),
     )
     .parse(input)
 }
 
-/// Parses one top-level repeat block with an explicit sequence unit.
-fn repeat_sequence_block(input: &str) -> ParseResult<'_, NucleotideRepeatBlock> {
-    map(
-        pair(
-            nucleotide_literal,
-            delimited(char('['), parse_quantity, char(']')),
+fn unknown_repeat_unit(input: &str) -> ParseResult<'_, RepeatSequenceUnit> {
+    value(RepeatSequenceUnit::Unknown, one_of("Nn")).parse(input)
+}
+
+fn known_repeat_copy(input: &str) -> ParseResult<'_, Quantity> {
+    delimited(
+        char('['),
+        map(parse_quantity, |value| Quantity::Known { count: value }),
+        char(']'),
+    )
+    .parse(input)
+}
+
+fn unknown_repeat_copy(input: &str) -> ParseResult<'_, Quantity> {
+    delimited(char('['), value(Quantity::Unknown, char('?')), char(']')).parse(input)
+}
+
+fn uncertain_repeat_copy(input: &str) -> ParseResult<'_, Quantity> {
+    delimited(
+        char('['),
+        delimited(
+            char('('),
+            map(
+                |input| range_with(input, parse_quantity),
+                Quantity::Uncertain,
+            ),
+            char(')'),
         ),
-        |(unit, count)| NucleotideRepeatBlock {
-            count,
+        char(']'),
+    )
+    .parse(input)
+}
+
+fn known_repeat_edit(input: &str) -> ParseResult<'_, RepeatEdit> {
+    map(
+        pair(known_repeat_unit, known_repeat_copy),
+        |(unit, quantity)| RepeatEdit {
+            quantity,
             unit: Some(unit),
-            location: None,
         },
     )
     .parse(input)
 }
 
-/// Parses the first count-only top-level repeat block after the main location.
-fn repeat_count_only_block(input: &str) -> ParseResult<'_, NucleotideRepeatBlock> {
-    map(delimited(char('['), parse_quantity, char(']')), |count| {
-        NucleotideRepeatBlock {
-            count,
-            unit: None,
-            location: None,
-        }
-    })
+fn unknown_repeat_edit(input: &str) -> ParseResult<'_, RepeatEdit> {
+    map(
+        pair(
+            unknown_repeat_unit,
+            alt((
+                known_repeat_copy,
+                uncertain_repeat_copy,
+                unknown_repeat_copy,
+            )),
+        ),
+        |(unit, quantity)| RepeatEdit {
+            quantity,
+            unit: Some(unit),
+        },
+    )
     .parse(input)
 }
 
-/// Parses an additional located count-only repeat block used by composite repeats.
-fn repeat_located_count_block(input: &str) -> ParseResult<'_, NucleotideRepeatBlock> {
+// Note: I do not need to add the unknown_repeat_edit pattern as those
+// are mainly present as the inserted or replaced item in ins and delins.
+// unknown_repeat_edit parses N[80], N[(80_100)], and N[?]
+fn repeat_edits(input: &str) -> ParseResult<'_, NucleotideEdit> {
     map(
-        pair(
-            nucleotide_interval,
-            delimited(char('['), parse_quantity, char(']')),
-        ),
-        |(location, count)| NucleotideRepeatBlock {
-            count,
-            unit: None,
-            location: Some(location),
-        },
+        alt((
+            // CTG[9]TTG[1]CTG[13]
+            many1(known_repeat_edit),
+            // separated_list1(
+            //     char(';'),
+            //     // I can use a constructor helper for RepeatEdit to avoid
+            //     // the anti-pattern. But I do not want to make that as part of
+            //     // the public interface.
+            //     map(known_repeat_copy, |quantity| RepeatEdit {
+            //         unit: None,
+            //         quantity,
+            //     }),
+            // ),
+            // one occurrence of either [14] or [(80_100)]
+            map(
+                alt((uncertain_repeat_copy, known_repeat_copy)),
+                |quantity| {
+                    vec![RepeatEdit {
+                        unit: None,
+                        quantity,
+                    }]
+                },
+            ),
+        )),
+        |blocks| NucleotideEdit::Repeat { blocks },
     )
     .parse(input)
 }
@@ -1117,7 +1171,7 @@ fn build_protein_edit_effect(
     (location, edit): (Location<ProteinCoordinate>, ProteinEdit),
 ) -> Result<ProteinEffect, ()> {
     let location = resolve_protein_effect_location(&location, &edit).ok_or(())?;
-    Ok(ProteinEffect::Edit { location, edit })
+    Ok(ProteinEffect::Known { location, edit })
 }
 
 /// Parses one supported protein location, known or uncertain.
@@ -1189,9 +1243,10 @@ fn protein_edit(input: &str) -> ParseResult<'_, ProteinEdit> {
         }),
         value(ProteinEdit::Deletion, tag("del")),
         value(ProteinEdit::Duplication, tag("dup")),
-        map(delimited(char('['), parse_quantity, char(']')), |count| {
-            ProteinEdit::Repeat { count }
-        }),
+        // map(delimited(char('['), parse_quantity, char(']')), |count| {
+        //     ProteinEdit::Repeat { count }
+        // }),
+        protein_repeat,
         protein_extension_edit,
         protein_frameshift_edit,
         map(preceded(tag("ins"), protein_sequence), |sequence| {
@@ -1199,6 +1254,21 @@ fn protein_edit(input: &str) -> ParseResult<'_, ProteinEdit> {
         }),
         map(protein_symbol, |to| ProteinEdit::Substitution { to }),
     ))
+    .parse(input)
+}
+
+fn protein_repeat(input: &str) -> ParseResult<'_, ProteinEdit> {
+    // p.Ala2[10]
+    // p.(Gln18)[(70_80)]
+    map(
+        alt((known_repeat_copy, uncertain_repeat_copy)),
+        |quantity| {
+            ProteinEdit::Repeat(RepeatEdit {
+                unit: None,
+                quantity,
+            })
+        },
+    )
     .parse(input)
 }
 
@@ -1397,70 +1467,6 @@ fn resolve_protein_effect_location(
     Some(Location::from_known(Interval { start, end: None }))
 }
 
-/// Returns the top-level nucleotide location to expose on the parsed variant.
-fn resolve_nucleotide_location(
-    initial_location: &Location<NucleotideCoordinate>,
-    edit: &NucleotideEdit,
-) -> Option<Location<NucleotideCoordinate>> {
-    let NucleotideEdit::Repeat { blocks } = edit else {
-        return Some(initial_location.clone());
-    };
-
-    let Location::Known(initial_location) = initial_location else {
-        return None;
-    };
-
-    let Some(last_location) = blocks
-        .iter()
-        .filter_map(|block| block.location.as_ref())
-        .next_back()
-    else {
-        return Some(Location::from_known(initial_location.clone()));
-    };
-
-    Some(Location::from_known(Interval {
-        start: initial_location.start,
-        end: last_location.end.or(Some(last_location.start)),
-    }))
-}
-
-/// Validates molecule-specific rules for repeated-sequence descriptions.
-fn is_valid_nucleotide_repeat(
-    coordinate_system: CoordinateSystem,
-    initial_location: &Location<NucleotideCoordinate>,
-    edit: &NucleotideEdit,
-) -> bool {
-    let NucleotideEdit::Repeat { blocks } = edit else {
-        return true;
-    };
-
-    let Location::Known(initial_location) = initial_location else {
-        return false;
-    };
-
-    let all_have_units = blocks.iter().all(|block| block.unit.is_some());
-    let none_have_units = blocks.iter().all(|block| block.unit.is_none());
-    let any_have_locations = blocks.iter().any(|block| block.location.is_some());
-
-    match coordinate_system {
-        CoordinateSystem::Rna => {
-            if none_have_units {
-                true
-            } else if all_have_units {
-                blocks.len() == 1 && !any_have_locations && initial_location.end.is_none()
-            } else {
-                false
-            }
-        }
-        CoordinateSystem::Genomic
-        | CoordinateSystem::CircularGenomic
-        | CoordinateSystem::Mitochondrial
-        | CoordinateSystem::CodingDna
-        | CoordinateSystem::NonCodingDna => all_have_units && !any_have_locations,
-        CoordinateSystem::Protein => false,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use nom::combinator::all_consuming;
@@ -1584,8 +1590,10 @@ mod tests {
             .unwrap();
         assert!(matches!(
             repeat.first().unwrap(),
-            NucleotideSequenceItem::Repeat(RepeatSequenceItem { unit, count })
-                if unit == "N" && *count == 12
+            NucleotideSequenceItem::Repeat(RepeatEdit {
+                unit: Some(RepeatSequenceUnit::Unknown),
+                quantity: Quantity::Known { count }
+            }) if *count == 12
         ));
 
         let (_, local) = all_consuming(nucleotide_sequence_items)
@@ -1626,28 +1634,31 @@ mod tests {
         );
         assert!(matches!(
             all_consuming(protein_effect).parse("Met1?").unwrap().1,
-            ProteinEffect::Edit {
+            ProteinEffect::Known {
                 edit: ProteinEdit::Unknown,
                 ..
             }
         ));
         assert!(matches!(
             all_consuming(protein_effect).parse("Trp24Ter").unwrap().1,
-            ProteinEffect::Edit {
+            ProteinEffect::Known {
                 edit: ProteinEdit::Substitution { .. },
                 ..
             }
         ));
         assert!(matches!(
             all_consuming(protein_effect).parse("Ala2[10]").unwrap().1,
-            ProteinEffect::Edit {
-                edit: ProteinEdit::Repeat { count: 10 },
+            ProteinEffect::Known {
+                edit: ProteinEdit::Repeat(RepeatEdit {
+                    unit: None,
+                    quantity: Quantity::Known { count: 10 }
+                }),
                 ..
             }
         ));
         assert!(matches!(
             all_consuming(protein_effect).parse("Arg97fs").unwrap().1,
-            ProteinEffect::Edit {
+            ProteinEffect::Known {
                 edit: ProteinEdit::Frameshift {
                     to_residue: None,
                     stop: ProteinFrameshiftStop {
@@ -1660,7 +1671,7 @@ mod tests {
         ));
         assert!(matches!(
             all_consuming(protein_effect).parse("Met1ext-5").unwrap().1,
-            ProteinEffect::Edit {
+            ProteinEffect::Known {
                 edit: ProteinEdit::Extension(ProteinExtensionEdit {
                     to_terminal: ProteinExtensionTerminal::N,
                     to_residue: None,
@@ -1674,7 +1685,7 @@ mod tests {
                 .parse("Ter110GlnextTer17")
                 .unwrap()
                 .1,
-            ProteinEffect::Edit {
+            ProteinEffect::Known {
                 edit: ProteinEdit::Extension(ProteinExtensionEdit {
                     to_terminal: ProteinExtensionTerminal::C,
                     to_residue: Some(_),
@@ -1688,7 +1699,7 @@ mod tests {
                 .parse("Arg97ProfsTer23")
                 .unwrap()
                 .1,
-            ProteinEffect::Edit {
+            ProteinEffect::Known {
                 edit: ProteinEdit::Frameshift {
                     to_residue: Some(_),
                     stop: ProteinFrameshiftStop {
@@ -1704,7 +1715,7 @@ mod tests {
                 .parse("Ile327Argfs*?")
                 .unwrap()
                 .1,
-            ProteinEffect::Edit {
+            ProteinEffect::Known {
                 edit: ProteinEdit::Frameshift {
                     to_residue: Some(_),
                     stop: ProteinFrameshiftStop {
