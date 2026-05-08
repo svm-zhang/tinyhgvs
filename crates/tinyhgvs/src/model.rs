@@ -300,14 +300,14 @@ pub struct NucleotideVariant {
 /// match variant.description {
 ///     VariantDescription::Protein(description) => {
 ///         assert!(description.is_predicted);
-///         assert!(matches!(description.effect, ProteinEffect::Edit { .. }));
+///         assert!(matches!(description.effect, ProteinEffect::Known { .. }));
 ///     }
 ///     _ => unreachable!("expected protein variant"),
 /// }
 ///
 /// match extension.description {
 ///     VariantDescription::Protein(description) => match description.effect {
-///         ProteinEffect::Edit { edit: ProteinEdit::Extension(_), .. } => {}
+///         ProteinEffect::Known { edit: ProteinEdit::Extension(_), .. } => {}
 ///         _ => unreachable!("expected protein extension"),
 ///     },
 ///     _ => unreachable!("expected protein variant"),
@@ -324,7 +324,7 @@ pub struct ProteinVariant {
 pub enum ProteinEffect {
     Unknown,
     NoProteinProduced,
-    Edit {
+    Known {
         location: Location<ProteinCoordinate>,
         edit: ProteinEdit,
     },
@@ -355,7 +355,7 @@ pub enum ProteinFrameshiftStopKind {
 ///
 /// let extract_terminal = |variant: tinyhgvs::HgvsVariant| match variant.description {
 ///     VariantDescription::Protein(description) => match description.effect {
-///         ProteinEffect::Edit { edit: ProteinEdit::Extension(extension), .. } => {
+///         ProteinEffect::Known { edit: ProteinEdit::Extension(extension), .. } => {
 ///             extension.to_terminal
 ///         }
 ///         _ => unreachable!("expected protein extension"),
@@ -384,7 +384,7 @@ pub enum ProteinExtensionTerminal {
 ///
 /// let extract_extension = |variant: tinyhgvs::HgvsVariant| match variant.description {
 ///     VariantDescription::Protein(description) => match description.effect {
-///         ProteinEffect::Edit { edit: ProteinEdit::Extension(extension), .. } => extension,
+///         ProteinEffect::Known { edit: ProteinEdit::Extension(extension), .. } => extension,
 ///         _ => unreachable!("expected protein extension"),
 ///     },
 ///     _ => unreachable!("expected protein variant"),
@@ -418,7 +418,7 @@ pub struct ProteinExtensionEdit {
 ///
 /// let extract_stop = |variant: tinyhgvs::HgvsVariant| match variant.description {
 ///     VariantDescription::Protein(description) => match description.effect {
-///         ProteinEffect::Edit { edit: ProteinEdit::Frameshift { stop, .. }, .. } => stop,
+///         ProteinEffect::Known { edit: ProteinEdit::Frameshift { stop, .. }, .. } => stop,
 ///         _ => unreachable!("expected protein frameshift"),
 ///     },
 ///     _ => unreachable!("expected protein variant"),
@@ -454,7 +454,7 @@ pub struct ProteinFrameshiftStop {
 /// match variant.description {
 ///     VariantDescription::Protein(description) => {
 ///         let location = match description.effect {
-///             tinyhgvs::ProteinEffect::Edit { ref location, .. } => location,
+///             tinyhgvs::ProteinEffect::Known { ref location, .. } => location,
 ///             _ => unreachable!("expected protein edit"),
 ///         };
 ///         assert_eq!(location.start().unwrap().residue, "Lys");
@@ -712,7 +712,7 @@ impl Interval<NucleotideCoordinate> {
 /// match variant.description {
 ///     VariantDescription::Protein(description) => {
 ///         let location = match description.effect {
-///             ProteinEffect::Edit { ref location, .. } => location,
+///             ProteinEffect::Known { ref location, .. } => location,
 ///             _ => unreachable!("expected protein edit"),
 ///         };
 ///         assert_eq!(location.start().unwrap().residue, "Trp");
@@ -741,10 +741,9 @@ pub enum NucleotideEdit {
     Deletion,
     // "dup"
     Duplication,
-    /// Top-level repeated sequence such as `g.123CAG[23]` or
-    /// `r.456_465[4]466_489[9]490_499[3]`.
+    /// Top-level repeated sequence such as `g.123CAG[23]`
     Repeat {
-        blocks: Vec<NucleotideRepeatBlock>,
+        blocks: Vec<RepeatEdit>,
     },
     Insertion {
         items: Vec<NucleotideSequenceItem>,
@@ -760,7 +759,7 @@ pub enum NucleotideEdit {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NucleotideSequenceItem {
     Literal(LiteralSequenceItem),
-    Repeat(RepeatSequenceItem),
+    Repeat(RepeatEdit),
     Copied(CopiedSequenceItem),
 }
 
@@ -768,43 +767,6 @@ pub enum NucleotideSequenceItem {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LiteralSequenceItem {
     pub value: String,
-}
-
-/// Repeated inserted or replacement sequence such as `N[12]`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RepeatSequenceItem {
-    pub unit: String,
-    pub count: usize,
-}
-
-/// One repeated block/unit in a nucleotide repeat variant description.
-///
-/// # Examples
-///
-/// ```rust
-/// use tinyhgvs::{NucleotideEdit, VariantDescription, parse_hgvs};
-///
-/// let variant = parse_hgvs("NC_000014.8:g.123CAG[23]").unwrap();
-///
-/// match variant.description {
-///     VariantDescription::Nucleotide(description) => {
-///         let NucleotideEdit::Repeat { blocks } = description.edit else {
-///             unreachable!("expected nucleotide repeat");
-///         };
-///         assert_eq!(blocks[0].unit.as_deref(), Some("CAG"));
-///         assert_eq!(blocks[0].count, 23);
-///     }
-///     _ => unreachable!("expected nucleotide variant"),
-/// }
-/// ```
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NucleotideRepeatBlock {
-    /// Total number of copies reported for the repeated unit.
-    pub count: usize,
-    /// Explicit repeat unit.
-    pub unit: Option<String>,
-    /// Repeat unit described as an interval.
-    pub location: Option<Interval<NucleotideCoordinate>>,
 }
 
 /// Sequence copied from the same or another reference.
@@ -864,9 +826,10 @@ pub enum ProteinEdit {
     Duplication,
     /// Top-level repeated sequence such as `p.Ala2[10]` or
     /// `p.Arg65_Ser67[12]`.
-    Repeat {
-        count: usize,
-    },
+    // Repeat {
+    //     count: usize,
+    // },
+    Repeat(RepeatEdit),
     /// Protein extension such as `p.Met1ext-5` or `p.Ter110GlnextTer17`.
     Extension(ProteinExtensionEdit),
     /// Protein frameshift such as `p.Arg97fs` or `p.Arg97ProfsTer23`.
@@ -893,7 +856,7 @@ pub enum ProteinEdit {
 ///
 /// match variant.description {
 ///     VariantDescription::Protein(description) => {
-///         let ProteinEffect::Edit { edit, .. } = description.effect else {
+///         let ProteinEffect::Known { edit, .. } = description.effect else {
 ///             unreachable!("expected protein edit");
 ///         };
 ///         let ProteinEdit::Insertion { sequence } = edit else {
@@ -910,4 +873,33 @@ pub enum ProteinEdit {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProteinSequence {
     pub residues: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RepeatSequenceUnit {
+    Known(LiteralSequenceItem), // reuse the LiteralSequenceItem struct
+    Unknown,                    // N or n
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Quantity {
+    Known { count: usize },
+    Uncertain(Interval<usize>), // reuse the Interval type with usize.
+    Unknown,                    // [?] case
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepeatEdit {
+    pub quantity: Quantity,
+    pub unit: Option<RepeatSequenceUnit>,
+}
+
+impl RepeatEdit {
+    pub fn is_unit_known(&self) -> bool {
+        matches!(self.unit, Some(RepeatSequenceUnit::Known(_)))
+    }
+
+    pub fn is_copy_known(&self) -> bool {
+        matches!(self.quantity, Quantity::Known { .. })
+    }
 }
