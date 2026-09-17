@@ -1,14 +1,18 @@
 use tinyhgvs::{
-    Interval, LiteralSequenceItem, ProteinEdit, ProteinEffect, Quantity, RepeatEdit,
+    LiteralSequenceItem, ProteinEditKind, ProteinOutcome, Quantity, RepeatEdit,
     RepeatSequenceUnit,
 };
 
 pub fn make_known_repeat_edit(unit: &str, count: usize) -> RepeatEdit {
+    make_known_repeat_edit_with_quantity(unit, count)
+}
+
+pub fn make_known_repeat_edit_with_quantity(unit: &str, quantity: impl ToQuantity) -> RepeatEdit {
     RepeatEdit {
         unit: Some(RepeatSequenceUnit::Known(LiteralSequenceItem {
             value: unit.to_string(),
         })),
-        quantity: Quantity::Known { count },
+        quantity: quantity.to_quantity(),
     }
 }
 
@@ -19,9 +23,11 @@ pub fn make_shorthand_repeat_edit(quantity: impl ToQuantity) -> RepeatEdit {
     }
 }
 
-// The "N" part inside "N[100]", "N[(100_120)]", "N[?]"
-pub fn make_unknown_repeat_unit() -> RepeatSequenceUnit {
-    RepeatSequenceUnit::Unknown
+pub fn make_unknown_repeat_edit(quantity: impl ToQuantity) -> RepeatEdit {
+    RepeatEdit {
+        unit: Some(RepeatSequenceUnit::Unknown),
+        quantity: quantity.to_quantity(),
+    }
 }
 
 pub trait ToQuantity {
@@ -36,10 +42,19 @@ impl ToQuantity for usize {
 
 impl ToQuantity for (usize, usize) {
     fn to_quantity(self) -> Quantity {
-        Quantity::Uncertain(Interval {
-            start: self.0,
-            end: Some(self.1),
-        })
+        Quantity::Uncertain {
+            lo: Some(self.0),
+            hi: Some(self.1),
+        }
+    }
+}
+
+impl ToQuantity for (Option<usize>, Option<usize>) {
+    fn to_quantity(self) -> Quantity {
+        Quantity::Uncertain {
+            lo: self.0,
+            hi: self.1,
+        }
     }
 }
 
@@ -49,31 +64,22 @@ impl ToQuantity for Quantity {
     }
 }
 
-pub fn make_known_quantity(count: usize) -> Quantity {
-    Quantity::Known { count }
-}
-
-// The "()" part inside "N[(100_120)]" and "NM_004006.3:r.-128_-126[(600_800)]"
 pub fn make_quantity_range(lo: usize, hi: usize) -> Quantity {
-    Quantity::Uncertain(Interval {
-        start: lo,
-        end: Some(hi),
-    })
+    Quantity::Uncertain {
+        lo: Some(lo),
+        hi: Some(hi),
+    }
 }
 
-// The "?" part inside "N[?]"
 pub fn make_unknown_quantity() -> Quantity {
     Quantity::Unknown
 }
 
-pub fn get_protein_repeat(effect: &ProteinEffect) -> &RepeatEdit {
-    if let ProteinEffect::Known {
-        edit: ProteinEdit::Repeat(repeat),
-        ..
-    } = effect
-    {
+pub fn get_protein_repeat(outcome: &ProteinOutcome) -> &RepeatEdit {
+    let (edit, _) = crate::utils::ProteinOutcomeExt::produced_edit(outcome);
+    if let ProteinEditKind::Repeat(repeat) = &edit.kind {
         repeat
     } else {
-        panic!("Expected a ProteinEdit::Repeat, but found: {:?}", effect);
+        panic!("expected a protein repeat");
     }
 }

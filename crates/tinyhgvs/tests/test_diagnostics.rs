@@ -22,13 +22,6 @@ fn classifies_supported_diagnostic_codes() {
             Some("|gom"),
         ),
         (
-            "NM_004006.3:r.spl",
-            "unsupported.rna_special_state",
-            ParseHgvsErrorKind::UnsupportedSyntax,
-            "RNA consequence states such as r.spl, r.?, and r.0 are not supported yet",
-            Some("r.spl"),
-        ),
-        (
             "NC_000023.11(NM_004006.2):r.[897u>g,832_960del]",
             "unsupported.rna_splicing_outcome",
             ParseHgvsErrorKind::UnsupportedSyntax,
@@ -41,27 +34,6 @@ fn classifies_supported_diagnostic_codes() {
             ParseHgvsErrorKind::UnsupportedSyntax,
             "RNA adjoined transcript syntax is not supported yet",
             Some("::"),
-        ),
-        (
-            "NM_004006.2:c.[2376G>C];[?]",
-            "unsupported.allele_unknown_variant",
-            ParseHgvsErrorKind::UnsupportedSyntax,
-            "allele variants written as [?] are not supported yet",
-            Some("[?]"),
-        ),
-        (
-            "NM_004006.2:c.2376G>C(;)(2376G>C)",
-            "unsupported.allele_uncertain_variant_state",
-            ParseHgvsErrorKind::UnsupportedSyntax,
-            "uncertain allele variant states are not supported yet",
-            Some("(;)(...)"),
-        ),
-        (
-            "r.-124_-123[14];[18]",
-            "unsupported.allele",
-            ParseHgvsErrorKind::UnsupportedSyntax,
-            "allele syntax is not supported yet",
-            Some("];["),
         ),
         (
             "NP_003997.1:p.[Lys31Asn,Val25_Lys31del]",
@@ -110,25 +82,6 @@ fn classifies_supported_diagnostic_codes() {
             "unexpected parser version for {input}"
         );
     }
-}
-
-#[test]
-fn prioritizes_specific_rna_codes_before_generic_ones() {
-    let splicing = parse_error("NC_000023.11(NM_004006.2):r.spl");
-    let unknown_member = parse_error("NM_004006.2:c.[2376G>C];[?]");
-    let protein_unknown_member = parse_error("NP_003997.1:p.[(Ser68Arg)];[?]");
-    let uncertain_state = parse_error("NM_004006.2:c.2376G>C(;)(2376G>C)");
-
-    assert_eq!(splicing.code(), "unsupported.rna_splicing_outcome");
-    assert_eq!(unknown_member.code(), "unsupported.allele_unknown_variant");
-    assert_eq!(
-        protein_unknown_member.code(),
-        "unsupported.allele_unknown_variant"
-    );
-    assert_eq!(
-        uncertain_state.code(),
-        "unsupported.allele_uncertain_variant_state"
-    );
 }
 
 #[test]
