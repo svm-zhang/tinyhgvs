@@ -104,11 +104,12 @@ mod validator;
 
 pub use error::{ParseHgvsError, ParseHgvsErrorKind};
 pub use model::{
-    Accession, Allele, AllelePhase, AlleleVariant, CoordinateSystem, CopiedSequenceItem,
-    HgvsVariant, Interval, LiteralSequenceItem, Location, NucleotideAnchor, NucleotideCoordinate,
-    NucleotideEdit, NucleotideSequenceItem, NucleotideVariant, ProteinCoordinate, ProteinEdit,
-    ProteinEffect, ProteinExtensionEdit, ProteinExtensionTerminal, ProteinFrameshiftStop,
-    ProteinFrameshiftStopKind, ProteinSequence, ProteinVariant, Quantity, ReferenceSpec,
-    RepeatEdit, RepeatSequenceUnit, VariantDescription,
+    Accession, Allele, AllelePhase, AlleleStateCertainty, AlleleVariant, CodingDnaOutcome,
+    CoordinateSystem, CopiedSequenceItem, GenomicOutcome, HgvsVariant, Interval,
+    LiteralSequenceItem, Location, NucleotideAnchor, NucleotideCoordinate, NucleotideEdit,
+    NucleotideEditKind, NucleotideSequenceItem, OutcomeCertainty, ProteinCoordinate, ProteinEdit,
+    ProteinEditKind, ProteinExtensionEdit, ProteinExtensionTerminal, ProteinFrameshiftStop,
+    ProteinFrameshiftStopKind, ProteinOutcome, ProteinSequence, Quantity, ReferenceSpec,
+    RepeatEdit, RepeatSequenceUnit, RnaOutcome, VariantDescription,
 };
 pub use parser::parse_hgvs;

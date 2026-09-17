@@ -9,21 +9,21 @@ use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while1};
 use nom::character::complete::{char, digit1, one_of};
 use nom::combinator::{all_consuming, map, map_res, opt, value, verify};
-use nom::multi::{many0, many1, separated_list1};
-use nom::sequence::{delimited, pair, preceded, separated_pair};
+use nom::multi::{many1, separated_list1};
+use nom::sequence::{delimited, pair, preceded, separated_pair, terminated};
 use nom::{IResult, Parser};
 
 use crate::diagnostics::classify_parse_failure;
 use crate::error::ParseHgvsError;
 use crate::model::{
-    Accession, Allele, AllelePhase, AlleleVariant, CoordinateSystem, CopiedSequenceItem,
-    HgvsVariant, Interval, LiteralSequenceItem, Location, NucleotideAnchor, NucleotideCoordinate,
-    NucleotideEdit, NucleotideSequenceItem, NucleotideVariant, ProteinCoordinate, ProteinEdit,
-    ProteinEffect, ProteinExtensionEdit, ProteinExtensionTerminal, ProteinFrameshiftStop,
-    ProteinFrameshiftStopKind, ProteinSequence, ProteinVariant, Quantity, ReferenceSpec,
-    RepeatEdit, RepeatSequenceUnit, VariantDescription,
+    Accession, Allele, AllelePhase, AlleleVariant, CodingDnaOutcome, CoordinateSystem,
+    CopiedSequenceItem, GenomicOutcome, HgvsVariant, Interval, LiteralSequenceItem, Location,
+    NucleotideAnchor, NucleotideCoordinate, NucleotideEdit, NucleotideEditKind,
+    NucleotideSequenceItem, OutcomeCertainty, ProteinCoordinate, ProteinEdit, ProteinEditKind,
+    ProteinExtensionEdit, ProteinExtensionTerminal, ProteinFrameshiftStop,
+    ProteinFrameshiftStopKind, ProteinOutcome, ProteinSequence, Quantity, ReferenceSpec,
+    RepeatEdit, RepeatSequenceUnit, RnaOutcome, VariantDescription,
 };
-use crate::validator::validate_nucleotide_description;
 
 type ParseResult<'a, T> = IResult<&'a str, T>;
 
@@ -227,11 +227,11 @@ pub fn parse_hgvs(input: &str) -> Result<HgvsVariant, ParseHgvsError> {
 /// shorthand protein-level description is allowed, e.g. "p.Gly12Asp".
 fn hgvs_variant(input: &str) -> ParseResult<'_, HgvsVariant> {
     // Match either a full nucleotide or shorthand protein syntax.
-    alt((variant_with_reference, protein_variant_without_reference)).parse(input)
+    alt((nucleotide_variant, protein_variant)).parse(input)
 }
 
 /// Parses the full HGVS variant (with a reference identifier).
-fn variant_with_reference(input: &str) -> ParseResult<'_, HgvsVariant> {
+fn nucleotide_variant(input: &str) -> ParseResult<'_, HgvsVariant> {
     // Parses the reference field
     let (input, reference) = reference_spec(input)?;
     // Reads the separator between reference and coordinate type
@@ -240,10 +240,11 @@ fn variant_with_reference(input: &str) -> ParseResult<'_, HgvsVariant> {
     let (input, coordinate_system) = coordinate_system(input)?;
     // Reads the separator to move into description
     let (input, _) = char('.')(input)?;
-    // Parses the description syntax
-    let (input, description) = variant_description(coordinate_system, input)?;
+
+    let (input, description) = nucleotide_description(input)?;
 
     // Enforce some additional rules
+    // FIXME: does not work with the new model and parser shapes
     if validate_nucleotide_description(coordinate_system, &description) {
         return Err(nom::Err::Error(nom::error::Error::new(
             input,
@@ -253,43 +254,20 @@ fn variant_with_reference(input: &str) -> ParseResult<'_, HgvsVariant> {
 
     Ok((
         input,
-        build_variant(Some(reference), coordinate_system, description),
+        HgvsVariant::from(Some(reference), coordinate_system, description),
     ))
 }
 
 /// Parses context-dependent shorthand protein-level variant.
-fn protein_variant_without_reference(input: &str) -> ParseResult<'_, HgvsVariant> {
-    let (input, _) = tag("p.")(input)?;
-    let (input, description) = protein_description(input)?;
-    Ok((
-        input,
-        build_variant(None, CoordinateSystem::Protein, description),
-    ))
-}
-
-/// Builds an [`HgvsVariant`] from its structural components.
-fn build_variant(
-    reference: Option<ReferenceSpec>,
-    coordinate_system: CoordinateSystem,
-    description: VariantDescription,
-) -> HgvsVariant {
-    HgvsVariant {
-        reference,
-        coordinate_system,
-        description,
-    }
-}
-
-/// Route a variant to its matching parser based on coordinate type.
-fn variant_description(
-    coordinate_system: CoordinateSystem,
-    input: &str,
-) -> ParseResult<'_, VariantDescription> {
-    if coordinate_system.is_protein() {
-        protein_description(input)
-    } else {
-        nucleotide_description(coordinate_system, input)
-    }
+fn protein_variant(input: &str) -> ParseResult<'_, HgvsVariant> {
+    // protein variant with sequence identifier field
+    // intentionally leave the following as a local parser for easy following
+    let with_sid = |i| map(terminated(reference_spec, char(':')), |reference| reference).parse(i);
+    map(
+        pair(terminated(opt(with_sid), tag("p.")), protein_description),
+        |(refspec, description)| HgvsVariant::from(refspec, CoordinateSystem::Protein, description),
+    )
+    .parse(input)
 }
 
 /// Parses the HGVS reference identifier field into a model::ReferenceSpec type.
@@ -318,61 +296,19 @@ fn accession(input: &str) -> ParseResult<'_, String> {
 fn coordinate_system(input: &str) -> ParseResult<'_, CoordinateSystem> {
     alt((
         value(CoordinateSystem::Genomic, char('g')),
-        value(CoordinateSystem::CircularGenomic, char('o')),
-        value(CoordinateSystem::Mitochondrial, char('m')),
         value(CoordinateSystem::CodingDna, char('c')),
-        value(CoordinateSystem::NonCodingDna, char('n')),
         value(CoordinateSystem::Rna, char('r')),
         value(CoordinateSystem::Protein, char('p')),
     ))
     .parse(input)
 }
 
-/// Parser for nucleotide variant and allele description.
-fn nucleotide_description(
-    coordinate_system: CoordinateSystem,
-    input: &str,
-) -> ParseResult<'_, VariantDescription> {
-    alt((
-        // Nucleotide allele description: [123G>A;345del]
-        // Composed of nucleotide variant descriptions
-        |input| {
-            allele_description(
-                input,
-                |input| nucleotide_initial_allele(coordinate_system, input),
-                |phase, input| next_nucleotide_allele(coordinate_system, phase, input),
-                VariantDescription::NucleotideAllele,
-            )
-        },
-        // Nucleotide variant description: 123G>A
-        map(
-            |input| nucleotide_variant_description(coordinate_system, input),
-            VariantDescription::Nucleotide,
-        ),
-    ))
-    .parse(input)
-}
-
-fn verify_failure<T>(input: &str) -> ParseResult<'_, T> {
-    Err(nom::Err::Error(nom::error::Error::new(
-        input,
-        nom::error::ErrorKind::Verify,
-    )))
-}
-
-/// Universal parser for nucleotide and protein allele description carrying
-/// variants, such as:
-/// - `NC_000001.11:g.[123G>A;345del]`
-/// - `NM_004006.3:r.[123c>a;345del]`
-/// - `p.[Ser73Arg;Asn103del]`
-/// - `NP_003997.1:p.[Ser68Arg;Asn594del]`
-/// - `p.[(Ser73Arg;Asn103del)]`
-fn variants_on_allele<T, PVariant>(input: &str, parse_variant: PVariant) -> ParseResult<'_, Vec<T>>
-where
-    PVariant: Fn(&str) -> ParseResult<'_, T>,
-{
-    separated_list1(char(';'), parse_variant).parse(input)
-}
+// fn verify_failure<T>(input: &str) -> ParseResult<'_, T> {
+//     Err(nom::Err::Error(nom::error::Error::new(
+//         input,
+//         nom::error::ErrorKind::Verify,
+//     )))
+// }
 
 /// Parses a reusable range surface written as `thing_thing`.
 fn range_with<T, P>(input: &str, parse_item: P) -> ParseResult<'_, Interval<T>>
@@ -389,6 +325,18 @@ where
     .parse(input)
 }
 
+fn nucleotide_description(input: &str) -> ParseResult<'_, VariantDescription> {
+    alt((
+        // 1. RNA Path
+        rna_description,
+        // 2. cDNA Path
+        cdna_description,
+        // 3. Genomic Path
+        genomic_description,
+    ))
+    .parse(input)
+}
+
 /// Parser for phase marker written in allele variant description.
 fn phase_marker(input: &str) -> ParseResult<'_, AllelePhase> {
     alt((
@@ -400,219 +348,92 @@ fn phase_marker(input: &str) -> ParseResult<'_, AllelePhase> {
     .parse(input)
 }
 
-/// Main parser entry point for parsing both nucleotide and protein allele
-/// description. The work sequence flow is:
-/// - initial allele
-/// - optional second established allele
-/// - additional unphased alleles after `(;)`
-fn allele_description<T, PInitial, PNext, BuildDescription>(
-    input: &str,
-    parse_initial_allele: PInitial,
-    parse_next_allele: PNext,
-    build_description: BuildDescription,
-) -> ParseResult<'_, VariantDescription>
-where
-    PInitial: Fn(&str) -> ParseResult<'_, (Allele<T>, bool)>,
-    PNext: Fn(AllelePhase, &str) -> ParseResult<'_, Allele<T>>,
-    BuildDescription: Fn(AlleleVariant<T>) -> VariantDescription,
-{
-    // Initial allele
-    let (input, (allele_one, initial_bracketed)) = parse_initial_allele(input)?;
-    let allele_one_variant_count = allele_one.variants.len();
-
-    // Optional second allele when present
-    let (input, established_second) = opt(|input| {
-        let (input, phase) = phase_marker(input)?;
-
-        // Reject A;[B]
-        if phase == AllelePhase::Trans && !initial_bracketed {
-            return verify_failure(input);
-        }
-
-        // Reject [A](;)B
-        if phase == AllelePhase::Uncertain && initial_bracketed && allele_one_variant_count == 1 {
-            return verify_failure(input);
-        }
-
-        let (input, allele_two) = parse_next_allele(phase, input)?;
-        Ok((input, (phase, allele_two)))
-    })
-    .parse(input)?;
-
-    // Additional alleles
-    let (input, alleles_unphased) = if established_second.is_some() {
-        many0(|input| {
-            let (input, _) = tag("(;)")(input)?;
-            parse_next_allele(AllelePhase::Uncertain, input)
-        })
-        .parse(input)?
-    } else {
-        (input, Vec::new())
-    };
-
-    let (allele_two, phase) = match established_second {
-        Some((phase, allele_two)) => (Some(allele_two), Some(phase)),
-        None => (None, None),
-    };
-
-    // Reject A or A(;) without a written second allele.
-    if !initial_bracketed && allele_two.is_none() {
-        return verify_failure(input);
-    }
-
-    Ok((
-        input,
-        build_description(AlleleVariant {
-            allele_one,
-            allele_two,
-            phase,
-            alleles_unphased,
+fn produced_rna_outcome(input: &str) -> ParseResult<'_, RnaOutcome> {
+    alt((
+        // r.(A)
+        map(delimited(char('('), nucleotide_edit, char(')')), |edit| {
+            RnaOutcome::Produced {
+                edit,
+                certainty: OutcomeCertainty::Predicted,
+            }
+        }),
+        // r.A
+        map(nucleotide_edit, |edit| RnaOutcome::Produced {
+            edit,
+            certainty: OutcomeCertainty::Certain,
         }),
     ))
+    .parse(input)
 }
 
-/**
-Parses one supported nucleotide variant description such as `123G>A` or
-`357+1G>A`, without wrapping it in the top-level description enum.
-*/
-fn nucleotide_variant_description(
-    coordinate_system: CoordinateSystem,
-    input: &str,
-) -> ParseResult<'_, NucleotideVariant> {
-    let (input, location) = nucleotide_location(coordinate_system, input)?;
-    let (input, edit) = nucleotide_edit(input)?;
-
-    Ok((input, NucleotideVariant { location, edit }))
-
-    // if !is_valid_nucleotide_repeat(coordinate_system, &initial_location, &edit) {
-    //     return Err(nom::Err::Error(nom::error::Error::new(
-    //         input,
-    //         nom::error::ErrorKind::Verify,
-    //     )));
-    // }
-
-    // let Some(location) = resolve_nucleotide_location(&initial_location, &edit) else {
-    //     return Err(nom::Err::Error(nom::error::Error::new(
-    //         input,
-    //         nom::error::ErrorKind::Verify,
-    //     )));
-    // };
-
-    // Ok((input, NucleotideVariant { location, edit }))
-}
-
-/// Parses one supported nucleotide location, known or uncertain.
-fn nucleotide_location(
-    coordinate_system: CoordinateSystem,
-    input: &str,
-) -> ParseResult<'_, Location<NucleotideCoordinate>> {
-    match coordinate_system {
-        CoordinateSystem::Rna
-        | CoordinateSystem::Genomic
-        | CoordinateSystem::CircularGenomic
-        | CoordinateSystem::Mitochondrial
-        | CoordinateSystem::CodingDna
-        | CoordinateSystem::NonCodingDna => alt((
-            // (71_72) and (123_234)_(345_456), (?_87), (123_?)_(?_456)
-            |input| {
-                let (input, location) = nucleotide_uncertain_location(input)?;
-                build_uncertain_nucleotide_location(input, location)
-            },
-            // 93 and 93_94, plus whole-location `?_?`
-            |input| {
-                let (input, interval) = nucleotide_interval(input)?;
-                build_known_nucleotide_location(input, interval)
-            },
-        ))
-        .parse(input),
-        CoordinateSystem::Protein => {
-            unreachable!("nucleotide location on protein coordinate system")
-        }
-    }
-}
-
-/// Build known nucleotide location model. "Known" means the location where
-/// mutation occurs is certain.
-///
-/// - `NC_000023.10:g.33038255C>A`
-/// - `NC_000023.11:g.33344591del`
-///
-fn build_known_nucleotide_location<'a>(
-    input: &'a str,
-    interval: Interval<NucleotideCoordinate>,
-) -> ParseResult<'a, Location<NucleotideCoordinate>> {
-    // Reject unknown location such as `(?_B)`, `(A_?).
-    if interval.has_unknown_bound() && !interval.is_fully_unknown() {
-        return verify_failure(input);
-    }
-
-    Ok((input, Location::from_known(interval)))
-}
-
-/// Build uncertain nucleotide location model. "Uncertain" means the location
-/// where mutation occurs is not fully resolved.
-///
-/// - `NC_000023.10:g.(33038277_33038278)C>T`
-/// - `g.(123456_234567)_(345678_456789)del`
-///
-fn build_uncertain_nucleotide_location<'a>(
-    input: &'a str,
-    location: Interval<Interval<NucleotideCoordinate>>,
-) -> ParseResult<'a, Location<NucleotideCoordinate>> {
-    // Reject location description such as `(?_?)`, `(?_?)_(?_?)`.
-    if location.start.is_fully_unknown()
-        && location
-            .end
-            .as_ref()
-            .map_or(true, Interval::is_fully_unknown)
-    {
-        return verify_failure(input);
-    }
-
-    Ok((input, Location::from_uncertain(location)))
-}
-
-/// Parser for digesting the initial allele written in a nucleotide allele
-/// description, such as
-///
-/// - `c.[123G>A;345del]`
-/// - `c.123G>A(;)345del`
-///
-/// Returns both the parsed allele and whether that first allele was bracketed.
-fn nucleotide_initial_allele(
-    coordinate_system: CoordinateSystem,
-    input: &str,
-) -> ParseResult<'_, (Allele<NucleotideVariant>, bool)> {
+fn special_rna_outcome(input: &str) -> ParseResult<'_, RnaOutcome> {
     alt((
-        // [123G>A;345del]
-        map(
-            |input| nucleotide_bracket_allele(coordinate_system, input),
-            |allele| (allele, true),
+        // `r.?`
+        value(RnaOutcome::Unknown, char('?')),
+        // `r.0?`
+        value(
+            RnaOutcome::NoneProduced(OutcomeCertainty::Predicted),
+            tag("0?"),
         ),
-        // 123G>A
-        map(
-            |input| nucleotide_variant_description(coordinate_system, input),
-            |variant| (Allele::from_variants(vec![variant]), false),
+        // `r.0`
+        value(
+            RnaOutcome::NoneProduced(OutcomeCertainty::Certain),
+            char('0'),
+        ),
+        // r.=
+        value(RnaOutcome::NoChange(OutcomeCertainty::Certain), char('=')),
+        // r.(=)
+        value(
+            RnaOutcome::NoChange(OutcomeCertainty::Predicted),
+            tag("(=)"),
+        ),
+        // `r.spl?`, `r.spl`
+        value(
+            RnaOutcome::UncertainSplicing,
+            alt((tag("spl?"), tag("spl"))),
         ),
     ))
     .parse(input)
 }
 
-/// Parser for pattern of nucleotide allele wrapped in bracket, such as:
-///
-/// - `[123G>A;345del]`
-fn nucleotide_bracket_allele(
-    coordinate_system: CoordinateSystem,
-    input: &str,
-) -> ParseResult<'_, Allele<NucleotideVariant>> {
+fn rna_outcome(input: &str) -> ParseResult<'_, RnaOutcome> {
+    alt((special_rna_outcome, produced_rna_outcome)).parse(input)
+}
+
+fn rna_variants_on_allele(input: &str) -> ParseResult<'_, Vec<RnaOutcome>> {
+    alt((
+        // (578c>u;1339a>g;1680del)
+        map(
+            delimited(
+                char('('),
+                separated_list1(char(';'), nucleotide_edit),
+                char(')'),
+            ),
+            |edits| {
+                edits
+                    .into_iter()
+                    .map(|edit| RnaOutcome::Produced {
+                        edit,
+                        certainty: OutcomeCertainty::Predicted,
+                    })
+                    .collect()
+            },
+        ),
+        // 76a>u;103del
+        // 76a>u;(103del)
+        separated_list1(char(';'), produced_rna_outcome),
+    ))
+    .parse(input)
+}
+
+fn rna_allele_component(input: &str) -> ParseResult<'_, Allele<RnaOutcome>> {
     map(
         delimited(
             char('['),
-            |input| {
-                variants_on_allele(input, |input| {
-                    nucleotide_variant_description(coordinate_system, input)
-                })
-            },
+            alt((
+                map(special_rna_outcome, |outcome| vec![outcome]),
+                rna_variants_on_allele,
+            )),
             char(']'),
         ),
         Allele::from_variants,
@@ -620,30 +441,508 @@ fn nucleotide_bracket_allele(
     .parse(input)
 }
 
-/// Parser for digesting the next nucleotide allele following the initial
-/// allele + phase marker in the nucleotide allele description, such as:
-///
-/// - `[345del]` in `NC_000001.11:g.[123G>A];[345del]` after `;`
-/// - `3103del` in `NM_004006.2:c.2376G>C(;)3103del` after '(;)'
-///
-/// The phase marker after the initial allele imposes syntactic rule.
-///
-/// Examples:
-/// - `NM_004006.2:c.2376G>C;3103del`: invalid
-/// - `NM_004006.2:c.[2376G>C](;)[3103del]`: invalid
-fn next_nucleotide_allele(
-    coordinate_system: CoordinateSystem,
-    phase: AllelePhase,
-    input: &str,
-) -> ParseResult<'_, Allele<NucleotideVariant>> {
-    match phase {
-        AllelePhase::Trans => nucleotide_bracket_allele(coordinate_system, input),
-        AllelePhase::Uncertain => map(
-            |input| nucleotide_variant_description(coordinate_system, input),
-            |variant| Allele::from_variants(vec![variant]),
-        )
-        .parse(input),
+fn rna_cis_allele(input: &str) -> ParseResult<'_, AlleleVariant<RnaOutcome>> {
+    map(rna_allele_component, |allele| AlleleVariant {
+        allele_one: allele,
+        allele_two: None,
+        phase: None,
+        variants_unphased: vec![],
+    })
+    .parse(input)
+}
+
+fn rna_trans_allele(input: &str) -> ParseResult<'_, AlleleVariant<RnaOutcome>> {
+    map(
+        pair(
+            separated_pair(rna_allele_component, char(';'), rna_allele_component),
+            opt(preceded(
+                tag("(;)"),
+                separated_list1(tag("(;)"), rna_outcome),
+            )),
+        ),
+        |((a1, a2), unphased)| AlleleVariant {
+            allele_one: a1,
+            allele_two: Some(a2),
+            phase: Some(AllelePhase::Trans),
+            variants_unphased: unphased.unwrap_or_default(),
+        },
+    )
+    .parse(input)
+}
+
+fn rna_uncertain_allele(input: &str) -> ParseResult<'_, AlleleVariant<RnaOutcome>> {
+    let (input, a1) = produced_rna_outcome(input)?;
+    let (input, _) = tag("(;)")(input)?;
+
+    let (input, a2) = alt((
+        // A(;)(B)
+        //
+        // Parentheses here mark uncertainty of the second allele state,
+        // not prediction of the RNA outcome itself.
+        map(delimited(char('('), nucleotide_edit, char(')')), |edit| {
+            Allele::uncertain_from_variants(vec![RnaOutcome::Produced {
+                edit,
+                certainty: OutcomeCertainty::Certain,
+            }])
+        }),
+        // A(;)B
+        map(produced_rna_outcome, |outcome| {
+            Allele::from_variants(vec![outcome])
+        }),
+    ))
+    .parse(input)?;
+
+    Ok((
+        input,
+        AlleleVariant {
+            allele_one: Allele::from_variants(vec![a1]),
+            allele_two: Some(a2),
+            phase: Some(AllelePhase::Uncertain),
+            variants_unphased: vec![],
+        },
+    ))
+}
+
+// r.[location][14];[18], r.[position][unit][14];[18]
+fn rna_repeat_trans_allele(input: &str) -> ParseResult<'_, AlleleVariant<RnaOutcome>> {
+    let (input, location) = nucleotide_location(input)?;
+
+    let (input, (unit, (q1, q2))) = pair(
+        opt(known_repeat_unit),
+        separated_pair(
+            alt((uncertain_repeat_copy, known_repeat_copy)),
+            char(';'),
+            alt((uncertain_repeat_copy, known_repeat_copy)),
+        ),
+    )
+    .parse(input)?;
+
+    if unit.is_some() && !location.is_pos() {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Verify,
+        )));
     }
+
+    let get_certainty = |q: &Quantity| match q {
+        Quantity::Uncertain { .. } => OutcomeCertainty::Predicted,
+        _ => OutcomeCertainty::Certain,
+    };
+    let rpt_one_certainty = get_certainty(&q1);
+    let rpt_two_certainty = get_certainty(&q2);
+
+    let rpt_one = RnaOutcome::Produced {
+        edit: NucleotideEdit {
+            location: location.clone(),
+            kind: NucleotideEditKind::Repeat {
+                blocks: vec![RepeatEdit {
+                    quantity: q1,
+                    unit: unit.clone(),
+                }],
+            },
+        },
+        certainty: rpt_one_certainty,
+    };
+
+    let rpt_two = RnaOutcome::Produced {
+        edit: NucleotideEdit {
+            location: location.clone(),
+            kind: NucleotideEditKind::Repeat {
+                blocks: vec![RepeatEdit {
+                    quantity: q2,
+                    unit: unit.clone(),
+                }],
+            },
+        },
+        certainty: rpt_two_certainty,
+    };
+
+    Ok((
+        input,
+        AlleleVariant {
+            allele_one: Allele::from_variants(vec![rpt_one]),
+            allele_two: Some(Allele::from_variants(vec![rpt_two])),
+            phase: Some(AllelePhase::Trans),
+            variants_unphased: vec![],
+        },
+    ))
+}
+
+fn rna_allele(input: &str) -> ParseResult<'_, AlleleVariant<RnaOutcome>> {
+    alt((
+        rna_repeat_trans_allele,
+        rna_trans_allele,
+        rna_uncertain_allele,
+        rna_cis_allele,
+    ))
+    .parse(input)
+}
+
+fn rna_description(input: &str) -> ParseResult<'_, VariantDescription> {
+    preceded(
+        tag("r."),
+        alt((
+            map(rna_allele, VariantDescription::RnaAllele),
+            map(rna_outcome, VariantDescription::Rna),
+        )),
+    )
+    .parse(input)
+}
+
+fn protein_outcome(input: &str) -> ParseResult<'_, ProteinOutcome> {
+    alt((
+        // (Ser68Arg)
+        map(delimited(char('('), protein_edit, char(')')), |edit| {
+            ProteinOutcome::Produced {
+                edit,
+                certainty: OutcomeCertainty::Predicted,
+            }
+        }),
+        // Ser68Arg
+        map(protein_edit, |edit| ProteinOutcome::Produced {
+            edit,
+            certainty: OutcomeCertainty::Certain,
+        }),
+    ))
+    .parse(input)
+}
+
+fn special_protein_outcome(input: &str) -> ParseResult<'_, ProteinOutcome> {
+    alt((
+        // p.?
+        value(ProteinOutcome::Unknown, char('?')),
+        // p.0?
+        value(
+            ProteinOutcome::NoneProduced(OutcomeCertainty::Predicted),
+            tag("0?"),
+        ),
+        // p.0
+        value(
+            ProteinOutcome::NoneProduced(OutcomeCertainty::Certain),
+            char('0'),
+        ),
+    ))
+    .parse(input)
+}
+
+fn protein_variants_on_allele(input: &str) -> ParseResult<'_, Vec<ProteinOutcome>> {
+    alt((
+        // (Ser68Arg;Asn594del)
+        map(
+            delimited(
+                char('('),
+                separated_list1(char(';'), protein_edit),
+                char(')'),
+            ),
+            |edits| {
+                edits
+                    .into_iter()
+                    .map(|edit| ProteinOutcome::Produced {
+                        edit,
+                        certainty: OutcomeCertainty::Predicted,
+                    })
+                    .collect()
+            },
+        ),
+        // Ser68Arg;Asn594del
+        // Phe233Leu;(Cys690Trp)
+        separated_list1(char(';'), protein_outcome),
+    ))
+    .parse(input)
+}
+
+fn protein_allele_component(input: &str) -> ParseResult<'_, Allele<ProteinOutcome>> {
+    map(
+        delimited(
+            char('['),
+            alt((
+                // [?]
+                map(char('?'), |_| vec![ProteinOutcome::Unknown]),
+                // [0]
+                map(char('0'), |_| {
+                    vec![ProteinOutcome::NoneProduced(OutcomeCertainty::Certain)]
+                }),
+                protein_variants_on_allele,
+            )),
+            char(']'),
+        ),
+        |variants| Allele::from_variants(variants),
+    )
+    .parse(input)
+}
+
+fn protein_cis_allele(input: &str) -> ParseResult<'_, AlleleVariant<ProteinOutcome>> {
+    map(protein_allele_component, |allele| AlleleVariant {
+        allele_one: allele,
+        allele_two: None,
+        phase: None,
+        variants_unphased: vec![],
+    })
+    .parse(input)
+}
+
+fn protein_trans_allele(input: &str) -> ParseResult<'_, AlleleVariant<ProteinOutcome>> {
+    map(
+        separated_pair(
+            protein_allele_component,
+            char(';'),
+            protein_allele_component,
+        ),
+        |(a1, a2)| AlleleVariant {
+            allele_one: a1,
+            allele_two: Some(a2),
+            phase: Some(AllelePhase::Trans),
+            variants_unphased: vec![],
+        },
+    )
+    .parse(input)
+}
+
+fn protein_uncertain_allele(input: &str) -> ParseResult<'_, AlleleVariant<ProteinOutcome>> {
+    map(
+        separated_pair(protein_outcome, tag("(;)"), protein_outcome),
+        |(a1, a2)| AlleleVariant {
+            allele_one: Allele::from_variants(vec![a1]),
+            allele_two: Some(Allele::from_variants(vec![a2])),
+            phase: Some(AllelePhase::Uncertain),
+            variants_unphased: vec![],
+        },
+    )
+    .parse(input)
+}
+
+fn protein_allele(input: &str) -> ParseResult<'_, AlleleVariant<ProteinOutcome>> {
+    alt((
+        protein_trans_allele,
+        protein_uncertain_allele,
+        protein_cis_allele,
+    ))
+    .parse(input)
+}
+
+/// Parser for protein variant and allele description.
+fn protein_description(input: &str) -> ParseResult<'_, VariantDescription> {
+    alt((
+        map(protein_allele, VariantDescription::ProteinAllele),
+        map(special_protein_outcome, VariantDescription::Protein),
+        map(protein_outcome, VariantDescription::Protein),
+    ))
+    .parse(input)
+}
+
+fn nucleotide_variants_on_allele(input: &str) -> ParseResult<'_, Vec<NucleotideEdit>> {
+    delimited(
+        char('['),
+        separated_list1(char(';'), nucleotide_edit),
+        char(']'),
+    )
+    .parse(input)
+}
+
+// [A;B]
+// [(A;B)]
+fn nucleotide_cis_allele(input: &str) -> ParseResult<'_, AlleleVariant<NucleotideEdit>> {
+    map(nucleotide_variants_on_allele, |variants| AlleleVariant {
+        allele_one: Allele::from_variants(variants),
+        allele_two: None,
+        phase: None,
+        variants_unphased: vec![],
+    })
+    .parse(input)
+}
+
+fn nucleotide_trans_allele(input: &str) -> ParseResult<'_, AlleleVariant<NucleotideEdit>> {
+    map(
+        pair(
+            separated_pair(
+                nucleotide_variants_on_allele,
+                char(';'),
+                nucleotide_variants_on_allele,
+            ),
+            // separated_pair(nucleotide_variants_on_allele, char(';'), |i| {
+            //     allele_parser(i, nucleotide_variants_on_allele)
+            // }),
+            opt(preceded(
+                tag("(;)"),
+                separated_list1(tag("(;)"), nucleotide_edit),
+            )),
+        ),
+        |((a1, a2), unphased)| AlleleVariant {
+            allele_one: Allele::from_variants(a1),
+            allele_two: Some(Allele::from_variants(a2)),
+            phase: Some(AllelePhase::Trans),
+            variants_unphased: unphased.unwrap_or_default(),
+        },
+    )
+    .parse(input)
+}
+
+fn nucleotide_uncertain_allele(input: &str) -> ParseResult<'_, AlleleVariant<NucleotideEdit>> {
+    map(
+        separated_pair(nucleotide_edit, tag("(;)"), nucleotide_edit),
+        |(a1, a2)| AlleleVariant {
+            allele_one: Allele::from_variants(vec![a1]),
+            allele_two: Some(Allele::from_variants(vec![a2])),
+            phase: Some(AllelePhase::Uncertain),
+            variants_unphased: vec![],
+        },
+    )
+    .parse(input)
+}
+
+fn nucleotide_allele(input: &str) -> ParseResult<'_, AlleleVariant<NucleotideEdit>> {
+    alt((
+        nucleotide_trans_allele,
+        nucleotide_uncertain_allele,
+        nucleotide_cis_allele,
+    ))
+    .parse(input)
+}
+
+fn genomic_description(input: &str) -> ParseResult<'_, VariantDescription> {
+    preceded(
+        tag("g."),
+        alt((
+            map(nucleotide_allele, |v| {
+                VariantDescription::GenomicAllele(v.map_t(GenomicOutcome::from))
+            }),
+            map(nucleotide_edit, |v| {
+                VariantDescription::Genomic(GenomicOutcome::Known(v))
+            }),
+        )),
+    )
+    .parse(input)
+}
+
+fn cdna_variants_on_allele(input: &str) -> ParseResult<'_, Vec<CodingDnaOutcome>> {
+    separated_list1(char(';'), cdna_outcome).parse(input)
+}
+
+fn cdna_allele_component(input: &str) -> ParseResult<'_, Allele<CodingDnaOutcome>> {
+    map(
+        delimited(
+            char('['),
+            alt((
+                map(char('?'), |_| vec![CodingDnaOutcome::Unknown]),
+                cdna_variants_on_allele,
+            )),
+            char(']'),
+        ),
+        Allele::from_variants,
+    )
+    .parse(input)
+}
+
+fn cdna_cis_allele(input: &str) -> ParseResult<'_, AlleleVariant<CodingDnaOutcome>> {
+    map(cdna_allele_component, |allele| AlleleVariant {
+        allele_one: allele,
+        allele_two: None,
+        phase: None,
+        variants_unphased: vec![],
+    })
+    .parse(input)
+}
+
+fn cdna_trans_allele(input: &str) -> ParseResult<'_, AlleleVariant<CodingDnaOutcome>> {
+    map(
+        separated_pair(cdna_allele_component, char(';'), cdna_allele_component),
+        |(a1, a2)| AlleleVariant {
+            allele_one: a1,
+            allele_two: Some(a2),
+            phase: Some(AllelePhase::Trans),
+            variants_unphased: vec![],
+        },
+    )
+    .parse(input)
+}
+
+fn cdna_uncertain_allele(input: &str) -> ParseResult<'_, AlleleVariant<CodingDnaOutcome>> {
+    let (input, a1) = cdna_outcome(input)?;
+    let (input, _) = tag("(;)")(input)?;
+
+    let (input, a2) = alt((
+        // A(;)(B)
+        map(delimited(char('('), cdna_outcome, char(')')), |outcome| {
+            Allele::uncertain_from_variants(vec![outcome])
+        }),
+        // A(;)B
+        map(cdna_outcome, |outcome| Allele::from_variants(vec![outcome])),
+    ))
+    .parse(input)?;
+
+    Ok((
+        input,
+        AlleleVariant {
+            allele_one: Allele::from_variants(vec![a1]),
+            allele_two: Some(a2),
+            phase: Some(AllelePhase::Uncertain),
+            variants_unphased: vec![],
+        },
+    ))
+}
+
+fn cdna_allele(input: &str) -> ParseResult<'_, AlleleVariant<CodingDnaOutcome>> {
+    alt((cdna_trans_allele, cdna_uncertain_allele, cdna_cis_allele)).parse(input)
+}
+
+fn cdna_outcome(input: &str) -> ParseResult<'_, CodingDnaOutcome> {
+    alt((
+        value(CodingDnaOutcome::Unknown, char('?')),
+        map(nucleotide_edit, CodingDnaOutcome::Known),
+    ))
+    .parse(input)
+}
+
+fn cdna_description(input: &str) -> ParseResult<'_, VariantDescription> {
+    preceded(
+        tag("c."),
+        alt((
+            map(cdna_allele, VariantDescription::CodingDnaAllele),
+            map(cdna_outcome, VariantDescription::CodingDna),
+        )),
+    )
+    .parse(input)
+}
+
+fn nucleotide_edit(input: &str) -> ParseResult<'_, NucleotideEdit> {
+    map(
+        pair(nucleotide_location, nucleotide_edit_kind),
+        |(location, kind)| NucleotideEdit { location, kind },
+    )
+    .parse(input)
+}
+
+// fn known_cdna_outcome(input: &str) -> ParseResult<'_, CodingDnaOutcome> {
+//     map(nucleotide_edit, CodingDnaOutcome::Known).parse(input)
+// }
+//
+// fn unknown_cdna_outcome(input: &str) -> ParseResult<'_, CodingDnaOutcome> {
+//     value(CodingDnaOutcome::Unknown, char('?')).parse(input)
+// }
+
+fn nucleotide_location(input: &str) -> ParseResult<'_, Location<NucleotideCoordinate>> {
+    // Reject location description such as `(?_?)`, `(?_?)_(?_?)`.
+    let is_valid_uncertain_location = |loc: &Interval<Interval<NucleotideCoordinate>>| {
+        !(loc.start.is_fully_unknown() && loc.end.as_ref().map_or(true, Interval::is_fully_unknown))
+    };
+    // Reject unknown location such as `(?_B)`, `(A_?).
+    let is_valid_known_interval = |interval: &Interval<NucleotideCoordinate>| {
+        !(interval.has_unknown_bound() && !interval.is_fully_unknown())
+    };
+
+    alt((
+        // (71_72) and (123_234)_(345_456), (?_87), (123_?)_(?_456)
+        map(
+            verify(nucleotide_uncertain_location, is_valid_uncertain_location),
+            Location::from_uncertain,
+        ),
+        // 93 and 93_94, plus whole-location `?_?`
+        map(
+            verify(nucleotide_interval, is_valid_known_interval),
+            Location::from_known,
+        ),
+    ))
+    .parse(input)
 }
 
 /// Parses nucleotide location as a single position/coordinate or an interval
@@ -758,25 +1057,26 @@ fn parse_quantity(input: &str) -> ParseResult<'_, usize> {
 }
 
 /// Parses the currently supported nucleotide edit families.
-fn nucleotide_edit(input: &str) -> ParseResult<'_, NucleotideEdit> {
+fn nucleotide_edit_kind(input: &str) -> ParseResult<'_, NucleotideEditKind> {
     alt((
-        value(NucleotideEdit::NoChange, char('=')),
+        value(NucleotideEditKind::NoChange, char('=')),
         map(
             preceded(tag("delins"), nucleotide_sequence_items),
-            |items| NucleotideEdit::DeletionInsertion { items },
+            |items| NucleotideEditKind::DeletionInsertion { items },
         ),
-        value(NucleotideEdit::Deletion, tag("del")),
-        value(NucleotideEdit::Duplication, tag("dup")),
-        // nucleotide_repeat_without_sequence,
-        // nucleotide_repeat_with_sequence,
-        repeat_edits,
+        value(NucleotideEditKind::Deletion, tag("del")),
+        value(NucleotideEditKind::Duplication, tag("dup")),
         map(preceded(tag("ins"), nucleotide_sequence_items), |items| {
-            NucleotideEdit::Insertion { items }
+            NucleotideEditKind::Insertion { items }
         }),
-        value(NucleotideEdit::Inversion, tag("inv")),
+        value(NucleotideEditKind::Inversion, tag("inv")),
+        // has to put repeat pattern behind insertion and deletion
+        // insN[(100_120)] will be mistaken as repeat edit. The inserted
+        // sequence item is a repeat but the repeat unit is not "insN"
+        repeat_edits,
         map(
             pair(nucleotide_literal, preceded(char('>'), nucleotide_literal)),
-            |(reference, alternate)| NucleotideEdit::Substitution {
+            |(reference, alternate)| NucleotideEditKind::Substitution {
                 reference,
                 alternate,
             },
@@ -844,7 +1144,7 @@ fn unknown_repeat_unit(input: &str) -> ParseResult<'_, RepeatSequenceUnit> {
 fn known_repeat_copy(input: &str) -> ParseResult<'_, Quantity> {
     delimited(
         char('['),
-        map(parse_quantity, |value| Quantity::Known { count: value }),
+        map(parse_quantity, |count| Quantity::Known { count }),
         char(']'),
     )
     .parse(input)
@@ -857,11 +1157,16 @@ fn unknown_repeat_copy(input: &str) -> ParseResult<'_, Quantity> {
 fn uncertain_repeat_copy(input: &str) -> ParseResult<'_, Quantity> {
     delimited(
         char('['),
+        // (A_B), (A_?), (?_B), (?_?)
         delimited(
             char('('),
             map(
-                |input| range_with(input, parse_quantity),
-                Quantity::Uncertain,
+                separated_pair(
+                    alt((map(parse_quantity, Some), value(None, char('?')))),
+                    char('_'),
+                    alt((map(parse_quantity, Some), value(None, char('?')))),
+                ),
+                |(lo, hi)| Quantity::Uncertain { lo, hi },
             ),
             char(')'),
         ),
@@ -872,7 +1177,10 @@ fn uncertain_repeat_copy(input: &str) -> ParseResult<'_, Quantity> {
 
 fn known_repeat_edit(input: &str) -> ParseResult<'_, RepeatEdit> {
     map(
-        pair(known_repeat_unit, known_repeat_copy),
+        pair(
+            known_repeat_unit,
+            alt((known_repeat_copy, uncertain_repeat_copy)),
+        ),
         |(unit, quantity)| RepeatEdit {
             quantity,
             unit: Some(unit),
@@ -902,21 +1210,11 @@ fn unknown_repeat_edit(input: &str) -> ParseResult<'_, RepeatEdit> {
 // Note: I do not need to add the unknown_repeat_edit pattern as those
 // are mainly present as the inserted or replaced item in ins and delins.
 // unknown_repeat_edit parses N[80], N[(80_100)], and N[?]
-fn repeat_edits(input: &str) -> ParseResult<'_, NucleotideEdit> {
+fn repeat_edits(input: &str) -> ParseResult<'_, NucleotideEditKind> {
     map(
         alt((
             // CTG[9]TTG[1]CTG[13]
             many1(known_repeat_edit),
-            // separated_list1(
-            //     char(';'),
-            //     // I can use a constructor helper for RepeatEdit to avoid
-            //     // the anti-pattern. But I do not want to make that as part of
-            //     // the public interface.
-            //     map(known_repeat_copy, |quantity| RepeatEdit {
-            //         unit: None,
-            //         quantity,
-            //     }),
-            // ),
             // one occurrence of either [14] or [(80_100)]
             map(
                 alt((uncertain_repeat_copy, known_repeat_copy)),
@@ -928,7 +1226,7 @@ fn repeat_edits(input: &str) -> ParseResult<'_, NucleotideEdit> {
                 },
             ),
         )),
-        |blocks| NucleotideEdit::Repeat { blocks },
+        |blocks| NucleotideEditKind::Repeat { blocks },
     )
     .parse(input)
 }
@@ -936,11 +1234,11 @@ fn repeat_edits(input: &str) -> ParseResult<'_, NucleotideEdit> {
 /// Parses a segment- or interval-type edit component that comes from either
 /// local (current) or remote (other) reference source.
 fn sequence_segment(input: &str) -> ParseResult<'_, CopiedSequenceItem> {
-    alt((remote_sequence_segment, current_reference_sequence_segment)).parse(input)
+    alt((remote_sequence_segment, same_reference_sequence_segment)).parse(input)
 }
 
 /// Parses a current-reference segment such as `850_900inv`.
-fn current_reference_sequence_segment(input: &str) -> ParseResult<'_, CopiedSequenceItem> {
+fn same_reference_sequence_segment(input: &str) -> ParseResult<'_, CopiedSequenceItem> {
     map(
         pair(nucleotide_interval, opt(tag("inv"))),
         |(source_location, is_inverted)| CopiedSequenceItem {
@@ -985,162 +1283,6 @@ fn nucleotide_literal(input: &str) -> ParseResult<'_, String> {
     .parse(input)
 }
 
-/// Parser for protein variant and allele description.
-fn protein_description(input: &str) -> ParseResult<'_, VariantDescription> {
-    alt((
-        // Protein allele description with known consequence: [Ser68Arg;Asn594del]
-        // Composed of protein variant descriptions
-        |input| {
-            allele_description(
-                input,
-                protein_initial_allele,
-                next_protein_allele,
-                VariantDescription::ProteinAllele,
-            )
-        },
-        // Predicted allele description: (Ser68Arg)
-        map(
-            delimited(char('('), protein_known_consequence, char(')')),
-            |effect| {
-                VariantDescription::Protein(ProteinVariant {
-                    is_predicted: true,
-                    effect,
-                })
-            },
-        ),
-        // Protein variant description: Ser68Arg, 0, ?
-        map(protein_effect, |effect| {
-            VariantDescription::Protein(ProteinVariant {
-                is_predicted: false,
-                effect,
-            })
-        }),
-    ))
-    .parse(input)
-}
-
-/// Parser for one protein variant description.
-///
-/// This parser admits three cases:
-/// - No protein produced
-/// - Known protein consequence, such as `Ser68Arg` or `0`
-/// - Predicted protein consequence, such as `(Ser68Arg)`
-///
-/// One remaining gap: it does not admit plain `?`, which HGVS uses inside
-/// protein alleles for an unknown allele member rather than a supported
-/// protein consequence.
-fn protein_variant_description(input: &str) -> ParseResult<'_, ProteinVariant> {
-    alt((
-        map(
-            delimited(char('('), protein_known_consequence, char(')')),
-            |effect| ProteinVariant {
-                is_predicted: true,
-                effect,
-            },
-        ),
-        map(
-            value(ProteinEffect::NoProteinProduced, char('0')),
-            |effect| ProteinVariant {
-                is_predicted: false,
-                effect,
-            },
-        ),
-        map(protein_known_consequence, |effect| ProteinVariant {
-            is_predicted: false,
-            effect,
-        }),
-    ))
-    .parse(input)
-}
-
-/// Parser for digesting the initial allele written in a protein allele, such as:
-///
-/// - `p.[Ser68Arg;Asn594del]`
-/// - `p.(Ser73Arg)(;)(Asn103del)`
-fn protein_initial_allele(input: &str) -> ParseResult<'_, (Allele<ProteinVariant>, bool)> {
-    alt((
-        map(
-            alt((
-                // [(Ser73Arg;Asn103del)]
-                delimited(char('['), predicted_protein_allele, char(']')),
-                // [Ser68Arg;Asn594del]
-                protein_bracket_allele,
-            )),
-            // true: initial allele wrapped in bracket
-            |allele| (allele, true),
-        ),
-        // Ser68Arg
-        map(protein_variant_description, |variant| {
-            // false: initial allele not wrapped in bracket
-            (Allele::from_variants(vec![variant]), false)
-        }),
-    ))
-    .parse(input)
-}
-
-/// Parser for pattern of protein allele wrapped in bracket, such as:
-///
-/// - `[Ser68Arg;Asn594del]`
-fn protein_bracket_allele(input: &str) -> ParseResult<'_, Allele<ProteinVariant>> {
-    map(
-        delimited(
-            char('['),
-            |input| variants_on_allele(input, protein_variant_description),
-            char(']'),
-        ),
-        Allele::from_variants,
-    )
-    .parse(input)
-}
-
-/// Parser for the predicted protein allele pattern, such as:
-///
-/// - `(Ser73Arg;Asn103del)`.
-fn predicted_protein_allele(input: &str) -> ParseResult<'_, Allele<ProteinVariant>> {
-    map(
-        delimited(
-            char('('),
-            |input| variants_on_allele(input, protein_known_consequence),
-            char(')'),
-        ),
-        |effects| {
-            Allele::from_variants(
-                effects
-                    .into_iter()
-                    .map(|effect| ProteinVariant {
-                        is_predicted: true,
-                        effect,
-                    })
-                    .collect(),
-            )
-        },
-    )
-    .parse(input)
-}
-
-/// Parser for digesting the next protein allele following the initial allele +
-/// phase marker in the protein allele description, such as:
-///
-/// - `[Ser68_Arg70=]` in `p.[Ser68_Arg70dup];[Ser68_Arg70=]` after `;`
-///
-/// Like in the nucleotide case, the phase marker after the initial allele
-/// imposes syntactic rule.
-fn next_protein_allele(phase: AllelePhase, input: &str) -> ParseResult<'_, Allele<ProteinVariant>> {
-    match phase {
-        AllelePhase::Trans => alt((
-            // [(Ser73Arg;Asn103del)]
-            delimited(char('['), predicted_protein_allele, char(']')),
-            // [Ser68Arg;Asn594del]
-            protein_bracket_allele,
-        ))
-        .parse(input),
-        AllelePhase::Uncertain => map(protein_variant_description, |variant| {
-            Allele::from_variants(vec![variant])
-        })
-        .parse(input),
-    }
-}
-
 /// Parser for one known protein consequence, which means:
 ///
 /// - `Ser68Arg`
@@ -1148,30 +1290,88 @@ fn next_protein_allele(phase: AllelePhase, input: &str) -> ParseResult<'_, Allel
 /// - `Ser68_Ala74insSerGln`
 ///
 /// The parser does not digest `?` and `0`.
-fn protein_known_consequence(input: &str) -> ParseResult<'_, ProteinEffect> {
+fn protein_edit(input: &str) -> ParseResult<'_, ProteinEdit> {
     map_res(
-        pair(protein_location, protein_edit),
+        pair(protein_location, protein_edit_kind),
         build_protein_edit_effect,
     )
     .parse(input)
 }
 
-/// Parses the supported protein effect types. Differentiating unknown consequence
-/// from the case where mutation produces no protein.
-fn protein_effect(input: &str) -> ParseResult<'_, ProteinEffect> {
-    alt((
-        value(ProteinEffect::Unknown, char('?')),
-        value(ProteinEffect::NoProteinProduced, char('0')),
-        protein_known_consequence,
-    ))
-    .parse(input)
+fn build_protein_edit_effect(
+    (location, kind): (Location<ProteinCoordinate>, ProteinEditKind),
+) -> Result<ProteinEdit, ()> {
+    let location = resolve_protein_effect_location(&location, &kind).ok_or(())?;
+    Ok(ProteinEdit { location, kind })
 }
 
-fn build_protein_edit_effect(
-    (location, edit): (Location<ProteinCoordinate>, ProteinEdit),
-) -> Result<ProteinEffect, ()> {
-    let location = resolve_protein_effect_location(&location, &edit).ok_or(())?;
-    Ok(ProteinEffect::Known { location, edit })
+fn resolve_protein_effect_location(
+    location: &Location<ProteinCoordinate>,
+    edit: &ProteinEditKind,
+) -> Option<Location<ProteinCoordinate>> {
+    let ProteinEditKind::Extension(extension) = edit else {
+        return Some(location.clone());
+    };
+
+    let Location::Known(location) = location else {
+        return None;
+    };
+
+    if location.end.is_some() {
+        return None;
+    }
+
+    let mut start = location.start.clone();
+
+    match extension.to_terminal {
+        ProteinExtensionTerminal::N => {
+            if start.residue != "Met"
+                || start.ordinal != 1
+                || extension.to_residue.is_some()
+                || !matches!(extension.terminal_ordinal, Some(ordinal) if ordinal < 0)
+            {
+                return None;
+            }
+        }
+        ProteinExtensionTerminal::C => {
+            if start.residue != "Ter"
+                || extension.to_residue.is_none()
+                || matches!(extension.terminal_ordinal, Some(ordinal) if ordinal <= 0)
+            {
+                return None;
+            }
+            start.residue = "Ter".to_string();
+        }
+    }
+
+    Some(Location::from_known(Interval { start, end: None }))
+}
+
+/// Parses the currently supported protein edit families.
+fn protein_edit_kind(input: &str) -> ParseResult<'_, ProteinEditKind> {
+    alt((
+        value(
+            ProteinEditKind::NoChange(OutcomeCertainty::Predicted),
+            tag("(=)"),
+        ),
+        value(
+            ProteinEditKind::NoChange(OutcomeCertainty::Certain),
+            char('='),
+        ),
+        map(preceded(tag("delins"), protein_sequence), |sequence| {
+            ProteinEditKind::DeletionInsertion { sequence }
+        }),
+        value(ProteinEditKind::Deletion, tag("del")),
+        value(ProteinEditKind::Duplication, tag("dup")),
+        protein_repeat,
+        protein_extension_edit,
+        protein_frameshift_edit,
+        map(preceded(tag("ins"), protein_sequence), |sequence| {
+            ProteinEditKind::Insertion { sequence }
+        }),
+        map(protein_symbol, |to| ProteinEditKind::Substitution { to }),
+    ))
+    .parse(input)
 }
 
 /// Parses one supported protein location, known or uncertain.
@@ -1233,37 +1433,13 @@ fn protein_coordinate(input: &str) -> ParseResult<'_, ProteinCoordinate> {
     .parse(input)
 }
 
-/// Parses the currently supported protein edit families.
-fn protein_edit(input: &str) -> ParseResult<'_, ProteinEdit> {
-    alt((
-        value(ProteinEdit::Unknown, char('?')),
-        value(ProteinEdit::NoChange, char('=')),
-        map(preceded(tag("delins"), protein_sequence), |sequence| {
-            ProteinEdit::DeletionInsertion { sequence }
-        }),
-        value(ProteinEdit::Deletion, tag("del")),
-        value(ProteinEdit::Duplication, tag("dup")),
-        // map(delimited(char('['), parse_quantity, char(']')), |count| {
-        //     ProteinEdit::Repeat { count }
-        // }),
-        protein_repeat,
-        protein_extension_edit,
-        protein_frameshift_edit,
-        map(preceded(tag("ins"), protein_sequence), |sequence| {
-            ProteinEdit::Insertion { sequence }
-        }),
-        map(protein_symbol, |to| ProteinEdit::Substitution { to }),
-    ))
-    .parse(input)
-}
-
-fn protein_repeat(input: &str) -> ParseResult<'_, ProteinEdit> {
+fn protein_repeat(input: &str) -> ParseResult<'_, ProteinEditKind> {
     // p.Ala2[10]
     // p.(Gln18)[(70_80)]
     map(
         alt((known_repeat_copy, uncertain_repeat_copy)),
         |quantity| {
-            ProteinEdit::Repeat(RepeatEdit {
+            ProteinEditKind::Repeat(RepeatEdit {
                 unit: None,
                 quantity,
             })
@@ -1273,12 +1449,12 @@ fn protein_repeat(input: &str) -> ParseResult<'_, ProteinEdit> {
 }
 
 /// Parses N-terminal and C-terminal protein extension syntax.
-fn protein_extension_edit(input: &str) -> ParseResult<'_, ProteinEdit> {
+fn protein_extension_edit(input: &str) -> ParseResult<'_, ProteinEditKind> {
     alt((
         map(
             preceded(tag("ext"), protein_n_terminal_extension_ordinal),
             |terminal_ordinal| {
-                ProteinEdit::Extension(ProteinExtensionEdit {
+                ProteinEditKind::Extension(ProteinExtensionEdit {
                     to_terminal: ProteinExtensionTerminal::N,
                     to_residue: None,
                     terminal_ordinal: Some(terminal_ordinal),
@@ -1291,7 +1467,7 @@ fn protein_extension_edit(input: &str) -> ParseResult<'_, ProteinEdit> {
                 protein_c_terminal_extension_state,
             ),
             |(to_residue, terminal_ordinal)| {
-                ProteinEdit::Extension(ProteinExtensionEdit {
+                ProteinEditKind::Extension(ProteinExtensionEdit {
                     to_terminal: ProteinExtensionTerminal::C,
                     to_residue: Some(to_residue),
                     terminal_ordinal,
@@ -1334,20 +1510,20 @@ fn protein_c_terminal_extension_state(input: &str) -> ParseResult<'_, Option<i32
 }
 
 /// Parses short and long protein frameshift syntax.
-fn protein_frameshift_edit(input: &str) -> ParseResult<'_, ProteinEdit> {
+fn protein_frameshift_edit(input: &str) -> ParseResult<'_, ProteinEditKind> {
     alt((
         map(
             pair(
                 protein_frameshift_residue,
                 pair(tag("fs"), protein_frameshift_stop),
             ),
-            |(to_residue, (_, stop))| ProteinEdit::Frameshift {
+            |(to_residue, (_, stop))| ProteinEditKind::Frameshift {
                 to_residue: Some(to_residue),
                 stop,
             },
         ),
         value(
-            ProteinEdit::Frameshift {
+            ProteinEditKind::Frameshift {
                 to_residue: None,
                 stop: ProteinFrameshiftStop {
                     ordinal: None,
@@ -1425,48 +1601,6 @@ fn normalize_protein_symbol(symbol: &str) -> String {
     }
 }
 
-fn resolve_protein_effect_location(
-    location: &Location<ProteinCoordinate>,
-    edit: &ProteinEdit,
-) -> Option<Location<ProteinCoordinate>> {
-    let ProteinEdit::Extension(extension) = edit else {
-        return Some(location.clone());
-    };
-
-    let Location::Known(location) = location else {
-        return None;
-    };
-
-    if location.end.is_some() {
-        return None;
-    }
-
-    let mut start = location.start.clone();
-
-    match extension.to_terminal {
-        ProteinExtensionTerminal::N => {
-            if start.residue != "Met"
-                || start.ordinal != 1
-                || extension.to_residue.is_some()
-                || !matches!(extension.terminal_ordinal, Some(ordinal) if ordinal < 0)
-            {
-                return None;
-            }
-        }
-        ProteinExtensionTerminal::C => {
-            if start.residue != "Ter"
-                || extension.to_residue.is_none()
-                || matches!(extension.terminal_ordinal, Some(ordinal) if ordinal <= 0)
-            {
-                return None;
-            }
-            start.residue = "Ter".to_string();
-        }
-    }
-
-    Some(Location::from_known(Interval { start, end: None }))
-}
-
 #[cfg(test)]
 mod tests {
     use nom::combinator::all_consuming;
@@ -1542,41 +1676,47 @@ mod tests {
     #[test]
     fn parses_nucleotide_edit_branches() {
         assert_eq!(
-            all_consuming(nucleotide_edit).parse("=").unwrap().1,
-            NucleotideEdit::NoChange
+            all_consuming(nucleotide_edit_kind).parse("=").unwrap().1,
+            NucleotideEditKind::NoChange
         );
         assert_eq!(
-            all_consuming(nucleotide_edit).parse("del").unwrap().1,
-            NucleotideEdit::Deletion
+            all_consuming(nucleotide_edit_kind).parse("del").unwrap().1,
+            NucleotideEditKind::Deletion
         );
-        assert!(all_consuming(nucleotide_edit).parse("delA").is_err());
+        assert!(all_consuming(nucleotide_edit_kind).parse("delA").is_err());
         assert_eq!(
-            all_consuming(nucleotide_edit).parse("dup").unwrap().1,
-            NucleotideEdit::Duplication
+            all_consuming(nucleotide_edit_kind).parse("dup").unwrap().1,
+            NucleotideEditKind::Duplication
         );
         assert_eq!(
-            all_consuming(nucleotide_edit).parse("inv").unwrap().1,
-            NucleotideEdit::Inversion
+            all_consuming(nucleotide_edit_kind).parse("inv").unwrap().1,
+            NucleotideEditKind::Inversion
         );
         assert!(matches!(
-            all_consuming(nucleotide_edit).parse("C>A").unwrap().1,
-            NucleotideEdit::Substitution { .. }
+            all_consuming(nucleotide_edit_kind).parse("C>A").unwrap().1,
+            NucleotideEditKind::Substitution { .. }
         ));
         assert!(matches!(
-            all_consuming(nucleotide_edit).parse("insT").unwrap().1,
-            NucleotideEdit::Insertion { .. }
+            all_consuming(nucleotide_edit_kind).parse("insT").unwrap().1,
+            NucleotideEditKind::Insertion { .. }
         ));
         assert!(matches!(
-            all_consuming(nucleotide_edit).parse("delinsT").unwrap().1,
-            NucleotideEdit::DeletionInsertion { .. }
+            all_consuming(nucleotide_edit_kind)
+                .parse("delinsT")
+                .unwrap()
+                .1,
+            NucleotideEditKind::DeletionInsertion { .. }
         ));
         assert!(matches!(
-            all_consuming(nucleotide_edit).parse("[4]").unwrap().1,
-            NucleotideEdit::Repeat { .. }
+            all_consuming(nucleotide_edit_kind).parse("[4]").unwrap().1,
+            NucleotideEditKind::Repeat { .. }
         ));
         assert!(matches!(
-            all_consuming(nucleotide_edit).parse("CAG[23]").unwrap().1,
-            NucleotideEdit::Repeat { .. }
+            all_consuming(nucleotide_edit_kind)
+                .parse("CAG[23]")
+                .unwrap()
+                .1,
+            NucleotideEditKind::Repeat { .. }
         ));
     }
 

@@ -31,6 +31,20 @@ pub struct HgvsVariant {
     pub description: VariantDescription,
 }
 
+impl HgvsVariant {
+    pub fn from(
+        reference: Option<ReferenceSpec>,
+        coordinate_system: CoordinateSystem,
+        description: VariantDescription,
+    ) -> Self {
+        Self {
+            reference,
+            coordinate_system,
+            description,
+        }
+    }
+}
+
 /// Reference metadata preceding the `:` in an HGVS expression.
 ///
 /// # Examples
@@ -87,10 +101,7 @@ impl Accession {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoordinateSystem {
     Genomic,
-    CircularGenomic,
-    Mitochondrial,
     CodingDna,
-    NonCodingDna,
     Rna,
     Protein,
 }
@@ -105,10 +116,7 @@ impl CoordinateSystem {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Genomic => "g",
-            Self::CircularGenomic => "o",
-            Self::Mitochondrial => "m",
             Self::CodingDna => "c",
-            Self::NonCodingDna => "n",
             Self::Rna => "r",
             Self::Protein => "p",
         }
@@ -118,14 +126,21 @@ impl CoordinateSystem {
 /// Top-level variant description for nucleotide or protein syntax.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VariantDescription {
-    Nucleotide(NucleotideVariant),
-    /// DNA or RNA allele container with one written allele, an optional second
-    /// established allele, and any later unphased additions.
-    NucleotideAllele(AlleleVariant<NucleotideVariant>),
-    /// Protein allele container with one written allele, an optional second
-    /// established allele, and any later unphased additions.
-    ProteinAllele(AlleleVariant<ProteinVariant>),
-    Protein(ProteinVariant),
+    Genomic(GenomicOutcome),
+    Rna(RnaOutcome),
+    CodingDna(CodingDnaOutcome),
+    Protein(ProteinOutcome),
+
+    GenomicAllele(AlleleVariant<GenomicOutcome>),
+    CodingDnaAllele(AlleleVariant<CodingDnaOutcome>),
+    RnaAllele(AlleleVariant<RnaOutcome>),
+    ProteinAllele(AlleleVariant<ProteinOutcome>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AlleleStateCertainty {
+    Certain,
+    Uncertain,
 }
 
 /// Phase relationship between two established alleles.
@@ -171,17 +186,38 @@ pub enum AllelePhase {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Allele<T> {
     pub variants: Vec<T>,
+    pub state_certainty: AlleleStateCertainty,
 }
 
 impl<T> Allele<T> {
     /// Builds one allele from all its carrying variants.
     pub fn from_variants(variants: Vec<T>) -> Self {
-        Self { variants }
+        Self {
+            variants,
+            state_certainty: AlleleStateCertainty::Certain,
+        }
+    }
+
+    pub fn uncertain_from_variants(variants: Vec<T>) -> Self {
+        Self {
+            variants,
+            state_certainty: AlleleStateCertainty::Uncertain,
+        }
     }
 
     /// Returns the inner variants carried by this allele.
     pub fn iter(&self) -> std::slice::Iter<'_, T> {
         self.variants.iter()
+    }
+
+    pub fn map_t<U, F>(self, f: F) -> Allele<U>
+    where
+        F: Fn(T) -> U + Copy,
+    {
+        Allele {
+            variants: self.variants.into_iter().map(f).collect(),
+            state_certainty: self.state_certainty,
+        }
     }
 }
 
@@ -219,227 +255,186 @@ pub struct AlleleVariant<T> {
     pub allele_one: Allele<T>,
     pub allele_two: Option<Allele<T>>,
     pub phase: Option<AllelePhase>,
-    pub alleles_unphased: Vec<Allele<T>>,
+    pub variants_unphased: Vec<T>,
 }
 
 impl<T> AlleleVariant<T> {
-    /// Returns all written alleles in order.
-    pub fn iter(&self) -> impl Iterator<Item = &Allele<T>> {
-        std::iter::once(&self.allele_one)
-            .chain(self.allele_two.iter())
-            .chain(self.alleles_unphased.iter())
+    pub fn map_t<U, F>(self, f: F) -> AlleleVariant<U>
+    where
+        F: Fn(T) -> U + Copy,
+    {
+        AlleleVariant {
+            allele_one: self.allele_one.map_t(f),
+            allele_two: self.allele_two.map(|a| a.map_t(f)),
+            phase: self.phase,
+            variants_unphased: self.variants_unphased.into_iter().map(f).collect(),
+        }
     }
 
-    /// Returns the established trans allele pair when the relation is known.
-    pub fn phased_alleles(&self) -> Option<(&Allele<T>, &Allele<T>)> {
-        match (self.phase, self.allele_two.as_ref()) {
-            (Some(AllelePhase::Trans), Some(allele_two)) => Some((&self.allele_one, allele_two)),
-            _ => None,
-        }
+    /// Returns all written alleles in order.
+    pub fn iter_outcomes(&self) -> impl Iterator<Item = &T> {
+        self.allele_one
+            .variants
+            .iter()
+            .chain(self.allele_two.iter().flat_map(|v| v.variants.iter()))
+            .chain(self.variants_unphased.iter())
+        // std::iter::once(&self.allele_one).chain(self.allele_two.iter())
+        // // .chain(self.variants_unphased.iter())
     }
 
     /// Returns any later alleles written in uncertain relation to the
     /// established allele state.
-    pub fn unphased_alleles(&self) -> &[Allele<T>] {
-        &self.alleles_unphased
+    pub fn unphased_alleles(&self) -> &[T] {
+        &self.variants_unphased
     }
 }
 
-impl<'a, T> IntoIterator for &'a AlleleVariant<T> {
-    type Item = &'a Allele<T>;
-    type IntoIter = std::iter::Chain<
-        std::iter::Chain<std::iter::Once<&'a Allele<T>>, std::option::Iter<'a, Allele<T>>>,
-        std::slice::Iter<'a, Allele<T>>,
-    >;
-
-    fn into_iter(self) -> Self::IntoIter {
-        std::iter::once(&self.allele_one)
-            .chain(self.allele_two.iter())
-            .chain(self.alleles_unphased.iter())
-    }
-}
-
-/// Parsed nucleotide location and edit.
-///
-/// # Examples
-///
-/// ```rust
-/// use tinyhgvs::{NucleotideEdit, VariantDescription, parse_hgvs};
-///
-/// let variant = parse_hgvs("NM_004006.2:c.357+1G>A").unwrap();
-///
-/// match variant.description {
-///     VariantDescription::Nucleotide(description) => {
-///         assert!(matches!(
-///             description.edit,
-///             NucleotideEdit::Substitution { ref reference, ref alternate }
-///                 if reference == "G" && alternate == "A"
-///         ));
-///         assert_eq!(description.location.start().unwrap().coordinate().unwrap(), 357);
-///         assert_eq!(description.location.start().unwrap().offset().unwrap(), 1);
-///     }
-///     _ => unreachable!("expected nucleotide variant"),
-/// }
-/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NucleotideVariant {
+pub struct NucleotideEdit {
     pub location: Location<NucleotideCoordinate>,
-    pub edit: NucleotideEdit,
+    pub kind: NucleotideEditKind,
 }
 
-/// Parsed protein consequence.
-///
-/// # Examples
-///
-/// ```rust
-/// use tinyhgvs::{ProteinEdit, ProteinEffect, VariantDescription, parse_hgvs};
-///
-/// let variant = parse_hgvs("NP_003997.1:p.(Trp24Ter)").unwrap();
-/// let extension = parse_hgvs("NP_003997.2:p.Ter110GlnextTer17").unwrap();
-///
-/// match variant.description {
-///     VariantDescription::Protein(description) => {
-///         assert!(description.is_predicted);
-///         assert!(matches!(description.effect, ProteinEffect::Known { .. }));
-///     }
-///     _ => unreachable!("expected protein variant"),
-/// }
-///
-/// match extension.description {
-///     VariantDescription::Protein(description) => match description.effect {
-///         ProteinEffect::Known { edit: ProteinEdit::Extension(_), .. } => {}
-///         _ => unreachable!("expected protein extension"),
-///     },
-///     _ => unreachable!("expected protein variant"),
-/// }
-/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProteinVariant {
-    pub is_predicted: bool,
-    pub effect: ProteinEffect,
+pub enum GenomicOutcome {
+    Known(NucleotideEdit),
 }
 
-/// Supported protein consequence forms.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ProteinEffect {
+pub enum CodingDnaOutcome {
+    Known(NucleotideEdit),
     Unknown,
-    NoProteinProduced,
-    Known {
-        location: Location<ProteinCoordinate>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RnaOutcome {
+    // r.A, r.(A)
+    Produced {
+        edit: NucleotideEdit,
+        certainty: OutcomeCertainty,
+    },
+    // =, (=)
+    NoChange(OutcomeCertainty),
+    // r.0, r.0?
+    NoneProduced(OutcomeCertainty),
+    // r.spl, r.spl?
+    UncertainSplicing,
+    // r.?
+    Unknown,
+    // r.(?) - Known to exist, but content is unknown
+    Indeterminate,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OutcomeCertainty {
+    Certain,
+    Predicted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProteinOutcome {
+    // p.?
+    Unknown,
+    // p.0, p.0?
+    NoneProduced(OutcomeCertainty),
+    Produced {
         edit: ProteinEdit,
+        certainty: OutcomeCertainty,
     },
 }
 
-/// Model describing a stop codon is known (long-form), or omitted (short-form),
-/// or unknown (not encountered) due to a frameshift event.
-///
-/// - "Known" or long-form: `p.Arg97ProfsTer23`
-/// - "Omitted" or short-form: `p.Arg97fs`
-/// - "Unknown" or "not encountered": `p.Arg97ProfsTer?`
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProteinFrameshiftStopKind {
-    Omitted,
-    Unknown,
-    Known,
-}
-
-/// Protein terminus toward which an extension variant extends.
-///
-/// # Examples
-///
-/// ```rust
-/// use tinyhgvs::{ProteinEdit, ProteinEffect, ProteinExtensionTerminal, VariantDescription, parse_hgvs};
-///
-/// let n_terminal = parse_hgvs("NP_003997.2:p.Met1ext-5").unwrap();
-/// let c_terminal = parse_hgvs("NP_003997.2:p.Ter110GlnextTer17").unwrap();
-///
-/// let extract_terminal = |variant: tinyhgvs::HgvsVariant| match variant.description {
-///     VariantDescription::Protein(description) => match description.effect {
-///         ProteinEffect::Known { edit: ProteinEdit::Extension(extension), .. } => {
-///             extension.to_terminal
-///         }
-///         _ => unreachable!("expected protein extension"),
-///     },
-///     _ => unreachable!("expected protein variant"),
-/// };
-///
-/// assert_eq!(extract_terminal(n_terminal), ProteinExtensionTerminal::N);
-/// assert_eq!(extract_terminal(c_terminal), ProteinExtensionTerminal::C);
-/// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProteinExtensionTerminal {
-    N,
-    C,
-}
-
-/// Model describing a protein extension consequence.
-///
-/// # Examples
-///
-/// ```rust
-/// use tinyhgvs::{ProteinEdit, ProteinEffect, VariantDescription, parse_hgvs};
-///
-/// let n_terminal = parse_hgvs("NP_003997.2:p.Met1ext-5").unwrap();
-/// let c_terminal = parse_hgvs("NP_003997.2:p.Ter110GlnextTer17").unwrap();
-///
-/// let extract_extension = |variant: tinyhgvs::HgvsVariant| match variant.description {
-///     VariantDescription::Protein(description) => match description.effect {
-///         ProteinEffect::Known { edit: ProteinEdit::Extension(extension), .. } => extension,
-///         _ => unreachable!("expected protein extension"),
-///     },
-///     _ => unreachable!("expected protein variant"),
-/// };
-///
-/// let n_terminal = extract_extension(n_terminal);
-/// assert!(n_terminal.to_residue.is_none());
-/// assert_eq!(n_terminal.terminal_ordinal, Some(-5));
-///
-/// let c_terminal = extract_extension(c_terminal);
-/// assert_eq!(c_terminal.to_residue.as_deref(), Some("Gln"));
-/// assert_eq!(c_terminal.terminal_ordinal, Some(17));
-/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProteinExtensionEdit {
-    pub to_terminal: ProteinExtensionTerminal,
-    pub to_residue: Option<String>,
-    pub terminal_ordinal: Option<i32>,
+pub struct ProteinEdit {
+    pub location: Location<ProteinCoordinate>,
+    pub kind: ProteinEditKind,
 }
 
-/// Model describing stop codon information in a protein frameshift edit.
-///
-/// # Examples
-///
-/// ```rust
-/// use tinyhgvs::{ProteinEdit, ProteinEffect, ProteinFrameshiftStopKind, VariantDescription, parse_hgvs};
-///
-/// let short = parse_hgvs("NP_0123456.1:p.Arg97fs").unwrap();
-/// let known = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23").unwrap();
-/// let unknown = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer?").unwrap();
-///
-/// let extract_stop = |variant: tinyhgvs::HgvsVariant| match variant.description {
-///     VariantDescription::Protein(description) => match description.effect {
-///         ProteinEffect::Known { edit: ProteinEdit::Frameshift { stop, .. }, .. } => stop,
-///         _ => unreachable!("expected protein frameshift"),
-///     },
-///     _ => unreachable!("expected protein variant"),
-/// };
-///
-/// let short_stop = extract_stop(short);
-/// assert_eq!(short_stop.kind, ProteinFrameshiftStopKind::Omitted);
-/// assert_eq!(short_stop.ordinal, None);
-///
-/// let known_stop = extract_stop(known);
-/// assert_eq!(known_stop.kind, ProteinFrameshiftStopKind::Known);
-/// assert_eq!(known_stop.ordinal, Some(23));
-///
-/// let unknown_stop = extract_stop(unknown);
-/// assert_eq!(unknown_stop.kind, ProteinFrameshiftStopKind::Unknown);
-/// assert_eq!(unknown_stop.ordinal, None);
-/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProteinFrameshiftStop {
-    pub ordinal: Option<usize>,
-    pub kind: ProteinFrameshiftStopKind,
+pub enum ProteinEditKind {
+    // p.=, p.(=)
+    NoChange(OutcomeCertainty),
+    Substitution {
+        to: String,
+    },
+    Deletion,
+    Duplication,
+    /// Top-level repeated sequence such as `p.Ala2[10]` or
+    /// `p.Arg65_Ser67[12]`.
+    // Repeat {
+    //     count: usize,
+    // },
+    Repeat(RepeatEdit),
+    /// Protein extension such as `p.Met1ext-5` or `p.Ter110GlnextTer17`.
+    Extension(ProteinExtensionEdit),
+    /// Protein frameshift such as `p.Arg97fs` or `p.Arg97ProfsTer23`.
+    Frameshift {
+        to_residue: Option<String>,
+        stop: ProteinFrameshiftStop,
+    },
+    Insertion {
+        sequence: ProteinSequence,
+    },
+    DeletionInsertion {
+        sequence: ProteinSequence,
+    },
+}
+
+impl From<NucleotideEdit> for GenomicOutcome {
+    fn from(edit: NucleotideEdit) -> Self {
+        Self::Known(edit)
+    }
+}
+
+impl From<NucleotideEdit> for CodingDnaOutcome {
+    fn from(edit: NucleotideEdit) -> Self {
+        Self::Known(edit)
+    }
+}
+
+impl From<NucleotideEdit> for RnaOutcome {
+    fn from(edit: NucleotideEdit) -> Self {
+        Self::Produced {
+            edit,
+            certainty: OutcomeCertainty::Certain,
+        }
+    }
+}
+
+impl From<ProteinEdit> for ProteinOutcome {
+    fn from(edit: ProteinEdit) -> Self {
+        Self::Produced {
+            edit,
+            certainty: OutcomeCertainty::Certain,
+        }
+    }
+}
+
+/// Supported nucleotide edit families.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NucleotideEditKind {
+    // "="
+    NoChange,
+    // "G>A"
+    Substitution {
+        reference: String,
+        alternate: String,
+    },
+    // "del"
+    Deletion,
+    // "dup"
+    Duplication,
+    /// Top-level repeated sequence such as `g.123CAG[23]`
+    Repeat {
+        blocks: Vec<RepeatEdit>,
+    },
+    Insertion {
+        items: Vec<NucleotideSequenceItem>,
+    },
+    // "inv"
+    Inversion,
+    DeletionInsertion {
+        items: Vec<NucleotideSequenceItem>,
+    },
 }
 
 /// Inclusive interval used for nucleotide and protein locations.
@@ -467,6 +462,25 @@ pub struct ProteinFrameshiftStop {
 pub struct Interval<T> {
     pub start: T,
     pub end: Option<T>,
+}
+
+impl Interval<NucleotideCoordinate> {
+    fn is_end_bound_unknown(&self) -> bool {
+        self.end
+            .as_ref()
+            .map_or(false, NucleotideCoordinate::is_unknown)
+    }
+
+    /// Returns `true` when either bound of the interval is unknown, i.e. `?_B`,
+    /// `A_?`, `?_?`
+    pub fn has_unknown_bound(&self) -> bool {
+        self.start.is_unknown() || self.is_end_bound_unknown()
+    }
+
+    /// Returns `true` when both sides of the interval are unknown, i.e. ?_?
+    pub fn is_fully_unknown(&self) -> bool {
+        self.start.is_unknown() && self.is_end_bound_unknown()
+    }
 }
 
 /// Main edited location on a nucleotide or protein variant/effect.
@@ -681,80 +695,6 @@ impl NucleotideCoordinate {
     }
 }
 
-impl Interval<NucleotideCoordinate> {
-    fn is_end_bound_unknown(&self) -> bool {
-        self.end
-            .as_ref()
-            .map_or(false, NucleotideCoordinate::is_unknown)
-    }
-
-    /// Returns `true` when either bound of the interval is unknown, i.e. `?_B`,
-    /// `A_?`, `?_?`
-    pub fn has_unknown_bound(&self) -> bool {
-        self.start.is_unknown() || self.is_end_bound_unknown()
-    }
-
-    /// Returns `true` when both sides of the interval are unknown, i.e. ?_?
-    pub fn is_fully_unknown(&self) -> bool {
-        self.start.is_unknown() && self.is_end_bound_unknown()
-    }
-}
-
-/// Protein coordinate written as amino-acid symbol plus ordinal.
-///
-/// # Examples
-///
-/// ```rust
-/// use tinyhgvs::{ProteinEffect, VariantDescription, parse_hgvs};
-///
-/// let variant = parse_hgvs("NP_003997.1:p.Trp24Ter").unwrap();
-///
-/// match variant.description {
-///     VariantDescription::Protein(description) => {
-///         let location = match description.effect {
-///             ProteinEffect::Known { ref location, .. } => location,
-///             _ => unreachable!("expected protein edit"),
-///         };
-///         assert_eq!(location.start().unwrap().residue, "Trp");
-///         assert_eq!(location.start().unwrap().ordinal, 24);
-///     }
-///     _ => unreachable!("expected protein variant"),
-/// }
-/// ```
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProteinCoordinate {
-    pub residue: String,
-    pub ordinal: i32,
-}
-
-/// Supported nucleotide edit families.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum NucleotideEdit {
-    // "="
-    NoChange,
-    // "G>A"
-    Substitution {
-        reference: String,
-        alternate: String,
-    },
-    // "del"
-    Deletion,
-    // "dup"
-    Duplication,
-    /// Top-level repeated sequence such as `g.123CAG[23]`
-    Repeat {
-        blocks: Vec<RepeatEdit>,
-    },
-    Insertion {
-        items: Vec<NucleotideSequenceItem>,
-    },
-    // "inv"
-    Inversion,
-    DeletionInsertion {
-        items: Vec<NucleotideSequenceItem>,
-    },
-}
-
 /// A single sequence item inside a nucleotide insertion or deletion-insertion.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NucleotideSequenceItem {
@@ -814,35 +754,144 @@ impl CopiedSequenceItem {
     }
 }
 
-/// Supported protein edit families in the first release.
+/// Protein coordinate written as amino-acid symbol plus ordinal.
+///
+/// # Examples
+///
+/// ```rust
+/// use tinyhgvs::{ProteinEffect, VariantDescription, parse_hgvs};
+///
+/// let variant = parse_hgvs("NP_003997.1:p.Trp24Ter").unwrap();
+///
+/// match variant.description {
+///     VariantDescription::Protein(description) => {
+///         let location = match description.effect {
+///             ProteinEffect::Known { ref location, .. } => location,
+///             _ => unreachable!("expected protein edit"),
+///         };
+///         assert_eq!(location.start().unwrap().residue, "Trp");
+///         assert_eq!(location.start().unwrap().ordinal, 24);
+///     }
+///     _ => unreachable!("expected protein variant"),
+/// }
+/// ```
+///
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ProteinEdit {
+pub struct ProteinCoordinate {
+    pub residue: String,
+    pub ordinal: i32,
+}
+
+/// Model describing a stop codon is known (long-form), or omitted (short-form),
+/// or unknown (not encountered) due to a frameshift event.
+///
+/// - "Known" or long-form: `p.Arg97ProfsTer23`
+/// - "Omitted" or short-form: `p.Arg97fs`
+/// - "Unknown" or "not encountered": `p.Arg97ProfsTer?`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProteinFrameshiftStopKind {
+    Omitted,
     Unknown,
-    NoChange,
-    Substitution {
-        to: String,
-    },
-    Deletion,
-    Duplication,
-    /// Top-level repeated sequence such as `p.Ala2[10]` or
-    /// `p.Arg65_Ser67[12]`.
-    // Repeat {
-    //     count: usize,
-    // },
-    Repeat(RepeatEdit),
-    /// Protein extension such as `p.Met1ext-5` or `p.Ter110GlnextTer17`.
-    Extension(ProteinExtensionEdit),
-    /// Protein frameshift such as `p.Arg97fs` or `p.Arg97ProfsTer23`.
-    Frameshift {
-        to_residue: Option<String>,
-        stop: ProteinFrameshiftStop,
-    },
-    Insertion {
-        sequence: ProteinSequence,
-    },
-    DeletionInsertion {
-        sequence: ProteinSequence,
-    },
+    Known,
+}
+
+/// Protein terminus toward which an extension variant extends.
+///
+/// # Examples
+///
+/// ```rust
+/// use tinyhgvs::{ProteinEdit, ProteinEffect, ProteinExtensionTerminal, VariantDescription, parse_hgvs};
+///
+/// let n_terminal = parse_hgvs("NP_003997.2:p.Met1ext-5").unwrap();
+/// let c_terminal = parse_hgvs("NP_003997.2:p.Ter110GlnextTer17").unwrap();
+///
+/// let extract_terminal = |variant: tinyhgvs::HgvsVariant| match variant.description {
+///     VariantDescription::Protein(description) => match description.effect {
+///         ProteinEffect::Known { edit: ProteinEdit::Extension(extension), .. } => {
+///             extension.to_terminal
+///         }
+///         _ => unreachable!("expected protein extension"),
+///     },
+///     _ => unreachable!("expected protein variant"),
+/// };
+///
+/// assert_eq!(extract_terminal(n_terminal), ProteinExtensionTerminal::N);
+/// assert_eq!(extract_terminal(c_terminal), ProteinExtensionTerminal::C);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProteinExtensionTerminal {
+    N,
+    C,
+}
+
+/// Model describing a protein extension consequence.
+///
+/// # Examples
+///
+/// ```rust
+/// use tinyhgvs::{ProteinEdit, ProteinEffect, VariantDescription, parse_hgvs};
+///
+/// let n_terminal = parse_hgvs("NP_003997.2:p.Met1ext-5").unwrap();
+/// let c_terminal = parse_hgvs("NP_003997.2:p.Ter110GlnextTer17").unwrap();
+///
+/// let extract_extension = |variant: tinyhgvs::HgvsVariant| match variant.description {
+///     VariantDescription::Protein(description) => match description.effect {
+///         ProteinEffect::Known { edit: ProteinEdit::Extension(extension), .. } => extension,
+///         _ => unreachable!("expected protein extension"),
+///     },
+///     _ => unreachable!("expected protein variant"),
+/// };
+///
+/// let n_terminal = extract_extension(n_terminal);
+/// assert!(n_terminal.to_residue.is_none());
+/// assert_eq!(n_terminal.terminal_ordinal, Some(-5));
+///
+/// let c_terminal = extract_extension(c_terminal);
+/// assert_eq!(c_terminal.to_residue.as_deref(), Some("Gln"));
+/// assert_eq!(c_terminal.terminal_ordinal, Some(17));
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProteinExtensionEdit {
+    pub to_terminal: ProteinExtensionTerminal,
+    pub to_residue: Option<String>,
+    pub terminal_ordinal: Option<i32>,
+}
+
+/// Model describing stop codon information in a protein frameshift edit.
+///
+/// # Examples
+///
+/// ```rust
+/// use tinyhgvs::{ProteinEdit, ProteinEffect, ProteinFrameshiftStopKind, VariantDescription, parse_hgvs};
+///
+/// let short = parse_hgvs("NP_0123456.1:p.Arg97fs").unwrap();
+/// let known = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23").unwrap();
+/// let unknown = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer?").unwrap();
+///
+/// let extract_stop = |variant: tinyhgvs::HgvsVariant| match variant.description {
+///     VariantDescription::Protein(description) => match description.effect {
+///         ProteinEffect::Known { edit: ProteinEdit::Frameshift { stop, .. }, .. } => stop,
+///         _ => unreachable!("expected protein frameshift"),
+///     },
+///     _ => unreachable!("expected protein variant"),
+/// };
+///
+/// let short_stop = extract_stop(short);
+/// assert_eq!(short_stop.kind, ProteinFrameshiftStopKind::Omitted);
+/// assert_eq!(short_stop.ordinal, None);
+///
+/// let known_stop = extract_stop(known);
+/// assert_eq!(known_stop.kind, ProteinFrameshiftStopKind::Known);
+/// assert_eq!(known_stop.ordinal, Some(23));
+///
+/// let unknown_stop = extract_stop(unknown);
+/// assert_eq!(unknown_stop.kind, ProteinFrameshiftStopKind::Unknown);
+/// assert_eq!(unknown_stop.ordinal, None);
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProteinFrameshiftStop {
+    pub ordinal: Option<usize>,
+    pub kind: ProteinFrameshiftStopKind,
 }
 
 /// Ordered protein insertion or replacement sequence.
@@ -883,9 +932,15 @@ pub enum RepeatSequenceUnit {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Quantity {
-    Known { count: usize },
-    Uncertain(Interval<usize>), // reuse the Interval type with usize.
-    Unknown,                    // [?] case
+    Known {
+        count: usize,
+    },
+    Uncertain {
+        lo: Option<usize>,
+        hi: Option<usize>,
+    },
+    // Uncertain(Interval<usize>), // reuse the Interval type with usize.
+    Unknown, // [?] case
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -901,5 +956,9 @@ impl RepeatEdit {
 
     pub fn is_copy_known(&self) -> bool {
         matches!(self.quantity, Quantity::Known { .. })
+    }
+
+    pub fn is_copy_unknown(&self) -> bool {
+        matches!(self.quantity, Quantity::Unknown)
     }
 }
