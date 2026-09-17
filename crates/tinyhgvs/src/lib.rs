@@ -100,7 +100,6 @@ mod diagnostics;
 mod error;
 mod model;
 mod parser;
-mod validator;
 
 pub use error::{ParseHgvsError, ParseHgvsErrorKind};
 pub use model::{

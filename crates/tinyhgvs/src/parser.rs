@@ -227,30 +227,25 @@ pub fn parse_hgvs(input: &str) -> Result<HgvsVariant, ParseHgvsError> {
 /// shorthand protein-level description is allowed, e.g. "p.Gly12Asp".
 fn hgvs_variant(input: &str) -> ParseResult<'_, HgvsVariant> {
     // Match either a full nucleotide or shorthand protein syntax.
-    alt((nucleotide_variant, protein_variant)).parse(input)
+    alt((protein_variant, nucleotide_variant)).parse(input)
 }
 
 /// Parses the full HGVS variant (with a reference identifier).
 fn nucleotide_variant(input: &str) -> ParseResult<'_, HgvsVariant> {
     // Parses the reference field
-    let (input, reference) = reference_spec(input)?;
-    // Reads the separator between reference and coordinate type
-    let (input, _) = char(':')(input)?;
-    // Parses the coordinate type, e.g. "g", "c", "r", etc
-    let (input, coordinate_system) = coordinate_system(input)?;
-    // Reads the separator to move into description
-    let (input, _) = char('.')(input)?;
-
-    let (input, description) = nucleotide_description(input)?;
-
-    // Enforce some additional rules
-    // FIXME: does not work with the new model and parser shapes
-    if validate_nucleotide_description(coordinate_system, &description) {
-        return Err(nom::Err::Error(nom::error::Error::new(
-            input,
-            nom::error::ErrorKind::Verify,
-        )));
-    }
+    let (input, reference) = terminated(reference_spec, char(':')).parse(input)?;
+    let (input, (coordinate_system, description)) = alt((
+        map(genomic_description, |description| {
+            (CoordinateSystem::Genomic, description)
+        }),
+        map(cdna_description, |description| {
+            (CoordinateSystem::CodingDna, description)
+        }),
+        map(rna_description, |description| {
+            (CoordinateSystem::Rna, description)
+        }),
+    ))
+    .parse(input)?;
 
     Ok((
         input,
@@ -325,18 +320,6 @@ where
     .parse(input)
 }
 
-fn nucleotide_description(input: &str) -> ParseResult<'_, VariantDescription> {
-    alt((
-        // 1. RNA Path
-        rna_description,
-        // 2. cDNA Path
-        cdna_description,
-        // 3. Genomic Path
-        genomic_description,
-    ))
-    .parse(input)
-}
-
 /// Parser for phase marker written in allele variant description.
 fn phase_marker(input: &str) -> ParseResult<'_, AllelePhase> {
     alt((
@@ -370,6 +353,8 @@ fn special_rna_outcome(input: &str) -> ParseResult<'_, RnaOutcome> {
     alt((
         // `r.?`
         value(RnaOutcome::Unknown, char('?')),
+        // `r.(?)`
+        value(RnaOutcome::Indeterminate, tag("(?)")),
         // `r.0?`
         value(
             RnaOutcome::NoneProduced(OutcomeCertainty::Predicted),
@@ -1763,107 +1748,139 @@ mod tests {
     }
 
     #[test]
-    fn parses_protein_effect_branches() {
+    fn parses_special_protein_outcome_branches() {
         assert_eq!(
-            all_consuming(protein_effect).parse("?").unwrap().1,
-            ProteinEffect::Unknown
+            all_consuming(special_protein_outcome).parse("?").unwrap().1,
+            ProteinOutcome::Unknown
         );
         assert_eq!(
-            all_consuming(protein_effect).parse("0").unwrap().1,
-            ProteinEffect::NoProteinProduced
+            all_consuming(special_protein_outcome).parse("0").unwrap().1,
+            ProteinOutcome::NoneProduced(OutcomeCertainty::Certain)
         );
+        assert_eq!(
+            all_consuming(special_protein_outcome).parse("0?").unwrap().1,
+            ProteinOutcome::NoneProduced(OutcomeCertainty::Predicted)
+        );
+    }
+
+    #[test]
+    fn parses_protein_outcome_branches() {
         assert!(matches!(
-            all_consuming(protein_effect).parse("Met1?").unwrap().1,
-            ProteinEffect::Known {
-                edit: ProteinEdit::Unknown,
-                ..
-            }
-        ));
-        assert!(matches!(
-            all_consuming(protein_effect).parse("Trp24Ter").unwrap().1,
-            ProteinEffect::Known {
-                edit: ProteinEdit::Substitution { .. },
-                ..
-            }
-        ));
-        assert!(matches!(
-            all_consuming(protein_effect).parse("Ala2[10]").unwrap().1,
-            ProteinEffect::Known {
-                edit: ProteinEdit::Repeat(RepeatEdit {
-                    unit: None,
-                    quantity: Quantity::Known { count: 10 }
-                }),
-                ..
-            }
-        ));
-        assert!(matches!(
-            all_consuming(protein_effect).parse("Arg97fs").unwrap().1,
-            ProteinEffect::Known {
-                edit: ProteinEdit::Frameshift {
-                    to_residue: None,
-                    stop: ProteinFrameshiftStop {
-                        ordinal: None,
-                        kind: ProteinFrameshiftStopKind::Omitted,
-                    },
+            all_consuming(protein_outcome).parse("(Trp24Ter)").unwrap().1,
+            ProteinOutcome::Produced {
+                edit: ProteinEdit {
+                    kind: ProteinEditKind::Substitution { .. },
+                    ..
                 },
-                ..
+                certainty: OutcomeCertainty::Predicted,
             }
         ));
         assert!(matches!(
-            all_consuming(protein_effect).parse("Met1ext-5").unwrap().1,
-            ProteinEffect::Known {
-                edit: ProteinEdit::Extension(ProteinExtensionEdit {
-                    to_terminal: ProteinExtensionTerminal::N,
-                    to_residue: None,
-                    terminal_ordinal: Some(-5),
-                }),
-                ..
+            all_consuming(protein_outcome).parse("Trp24Ter").unwrap().1,
+            ProteinOutcome::Produced {
+                edit: ProteinEdit {
+                    kind: ProteinEditKind::Substitution { .. },
+                    ..
+                },
+                certainty: OutcomeCertainty::Certain,
             }
         ));
         assert!(matches!(
-            all_consuming(protein_effect)
+            all_consuming(protein_outcome).parse("Ala2[10]").unwrap().1,
+            ProteinOutcome::Produced {
+                edit: ProteinEdit {
+                    kind: ProteinEditKind::Repeat(RepeatEdit {
+                        unit: None,
+                        quantity: Quantity::Known { count: 10 },
+                    }),
+                    ..
+                },
+                certainty: OutcomeCertainty::Certain,
+            }
+        ));
+        assert!(matches!(
+            all_consuming(protein_outcome).parse("Arg97fs").unwrap().1,
+            ProteinOutcome::Produced {
+                edit: ProteinEdit {
+                    kind: ProteinEditKind::Frameshift {
+                        to_residue: None,
+                        stop: ProteinFrameshiftStop {
+                            ordinal: None,
+                            kind: ProteinFrameshiftStopKind::Omitted,
+                        },
+                    },
+                    ..
+                },
+                certainty: OutcomeCertainty::Certain,
+            }
+        ));
+        assert!(matches!(
+            all_consuming(protein_outcome).parse("Met1ext-5").unwrap().1,
+            ProteinOutcome::Produced {
+                edit: ProteinEdit {
+                    kind: ProteinEditKind::Extension(ProteinExtensionEdit {
+                        to_terminal: ProteinExtensionTerminal::N,
+                        to_residue: None,
+                        terminal_ordinal: Some(-5),
+                    }),
+                    ..
+                },
+                certainty: OutcomeCertainty::Certain,
+            }
+        ));
+        assert!(matches!(
+            all_consuming(protein_outcome)
                 .parse("Ter110GlnextTer17")
                 .unwrap()
                 .1,
-            ProteinEffect::Known {
-                edit: ProteinEdit::Extension(ProteinExtensionEdit {
-                    to_terminal: ProteinExtensionTerminal::C,
-                    to_residue: Some(_),
-                    terminal_ordinal: Some(17),
-                }),
-                ..
+            ProteinOutcome::Produced {
+                edit: ProteinEdit {
+                    kind: ProteinEditKind::Extension(ProteinExtensionEdit {
+                        to_terminal: ProteinExtensionTerminal::C,
+                        to_residue: Some(_),
+                        terminal_ordinal: Some(17),
+                    }),
+                    ..
+                },
+                certainty: OutcomeCertainty::Certain,
             }
         ));
         assert!(matches!(
-            all_consuming(protein_effect)
+            all_consuming(protein_outcome)
                 .parse("Arg97ProfsTer23")
                 .unwrap()
                 .1,
-            ProteinEffect::Known {
-                edit: ProteinEdit::Frameshift {
-                    to_residue: Some(_),
-                    stop: ProteinFrameshiftStop {
-                        ordinal: Some(23),
-                        kind: ProteinFrameshiftStopKind::Known,
+            ProteinOutcome::Produced {
+                edit: ProteinEdit {
+                    kind: ProteinEditKind::Frameshift {
+                        to_residue: Some(_),
+                        stop: ProteinFrameshiftStop {
+                            ordinal: Some(23),
+                            kind: ProteinFrameshiftStopKind::Known,
+                        },
                     },
+                    ..
                 },
-                ..
+                certainty: OutcomeCertainty::Certain,
             }
         ));
         assert!(matches!(
-            all_consuming(protein_effect)
+            all_consuming(protein_outcome)
                 .parse("Ile327Argfs*?")
                 .unwrap()
                 .1,
-            ProteinEffect::Known {
-                edit: ProteinEdit::Frameshift {
-                    to_residue: Some(_),
-                    stop: ProteinFrameshiftStop {
-                        ordinal: None,
-                        kind: ProteinFrameshiftStopKind::Unknown,
+            ProteinOutcome::Produced {
+                edit: ProteinEdit {
+                    kind: ProteinEditKind::Frameshift {
+                        to_residue: Some(_),
+                        stop: ProteinFrameshiftStop {
+                            ordinal: None,
+                            kind: ProteinFrameshiftStopKind::Unknown,
+                        },
                     },
+                    ..
                 },
-                ..
+                certainty: OutcomeCertainty::Certain,
             }
         ));
     }
@@ -1871,8 +1888,8 @@ mod tests {
     #[test]
     fn parses_protein_frameshift_branches() {
         assert_eq!(
-            all_consuming(protein_edit).parse("fs").unwrap().1,
-            ProteinEdit::Frameshift {
+            all_consuming(protein_edit_kind).parse("fs").unwrap().1,
+            ProteinEditKind::Frameshift {
                 to_residue: None,
                 stop: ProteinFrameshiftStop {
                     ordinal: None,
@@ -1881,8 +1898,8 @@ mod tests {
             }
         );
         assert_eq!(
-            all_consuming(protein_edit).parse("ProfsTer23").unwrap().1,
-            ProteinEdit::Frameshift {
+            all_consuming(protein_edit_kind).parse("ProfsTer23").unwrap().1,
+            ProteinEditKind::Frameshift {
                 to_residue: Some("Pro".to_string()),
                 stop: ProteinFrameshiftStop {
                     ordinal: Some(23),
@@ -1891,8 +1908,8 @@ mod tests {
             }
         );
         assert_eq!(
-            all_consuming(protein_edit).parse("Argfs*?").unwrap().1,
-            ProteinEdit::Frameshift {
+            all_consuming(protein_edit_kind).parse("Argfs*?").unwrap().1,
+            ProteinEditKind::Frameshift {
                 to_residue: Some("Arg".to_string()),
                 stop: ProteinFrameshiftStop {
                     ordinal: None,
@@ -1900,35 +1917,37 @@ mod tests {
                 },
             }
         );
-        assert!(all_consuming(protein_edit).parse("TerfsTer2").is_err());
+        assert!(all_consuming(protein_edit_kind).parse("TerfsTer2").is_err());
     }
 
     #[test]
     fn parses_protein_extension_branches() {
         assert_eq!(
-            all_consuming(protein_edit).parse("ext-5").unwrap().1,
-            ProteinEdit::Extension(ProteinExtensionEdit {
+            all_consuming(protein_edit_kind).parse("ext-5").unwrap().1,
+            ProteinEditKind::Extension(ProteinExtensionEdit {
                 to_terminal: ProteinExtensionTerminal::N,
                 to_residue: None,
                 terminal_ordinal: Some(-5),
             })
         );
         assert_eq!(
-            all_consuming(protein_edit).parse("GlnextTer17").unwrap().1,
-            ProteinEdit::Extension(ProteinExtensionEdit {
+            all_consuming(protein_edit_kind).parse("GlnextTer17").unwrap().1,
+            ProteinEditKind::Extension(ProteinExtensionEdit {
                 to_terminal: ProteinExtensionTerminal::C,
                 to_residue: Some("Gln".to_string()),
                 terminal_ordinal: Some(17),
             })
         );
         assert_eq!(
-            all_consuming(protein_edit).parse("Argext*?").unwrap().1,
-            ProteinEdit::Extension(ProteinExtensionEdit {
+            all_consuming(protein_edit_kind).parse("Argext*?").unwrap().1,
+            ProteinEditKind::Extension(ProteinExtensionEdit {
                 to_terminal: ProteinExtensionTerminal::C,
                 to_residue: Some("Arg".to_string()),
                 terminal_ordinal: None,
             })
         );
-        assert!(all_consuming(protein_edit).parse("TerextTer17").is_err());
+        assert!(all_consuming(protein_edit_kind)
+            .parse("TerextTer17")
+            .is_err());
     }
 }
