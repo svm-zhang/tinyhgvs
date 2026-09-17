@@ -211,8 +211,8 @@ const PROTEIN_SYMBOLS: &[&str] = &[
 /// ```rust
 /// use tinyhgvs::parse_hgvs;
 ///
-/// let error = parse_hgvs("NM_004006.3:r.spl").unwrap_err();
-/// assert_eq!(error.code(), "unsupported.rna_special_state");
+/// let error = parse_hgvs("NC_000023.11:g.pter_qtersup").unwrap_err();
+/// assert_eq!(error.code(), "unsupported.telomeric_position");
 /// ```
 pub fn parse_hgvs(input: &str) -> Result<HgvsVariant, ParseHgvsError> {
     // Trim leading and trailing spaces.
@@ -1591,6 +1591,7 @@ mod tests {
     use nom::combinator::all_consuming;
 
     use super::*;
+    use crate::AlleleStateCertainty;
 
     #[test]
     fn parses_nucleotide_position_branches() {
@@ -1748,6 +1749,77 @@ mod tests {
     }
 
     #[test]
+    fn parses_cdna_uncertain_allele_state() {
+        // A(;)B
+        let (_, variant) = all_consuming(cdna_allele).parse("76A>G(;)80del").unwrap();
+
+        assert_eq!(variant.phase, Some(AllelePhase::Uncertain));
+        assert_eq!(
+            variant.allele_one.state_certainty,
+            AlleleStateCertainty::Certain
+        );
+        assert_eq!(
+            variant.allele_two.as_ref().unwrap().state_certainty,
+            AlleleStateCertainty::Certain
+        );
+
+        // A(;)(B)
+        let (_, variant) = all_consuming(cdna_allele).parse("76A>G(;)(80del)").unwrap();
+
+        assert_eq!(variant.phase, Some(AllelePhase::Uncertain));
+        assert_eq!(
+            variant.allele_one.state_certainty,
+            AlleleStateCertainty::Certain
+        );
+        assert_eq!(
+            variant.allele_two.as_ref().unwrap().state_certainty,
+            AlleleStateCertainty::Uncertain
+        );
+    }
+
+    #[test]
+    fn parses_rna_uncertain_allele_state() {
+        let (_, variant) = all_consuming(rna_allele).parse("76a>u(;)(76a>u)").unwrap();
+
+        assert_eq!(variant.phase, Some(AllelePhase::Uncertain));
+
+        let a1 = &variant.allele_one;
+        let a2 = variant.allele_two.as_ref().unwrap();
+
+        assert_eq!(a1.state_certainty, AlleleStateCertainty::Certain);
+        assert_eq!(a2.state_certainty, AlleleStateCertainty::Uncertain);
+
+        assert!(matches!(
+            a1.variants.first().unwrap(),
+            RnaOutcome::Produced {
+                certainty: OutcomeCertainty::Certain,
+                ..
+            }
+        ));
+
+        assert!(matches!(
+            a2.variants.first().unwrap(),
+            RnaOutcome::Produced {
+                certainty: OutcomeCertainty::Certain,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn parses_predicted_rna_outcome() {
+        let (_, outcome) = all_consuming(rna_outcome).parse("(76a>u)").unwrap();
+
+        assert!(matches!(
+            outcome,
+            RnaOutcome::Produced {
+                certainty: OutcomeCertainty::Predicted,
+                ..
+            }
+        ));
+    }
+
+    #[test]
     fn parses_special_protein_outcome_branches() {
         assert_eq!(
             all_consuming(special_protein_outcome).parse("?").unwrap().1,
@@ -1758,7 +1830,10 @@ mod tests {
             ProteinOutcome::NoneProduced(OutcomeCertainty::Certain)
         );
         assert_eq!(
-            all_consuming(special_protein_outcome).parse("0?").unwrap().1,
+            all_consuming(special_protein_outcome)
+                .parse("0?")
+                .unwrap()
+                .1,
             ProteinOutcome::NoneProduced(OutcomeCertainty::Predicted)
         );
     }
@@ -1766,7 +1841,10 @@ mod tests {
     #[test]
     fn parses_protein_outcome_branches() {
         assert!(matches!(
-            all_consuming(protein_outcome).parse("(Trp24Ter)").unwrap().1,
+            all_consuming(protein_outcome)
+                .parse("(Trp24Ter)")
+                .unwrap()
+                .1,
             ProteinOutcome::Produced {
                 edit: ProteinEdit {
                     kind: ProteinEditKind::Substitution { .. },
@@ -1898,7 +1976,10 @@ mod tests {
             }
         );
         assert_eq!(
-            all_consuming(protein_edit_kind).parse("ProfsTer23").unwrap().1,
+            all_consuming(protein_edit_kind)
+                .parse("ProfsTer23")
+                .unwrap()
+                .1,
             ProteinEditKind::Frameshift {
                 to_residue: Some("Pro".to_string()),
                 stop: ProteinFrameshiftStop {
@@ -1931,7 +2012,10 @@ mod tests {
             })
         );
         assert_eq!(
-            all_consuming(protein_edit_kind).parse("GlnextTer17").unwrap().1,
+            all_consuming(protein_edit_kind)
+                .parse("GlnextTer17")
+                .unwrap()
+                .1,
             ProteinEditKind::Extension(ProteinExtensionEdit {
                 to_terminal: ProteinExtensionTerminal::C,
                 to_residue: Some("Gln".to_string()),
@@ -1939,7 +2023,10 @@ mod tests {
             })
         );
         assert_eq!(
-            all_consuming(protein_edit_kind).parse("Argext*?").unwrap().1,
+            all_consuming(protein_edit_kind)
+                .parse("Argext*?")
+                .unwrap()
+                .1,
             ProteinEditKind::Extension(ProteinExtensionEdit {
                 to_terminal: ProteinExtensionTerminal::C,
                 to_residue: Some("Arg".to_string()),
@@ -1949,5 +2036,83 @@ mod tests {
         assert!(all_consuming(protein_edit_kind)
             .parse("TerextTer17")
             .is_err());
+    }
+
+    #[test]
+    fn parses_protein_uncertain_phase_with_predicted_outcomes() {
+        let (_, variant) = all_consuming(protein_allele)
+            .parse("(Ser73Arg)(;)(Asn103del)")
+            .unwrap();
+
+        assert_eq!(variant.phase, Some(AllelePhase::Uncertain));
+
+        let a1 = &variant.allele_one;
+        let a2 = variant.allele_two.as_ref().unwrap();
+
+        assert_eq!(a1.state_certainty, AlleleStateCertainty::Certain);
+        assert_eq!(a2.state_certainty, AlleleStateCertainty::Certain);
+
+        assert!(matches!(
+            a1.variants.first().unwrap(),
+            ProteinOutcome::Produced {
+                certainty: OutcomeCertainty::Predicted,
+                ..
+            }
+        ));
+
+        assert!(matches!(
+            a2.variants.first().unwrap(),
+            ProteinOutcome::Produced {
+                certainty: OutcomeCertainty::Predicted,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn parses_unknown_second_allele_component() {
+        let (_, cdna) = all_consuming(cdna_allele).parse("[76A>G];[?]").unwrap();
+
+        assert_eq!(cdna.phase, Some(AllelePhase::Trans));
+        assert!(matches!(
+            cdna.allele_two.as_ref().unwrap().variants.first().unwrap(),
+            CodingDnaOutcome::Unknown
+        ));
+        assert_eq!(
+            cdna.allele_two.as_ref().unwrap().state_certainty,
+            AlleleStateCertainty::Certain
+        );
+
+        let (_, rna) = all_consuming(rna_allele).parse("[76a>u];[?]").unwrap();
+
+        assert_eq!(rna.phase, Some(AllelePhase::Trans));
+        assert!(matches!(
+            rna.allele_two.as_ref().unwrap().variants.first().unwrap(),
+            RnaOutcome::Unknown
+        ));
+        assert_eq!(
+            rna.allele_two.as_ref().unwrap().state_certainty,
+            AlleleStateCertainty::Certain
+        );
+
+        let (_, protein) = all_consuming(protein_allele)
+            .parse("[(Ser68Arg)];[?]")
+            .unwrap();
+
+        assert_eq!(protein.phase, Some(AllelePhase::Trans));
+        assert!(matches!(
+            protein
+                .allele_two
+                .as_ref()
+                .unwrap()
+                .variants
+                .first()
+                .unwrap(),
+            ProteinOutcome::Unknown
+        ));
+        assert_eq!(
+            protein.allele_two.as_ref().unwrap().state_certainty,
+            AlleleStateCertainty::Certain
+        );
     }
 }
