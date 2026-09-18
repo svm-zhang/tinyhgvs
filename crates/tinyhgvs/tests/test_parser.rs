@@ -1,7 +1,7 @@
 mod utils;
 
 use tinyhgvs::{
-    parse_hgvs, AllelePhase, AlleleStateCertainty, CoordinateSystem, NucleotideAnchor,
+    parse_hgvs, AlleleForm, AllelePhase, AlleleStateCertainty, CoordinateSystem, NucleotideAnchor,
     NucleotideEditKind, NucleotideSequenceItem,
     OutcomeCertainty, ProteinEditKind, ProteinExtensionTerminal, ProteinFrameshiftStopKind,
     ProteinOutcome, RnaOutcome,
@@ -240,9 +240,19 @@ fn parses_rna_predicted_variant_outcome() {
 
 #[test]
 fn parses_coordinate_specific_alleles() {
-    let genomic = parse_variant("NC_000001.11:g.[123G>A;345del]").into_genomic_allele();
-    let cdna = parse_variant("NM_004006.2:c.[2376G>C];[2376=]").into_cdna_allele();
-    let rna = parse_variant("NM_004006.3:r.[76a>u];[?]").into_rna_allele();
+    let genomic_form = parse_variant("NC_000001.11:g.[123G>A;345del]").into_genomic_allele_form();
+    let cdna_form = parse_variant("NM_004006.2:c.[2376G>C];[2376=]").into_cdna_allele_form();
+    let rna_form = parse_variant("NM_004006.3:r.[76a>u];[?]").into_rna_allele_form();
+
+    let AlleleForm::Single(genomic) = genomic_form else {
+        panic!("expected a single genomic allele form");
+    };
+    let AlleleForm::Single(cdna) = cdna_form else {
+        panic!("expected a single coding-DNA allele form");
+    };
+    let AlleleForm::Single(rna) = rna_form else {
+        panic!("expected a single RNA allele form");
+    };
 
     assert_eq!(genomic.allele_one.variants.len(), 2);
     assert_eq!(genomic.phase, None);
@@ -256,6 +266,74 @@ fn parses_coordinate_specific_alleles() {
         rna.allele_two.expect("expected second allele").variants[0],
         RnaOutcome::Unknown
     ));
+}
+
+#[test]
+fn parses_rna_and_protein_derived_allele_forms() {
+    let rna =
+        parse_variant("NM_004006.3:r.[897u>g,832_960del,950a>g]").into_rna_allele_form();
+    let protein = parse_variant("NP_003997.1:p.[Lys31Asn,Val25_Lys31del,Ser68Arg]")
+        .into_protein_allele_form();
+
+    let AlleleForm::Derived(rna) = rna else {
+        panic!("expected a derived RNA allele form");
+    };
+    let AlleleForm::Derived(protein) = protein else {
+        panic!("expected a derived protein allele form");
+    };
+
+    assert_eq!(rna.outcomes.len(), 3);
+    assert!(rna
+        .outcomes
+        .iter()
+        .all(|outcome| matches!(outcome, RnaOutcome::Produced { .. })));
+
+    assert_eq!(protein.outcomes.len(), 3);
+    assert!(protein
+        .outcomes
+        .iter()
+        .all(|outcome| matches!(outcome, ProteinOutcome::Produced { .. })));
+}
+
+#[test]
+fn parses_protein_alternative_allele_form() {
+    let protein =
+        parse_variant("NP_003997.2:p.[(Asn158Asp)(;)(Asn158Ile)]^[(Asn158Val)]")
+            .into_protein_allele_form();
+
+    let AlleleForm::Alternative(alternatives) = protein else {
+        panic!("expected an alternative protein allele form");
+    };
+
+    assert_eq!(alternatives.len(), 2);
+    assert_eq!(alternatives[0].phase, Some(AllelePhase::Uncertain));
+    assert_eq!(alternatives[1].phase, None);
+}
+
+#[test]
+fn rejects_malformed_comma_and_alternative_allele_forms() {
+    for input in [
+        "NP_003997.1:p.[Lys31Asn,]",
+        "NP_003997.1:p.[,Lys31Asn]",
+        "NP_003997.1:p.[Lys31Asn,,Val25_Lys31del]",
+        "NP_003997.1:p.[(Ser68Arg)]^",
+        "NP_003997.1:p.^[(Ser68Arg)]",
+        "NP_003997.1:p.[(Ser68Arg)]^^[(Asn594del)]",
+    ] {
+        assert!(parse_hgvs(input).is_err(), "{input} should be rejected");
+    }
+}
+
+#[test]
+fn rejects_unsupported_mixed_protein_allele_forms() {
+    for input in [
+        "NP_003997.1:p.[Lys31Asn,Val25_Lys31del;Ser68Arg]",
+        "NP_003997.1:p.[Lys31Asn;Val25_Lys31del,Ser68Arg]",
+        "NP_003997.1:p.[Lys31Asn,Val25_Lys31del]^[(Ser68Arg)]",
+        "NP_003997.1:p.[(Ser68Arg)]^[Lys31Asn,Val25_Lys31del]",
+    ] {
+        assert!(parse_hgvs(input).is_err(), "{input} should be rejected");
+    }
 }
 
 #[test]

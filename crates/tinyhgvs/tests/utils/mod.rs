@@ -11,7 +11,7 @@ pub mod prelude {
 }
 
 use tinyhgvs::{
-    AlleleVariant, CodingDnaOutcome, GenomicOutcome, HgvsVariant, NucleotideEdit,
+    AlleleForm, AlleleVariant, CodingDnaOutcome, GenomicOutcome, HgvsVariant, NucleotideEdit,
     NucleotideEditKind, NucleotideSequenceItem, OutcomeCertainty, ProteinEdit, ProteinOutcome,
     RepeatEdit, RnaOutcome, VariantDescription, parse_hgvs,
 };
@@ -25,8 +25,11 @@ pub trait HgvsVariantExt {
     fn into_cdna_edit(self) -> NucleotideEdit;
     fn into_rna_outcome(self) -> RnaOutcome;
     fn into_protein_outcome(self) -> ProteinOutcome;
+    fn into_genomic_allele_form(self) -> AlleleForm<GenomicOutcome>;
+    fn into_cdna_allele_form(self) -> AlleleForm<CodingDnaOutcome>;
+    fn into_rna_allele_form(self) -> AlleleForm<RnaOutcome>;
+    fn into_protein_allele_form(self) -> AlleleForm<ProteinOutcome>;
     fn into_genomic_allele(self) -> AlleleVariant<GenomicOutcome>;
-    fn into_cdna_allele(self) -> AlleleVariant<CodingDnaOutcome>;
     fn into_rna_allele(self) -> AlleleVariant<RnaOutcome>;
     fn into_protein_allele(self) -> AlleleVariant<ProteinOutcome>;
 }
@@ -60,31 +63,52 @@ impl HgvsVariantExt for HgvsVariant {
         }
     }
 
-    fn into_genomic_allele(self) -> AlleleVariant<GenomicOutcome> {
+    fn into_genomic_allele_form(self) -> AlleleForm<GenomicOutcome> {
         match self.description {
             VariantDescription::GenomicAllele(allele) => allele,
             _ => panic!("expected a genomic allele"),
         }
     }
 
-    fn into_cdna_allele(self) -> AlleleVariant<CodingDnaOutcome> {
+    fn into_cdna_allele_form(self) -> AlleleForm<CodingDnaOutcome> {
         match self.description {
             VariantDescription::CodingDnaAllele(allele) => allele,
             _ => panic!("expected a coding-DNA allele"),
         }
     }
 
-    fn into_rna_allele(self) -> AlleleVariant<RnaOutcome> {
+    fn into_rna_allele_form(self) -> AlleleForm<RnaOutcome> {
         match self.description {
             VariantDescription::RnaAllele(allele) => allele,
             _ => panic!("expected an RNA allele"),
         }
     }
 
-    fn into_protein_allele(self) -> AlleleVariant<ProteinOutcome> {
+    fn into_protein_allele_form(self) -> AlleleForm<ProteinOutcome> {
         match self.description {
             VariantDescription::ProteinAllele(allele) => allele,
             _ => panic!("expected a protein allele"),
+        }
+    }
+
+    fn into_genomic_allele(self) -> AlleleVariant<GenomicOutcome> {
+        match self.into_genomic_allele_form() {
+            AlleleForm::Single(allele) => allele,
+            _ => panic!("expected a single genomic allele form"),
+        }
+    }
+
+    fn into_rna_allele(self) -> AlleleVariant<RnaOutcome> {
+        match self.into_rna_allele_form() {
+            AlleleForm::Single(allele) => allele,
+            _ => panic!("expected a single RNA allele form"),
+        }
+    }
+
+    fn into_protein_allele(self) -> AlleleVariant<ProteinOutcome> {
+        match self.into_protein_allele_form() {
+            AlleleForm::Single(allele) => allele,
+            _ => panic!("expected a single protein allele form"),
         }
     }
 }
