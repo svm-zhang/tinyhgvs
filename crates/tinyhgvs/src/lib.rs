@@ -92,8 +92,8 @@
 //! ```rust
 //! use tinyhgvs::parse_hgvs;
 //!
-//! let error = parse_hgvs("NM_004006.2:c.[2376G>C];[?]").unwrap_err();
-//! assert_eq!(error.code(), "unsupported.allele_unknown_variant");
+//! let error = parse_hgvs("NC_000023.11:g.pter_qtersup").unwrap_err();
+//! assert_eq!(error.code(), "unsupported.telomeric_position");
 //! ```
 
 mod diagnostics;
@@ -103,8 +103,9 @@ mod parser;
 
 pub use error::{ParseHgvsError, ParseHgvsErrorKind};
 pub use model::{
-    Accession, Allele, AllelePhase, AlleleStateCertainty, AlleleVariant, CodingDnaOutcome,
-    CoordinateSystem, CopiedSequenceItem, GenomicOutcome, HgvsVariant, Interval,
+    Accession, Allele, AlleleForm, AllelePhase, AlleleStateCertainty, AlleleVariant,
+    CodingDnaOutcome, CoordinateSystem, CopiedSequenceItem, DerivedAllele, GenomicOutcome,
+    HgvsVariant, Interval,
     LiteralSequenceItem, Location, NucleotideAnchor, NucleotideCoordinate, NucleotideEdit,
     NucleotideEditKind, NucleotideSequenceItem, OutcomeCertainty, ProteinCoordinate, ProteinEdit,
     ProteinEditKind, ProteinExtensionEdit, ProteinExtensionTerminal, ProteinFrameshiftStop,

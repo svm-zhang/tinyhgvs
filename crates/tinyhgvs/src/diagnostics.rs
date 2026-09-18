@@ -2,7 +2,7 @@
 //!
 //! The parser intentionally recognizes only supported syntax. When parsing
 //! fails, this module runs a second, shallow classification pass over the raw
-//! input to produce stable diagnostic codes such as `unsupported.allele`.
+//! input to produce stable diagnostic codes such as `unsupported.telomeric_position`.
 //!
 //! This is not a second full parser. The matchers stay intentionally small and
 //! ordered so they can be retired as syntax becomes truly supported.
@@ -25,7 +25,7 @@ const UNSUPPORTED_MATCHERS: &[DiagnosticMatcher] = &[
         message: "RNA adjoined transcript syntax is not supported yet",
         detect: rna_adjoined_transcript_fragment,
     },
-    // Examples: `NC_000023.11(NM_004006.2):r.[...]`, `...:r.spl`
+    // Example: `NC_000023.11(NM_004006.2):r.[897u>g,832_960del]`
     DiagnosticMatcher {
         code: "unsupported.rna_splicing_outcome",
         message: "RNA splicing outcome containers are not supported yet",
@@ -45,57 +45,15 @@ const UNSUPPORTED_MATCHERS: &[DiagnosticMatcher] = &[
     },
     // Examples: `p.Arg78_Gly79insXaa[23]`, `...ins*63`
     DiagnosticMatcher {
-        code: "unsupported.protein_insertion_payload",
-        message: "quantified or terminal protein insertion payloads are not supported yet",
-        detect: protein_insertion_payload_fragment,
+        code: "unsupported.protein_insertion_content",
+        message: "quantified or terminal protein insertion content is not supported yet",
+        detect: protein_insertion_content_fragment,
     },
     // Example: `p.(Gly719Ala^Ser)`
     DiagnosticMatcher {
         code: "unsupported.protein_uncertain_consequence",
         message: "uncertain protein consequence syntax is not supported yet",
         detect: protein_uncertain_consequence_fragment,
-    },
-    // Examples: `NM_004006.3:r.spl`, `r.?`, `r.0`, `r.(1388g>a)`
-    DiagnosticMatcher {
-        code: "unsupported.rna_special_state",
-        message: "RNA consequence states such as r.spl, r.?, and r.0 are not supported yet",
-        detect: rna_special_state_fragment,
-    },
-    // Example: `r.-128_-126[(600_800)]`
-    // DiagnosticMatcher {
-    //     code: "unsupported.uncertain_size",
-    //     message: "uncertain HGVS size syntax is not supported yet",
-    //     detect: uncertain_size_fragment,
-    // },
-    // Example: `c.[2376G>C];[?]`
-    DiagnosticMatcher {
-        code: "unsupported.allele_unknown_variant",
-        message: "allele variants written as [?] are not supported yet",
-        detect: allele_unknown_variant_fragment,
-    },
-    // Example: `p.[(Asn158Asp)(;)(Asn158Ile)]^[(Asn158Val)]`
-    DiagnosticMatcher {
-        code: "unsupported.alternate_allele_state",
-        message: "alternate allele states are not supported yet",
-        detect: alternate_allele_state_fragment,
-    },
-    // Example: `p.[Lys31Asn,Val25_Lys31del]`
-    DiagnosticMatcher {
-        code: "unsupported.one_allele_multi_protein",
-        message: "one protein allele encoding more than one protein is not supported yet",
-        detect: one_allele_multi_protein_fragment,
-    },
-    // Example: `c.2376G>C(;)(2376G>C)`
-    DiagnosticMatcher {
-        code: "unsupported.allele_uncertain_variant_state",
-        message: "uncertain allele variant states are not supported yet",
-        detect: allele_uncertain_variant_state_fragment,
-    },
-    // Example: `r.-124_-123[14];[18]`
-    DiagnosticMatcher {
-        code: "unsupported.allele",
-        message: "allele syntax is not supported yet",
-        detect: allele_fragment,
     },
 ];
 
@@ -121,9 +79,9 @@ fn rna_adjoined_transcript_fragment(input: &str) -> Option<String> {
     (description.contains("::") || input.contains("::")).then(|| "::".to_string())
 }
 
-// These are higher-level transcript consequence containers, not the
-// nucleotide edits that the parser already supports for some splice outcomes.
-/// Detects top-level RNA splicing outcome containers.
+// These are higher-level transcript consequence containers. Direct RNA states
+// such as `r.?`, `r.0`, and `r.spl` are parsed by the core parser now.
+/// Detects still-unsupported top-level RNA splicing outcome containers.
 fn rna_splicing_outcome_fragment(input: &str) -> Option<String> {
     let description = coordinate_description_fragment(input, "r.")?;
     let has_context = input.contains("):r.");
@@ -132,14 +90,10 @@ fn rna_splicing_outcome_fragment(input: &str) -> Option<String> {
         return None;
     }
 
-    if description.starts_with('[') {
+    if description.starts_with('[') && description.contains(',') {
         Some("r.[...]".to_string())
-    } else if description.starts_with('(') {
+    } else if description.starts_with('(') && description.contains(',') {
         Some("r.(...)".to_string())
-    } else if description.starts_with('?') {
-        Some("r.?".to_string())
-    } else if description.starts_with("spl") {
-        Some("r.spl".to_string())
     } else {
         None
     }
@@ -164,8 +118,8 @@ fn epigenetic_edit_fragment(input: &str) -> Option<String> {
         .map(|(_, modifier)| format!("|{modifier}"))
 }
 
-/// Detects unsupported quantified or terminal protein insertion payloads.
-fn protein_insertion_payload_fragment(input: &str) -> Option<String> {
+/// Detects unsupported quantified or terminal protein insertion content.
+fn protein_insertion_content_fragment(input: &str) -> Option<String> {
     let description = protein_description_fragment(input)?;
     if !description.contains("ins") {
         return None;
@@ -191,71 +145,6 @@ fn protein_uncertain_consequence_fragment(input: &str) -> Option<String> {
         Some("^".to_string())
     } else if description.contains("[(") {
         Some("[(...)]".to_string())
-    } else {
-        None
-    }
-}
-
-// The current RNA model assumes a direct `location + edit` shape, so special states and
-// slash-style outcome forms are grouped here until RNA consequence types expand.
-/// Detects RNA special states such as `r.?`, `r.spl`, and `r.0`.
-fn rna_special_state_fragment(input: &str) -> Option<String> {
-    let description = coordinate_description_fragment(input, "r.")?;
-
-    if description == "?" {
-        Some("r.?".to_string())
-    } else if description.starts_with("spl") {
-        Some("r.spl".to_string())
-    } else if description.starts_with('0') {
-        Some("r.0".to_string())
-    } else if description.starts_with('(') && description.ends_with(')') {
-        Some("r.(...)".to_string())
-    } else if description.contains("=/") || description.contains("//") {
-        Some("=/".to_string())
-    } else {
-        None
-    }
-}
-
-/// Detects allele variants written as `[?]`.
-fn allele_unknown_variant_fragment(input: &str) -> Option<String> {
-    let description = variant_description_fragment(input)?;
-    description.contains("[?]").then(|| "[?]".to_string())
-}
-
-/// Detects allele forms where a variant is written but its allele state is uncertain.
-fn allele_uncertain_variant_state_fragment(input: &str) -> Option<String> {
-    let description = variant_description_fragment(input)?;
-    description.contains("(;)(").then(|| "(;)(...)".to_string())
-}
-
-/// Detects alternate allele states written with `^`.
-fn alternate_allele_state_fragment(input: &str) -> Option<String> {
-    let description = protein_description_fragment(input)?;
-    description.contains('^').then(|| "^".to_string())
-}
-
-/// Detects one protein allele that encodes more than one protein with `,`.
-fn one_allele_multi_protein_fragment(input: &str) -> Option<String> {
-    let description = protein_description_fragment(input)?;
-    description.contains(',').then(|| ",".to_string())
-}
-
-// Detects other still-unsupported allele containers.
-fn allele_fragment(input: &str) -> Option<String> {
-    if protein_description_fragment(input).is_some() {
-        return None;
-    }
-
-    let description = variant_description_fragment(input)?;
-    allele_like_fragment(description)
-}
-
-fn allele_like_fragment(description: &str) -> Option<String> {
-    if description.contains("=/") {
-        Some("=/".to_string())
-    } else if description.contains("];[") {
-        Some("];[".to_string())
     } else {
         None
     }

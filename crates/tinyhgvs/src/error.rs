@@ -10,7 +10,7 @@
 //! In practice, the most useful fields are usually:
 //!
 //! - [`ParseHgvsError::code`] for a stable machine-readable diagnostic such as
-//!   `unsupported.allele_unknown_variant`
+//!   `unsupported.telomeric_position`
 //! - [`ParseHgvsError::message`] for a short explanation
 //! - [`ParseHgvsError::fragment`] for the most relevant unsupported fragment
 //! - [`ParseHgvsError::parser_version`] for tracing the crate release that
@@ -25,9 +25,9 @@ use std::fmt::{self, Display, Formatter};
 /// failure.
 ///
 /// This is especially useful for syntaxes that are valid HGVS but not yet
-/// supported by the current data model. For example, an allele member written
-/// as `NM_004006.2:c.[2376G>C];[?]` returns
-/// `code == "unsupported.allele_unknown_variant"` rather than a generic parse
+/// supported by the current data model. For example, a telomeric position
+/// written as `NC_000023.11:g.pter_qtersup` returns
+/// `code == "unsupported.telomeric_position"` rather than a generic parse
 /// failure.
 ///
 /// # Examples
@@ -49,7 +49,7 @@ use std::fmt::{self, Display, Formatter};
 ///
 /// let error = parse_hgvs("p.Arg78_Gly79insXaa[23]").unwrap_err();
 /// assert_eq!(error.kind(), ParseHgvsErrorKind::UnsupportedSyntax);
-/// assert_eq!(error.code(), "unsupported.protein_insertion_payload");
+/// assert_eq!(error.code(), "unsupported.protein_insertion_content");
 /// assert_eq!(error.fragment(), Some("Xaa[...]"));
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,7 +72,7 @@ pub struct ParseHgvsError {
 /// let invalid = parse_hgvs("bad").unwrap_err();
 /// assert_eq!(invalid.kind(), ParseHgvsErrorKind::InvalidSyntax);
 ///
-/// let unsupported = parse_hgvs("NM_004006.3:r.spl").unwrap_err();
+/// let unsupported = parse_hgvs("NC_000023.11:g.pter_qtersup").unwrap_err();
 /// assert_eq!(unsupported.kind(), ParseHgvsErrorKind::UnsupportedSyntax);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -133,7 +133,7 @@ impl ParseHgvsError {
         self.kind
     }
 
-    /// Returns the machine-friendly diagnostic code such as `unsupported.allele_unknown_variant`.
+    /// Returns the machine-friendly diagnostic code such as `unsupported.telomeric_position`.
     pub fn code(&self) -> &'static str {
         self.code
     }

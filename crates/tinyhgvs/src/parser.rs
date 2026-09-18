@@ -9,16 +9,16 @@ use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while1};
 use nom::character::complete::{char, digit1, one_of};
 use nom::combinator::{all_consuming, map, map_res, opt, value, verify};
-use nom::multi::{many1, separated_list1};
+use nom::multi::{many0, many1, separated_list1};
 use nom::sequence::{delimited, pair, preceded, separated_pair, terminated};
 use nom::{IResult, Parser};
 
 use crate::diagnostics::classify_parse_failure;
 use crate::error::ParseHgvsError;
 use crate::model::{
-    Accession, Allele, AllelePhase, AlleleVariant, CodingDnaOutcome, CoordinateSystem,
-    CopiedSequenceItem, GenomicOutcome, HgvsVariant, Interval, LiteralSequenceItem, Location,
-    NucleotideAnchor, NucleotideCoordinate, NucleotideEdit, NucleotideEditKind,
+    Accession, Allele, AlleleForm, AllelePhase, AlleleVariant, CodingDnaOutcome, CoordinateSystem,
+    CopiedSequenceItem, DerivedAllele, GenomicOutcome, HgvsVariant, Interval, LiteralSequenceItem,
+    Location, NucleotideAnchor, NucleotideCoordinate, NucleotideEdit, NucleotideEditKind,
     NucleotideSequenceItem, OutcomeCertainty, ProteinCoordinate, ProteinEdit, ProteinEditKind,
     ProteinExtensionEdit, ProteinExtensionTerminal, ProteinFrameshiftStop,
     ProteinFrameshiftStopKind, ProteinOutcome, ProteinSequence, Quantity, ReferenceSpec,
@@ -553,6 +553,24 @@ fn rna_repeat_trans_allele(input: &str) -> ParseResult<'_, AlleleVariant<RnaOutc
     ))
 }
 
+fn rna_derived_allele_form(input: &str) -> ParseResult<'_, DerivedAllele<RnaOutcome>> {
+    let (input, _) = char('[')(input)?;
+
+    let (input, first) = produced_rna_outcome(input)?;
+    let (input, _) = char(',')(input)?;
+    let (input, second) = produced_rna_outcome(input)?;
+    let (input, rest) = many0(preceded(char(','), produced_rna_outcome)).parse(input)?;
+
+    let (input, _) = char(']')(input)?;
+
+    let mut outcomes = Vec::with_capacity(2 + rest.len());
+    outcomes.push(first);
+    outcomes.push(second);
+    outcomes.extend(rest);
+
+    Ok((input, DerivedAllele::from_outcomes(outcomes)))
+}
+
 fn rna_allele(input: &str) -> ParseResult<'_, AlleleVariant<RnaOutcome>> {
     alt((
         rna_repeat_trans_allele,
@@ -567,7 +585,12 @@ fn rna_description(input: &str) -> ParseResult<'_, VariantDescription> {
     preceded(
         tag("r."),
         alt((
-            map(rna_allele, VariantDescription::RnaAllele),
+            map(rna_derived_allele_form, |derived| {
+                VariantDescription::RnaAllele(AlleleForm::Derived(derived))
+            }),
+            map(rna_allele, |variant| {
+                VariantDescription::RnaAllele(AlleleForm::Single(variant))
+            }),
             map(rna_outcome, VariantDescription::Rna),
         )),
     )
@@ -705,10 +728,63 @@ fn protein_allele(input: &str) -> ParseResult<'_, AlleleVariant<ProteinOutcome>>
     .parse(input)
 }
 
+fn protein_derived_allele_form(input: &str) -> ParseResult<'_, DerivedAllele<ProteinOutcome>> {
+    let (input, _) = char('[')(input)?;
+
+    let (input, first) = protein_outcome(input)?;
+    let (input, _) = char(',')(input)?;
+    let (input, second) = protein_outcome(input)?;
+    let (input, rest) = many0(preceded(char(','), protein_outcome)).parse(input)?;
+
+    let (input, _) = char(']')(input)?;
+
+    let mut outcomes = Vec::with_capacity(2 + rest.len());
+    outcomes.push(first);
+    outcomes.push(second);
+    outcomes.extend(rest);
+
+    Ok((input, DerivedAllele::from_outcomes(outcomes)))
+}
+
+fn protein_alternative_allele_form(
+    input: &str,
+) -> ParseResult<'_, Vec<AlleleVariant<ProteinOutcome>>> {
+    fn alternate(input: &str) -> ParseResult<'_, AlleleVariant<ProteinOutcome>> {
+        alt((
+            // [(A)(;)(B)]
+            delimited(char('['), protein_uncertain_allele, char(']')),
+            // [A], [(A)], [A;B], ...
+            protein_cis_allele,
+        ))
+        .parse(input)
+    }
+
+    let (input, first) = alternate(input)?;
+    let (input, _) = char('^')(input)?;
+    let (input, second) = alternate(input)?;
+
+    let (input, rest) = many0(preceded(char('^'), alternate)).parse(input)?;
+
+    let mut alternatives = Vec::with_capacity(2 + rest.len());
+    alternatives.push(first);
+    alternatives.push(second);
+    alternatives.extend(rest);
+
+    Ok((input, alternatives))
+}
+
 /// Parser for protein variant and allele description.
 fn protein_description(input: &str) -> ParseResult<'_, VariantDescription> {
     alt((
-        map(protein_allele, VariantDescription::ProteinAllele),
+        map(protein_alternative_allele_form, |alternatives| {
+            VariantDescription::ProteinAllele(AlleleForm::Alternative(alternatives))
+        }),
+        map(protein_derived_allele_form, |derived| {
+            VariantDescription::ProteinAllele(AlleleForm::Derived(derived))
+        }),
+        map(protein_allele, |variant| {
+            VariantDescription::ProteinAllele(AlleleForm::Single(variant))
+        }),
         map(special_protein_outcome, VariantDescription::Protein),
         map(protein_outcome, VariantDescription::Protein),
     ))
@@ -788,11 +864,13 @@ fn genomic_description(input: &str) -> ParseResult<'_, VariantDescription> {
     preceded(
         tag("g."),
         alt((
-            map(nucleotide_allele, |v| {
-                VariantDescription::GenomicAllele(v.map_t(GenomicOutcome::from))
+            map(nucleotide_allele, |variant| {
+                VariantDescription::GenomicAllele(AlleleForm::Single(
+                    variant.map_t(GenomicOutcome::from),
+                ))
             }),
-            map(nucleotide_edit, |v| {
-                VariantDescription::Genomic(GenomicOutcome::Known(v))
+            map(nucleotide_edit, |edit| {
+                VariantDescription::Genomic(GenomicOutcome::from(edit))
             }),
         )),
     )
@@ -882,7 +960,9 @@ fn cdna_description(input: &str) -> ParseResult<'_, VariantDescription> {
     preceded(
         tag("c."),
         alt((
-            map(cdna_allele, VariantDescription::CodingDnaAllele),
+            map(cdna_allele, |variant| {
+                VariantDescription::CodingDnaAllele(AlleleForm::Single(variant))
+            }),
             map(cdna_outcome, VariantDescription::CodingDna),
         )),
     )
@@ -1820,6 +1900,36 @@ mod tests {
     }
 
     #[test]
+    fn parses_rna_derived_allele_form() {
+        let (_, description) = all_consuming(rna_description)
+            .parse("r.[897u>g,832_960del,950a>g]")
+            .unwrap();
+
+        let VariantDescription::RnaAllele(AlleleForm::Derived(derived)) = description else {
+            panic!("expected derived RNA allele form");
+        };
+
+        assert_eq!(derived.outcomes.len(), 3);
+
+        assert!(derived.outcomes.iter().all(|outcome| {
+            matches!(
+                outcome,
+                RnaOutcome::Produced {
+                    certainty: OutcomeCertainty::Certain,
+                    ..
+                }
+            )
+        }));
+    }
+
+    #[test]
+    fn rejects_single_form_as_rna_derived_allele_form() {
+        assert!(all_consuming(rna_derived_allele_form)
+            .parse("[897u>g]")
+            .is_err());
+    }
+
+    #[test]
     fn parses_special_protein_outcome_branches() {
         assert_eq!(
             all_consuming(special_protein_outcome).parse("?").unwrap().1,
@@ -2114,5 +2224,121 @@ mod tests {
             protein.allele_two.as_ref().unwrap().state_certainty,
             AlleleStateCertainty::Certain
         );
+    }
+
+    #[test]
+    fn parses_protein_single_allele_form() {
+        let (_, description) = all_consuming(protein_description)
+            .parse("[(Ser68Arg)]")
+            .unwrap();
+
+        assert!(matches!(
+            description,
+            VariantDescription::ProteinAllele(AlleleForm::Single(_))
+        ));
+    }
+
+    #[test]
+    fn parses_protein_derived_allele_form() {
+        let (_, description) = all_consuming(protein_description)
+            .parse("[Lys31Asn,Val25_Lys31del,Ser68Arg]")
+            .unwrap();
+
+        let VariantDescription::ProteinAllele(AlleleForm::Derived(derived)) = description else {
+            panic!("expected derived protein allele form");
+        };
+
+        assert_eq!(derived.outcomes.len(), 3);
+
+        assert!(matches!(
+            &derived.outcomes[0],
+            ProteinOutcome::Produced {
+                certainty: OutcomeCertainty::Certain,
+                ..
+            }
+        ));
+
+        assert!(matches!(
+            &derived.outcomes[1],
+            ProteinOutcome::Produced {
+                certainty: OutcomeCertainty::Certain,
+                ..
+            }
+        ));
+
+        assert!(matches!(
+            &derived.outcomes[2],
+            ProteinOutcome::Produced {
+                certainty: OutcomeCertainty::Certain,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn parses_protein_alternative_allele_form() {
+        let (_, description) = all_consuming(protein_description)
+            .parse("[(Asn158Asp)(;)(Asn158Ile)]^[(Asn158Val)]")
+            .unwrap();
+
+        let VariantDescription::ProteinAllele(AlleleForm::Alternative(alternatives)) = description
+        else {
+            panic!("expected alternative protein allele form");
+        };
+
+        assert_eq!(alternatives.len(), 2);
+
+        assert_eq!(alternatives[0].phase, Some(AllelePhase::Uncertain));
+
+        assert_eq!(alternatives[1].phase, None);
+    }
+
+    #[test]
+    fn parses_multiple_protein_alternative_allele_forms() {
+        let (_, description) = all_consuming(protein_description)
+            .parse("[(Ser68Arg)]^[(Asn594del)]^[(Cys690Trp)]")
+            .unwrap();
+
+        let VariantDescription::ProteinAllele(AlleleForm::Alternative(alternatives)) = description
+        else {
+            panic!("expected alternative protein allele form");
+        };
+
+        assert_eq!(alternatives.len(), 3);
+    }
+
+    #[test]
+    fn rejects_single_form_as_derived_allele_form() {
+        assert!(all_consuming(protein_derived_allele_form)
+            .parse("[Lys31Asn]")
+            .is_err());
+    }
+
+    #[test]
+    fn rejects_single_form_as_alternative_allele_form() {
+        assert!(all_consuming(protein_alternative_allele_form)
+            .parse("[(Ser68Arg)]")
+            .is_err());
+    }
+
+    #[test]
+    fn distinguishes_protein_single_and_derived_allele_forms() {
+        let (_, single) = all_consuming(protein_description)
+            .parse("[Ser68Arg;Asn594del]")
+            .unwrap();
+
+        let (_, derived) = all_consuming(protein_description)
+            .parse("[Ser68Arg,Asn594del]")
+            .unwrap();
+
+        assert!(matches!(
+            single,
+            VariantDescription::ProteinAllele(AlleleForm::Single(_))
+        ));
+
+        assert!(matches!(
+            derived,
+            VariantDescription::ProteinAllele(AlleleForm::Derived(_))
+        ));
     }
 }

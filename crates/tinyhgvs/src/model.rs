@@ -131,10 +131,10 @@ pub enum VariantDescription {
     CodingDna(CodingDnaOutcome),
     Protein(ProteinOutcome),
 
-    GenomicAllele(AlleleVariant<GenomicOutcome>),
-    CodingDnaAllele(AlleleVariant<CodingDnaOutcome>),
-    RnaAllele(AlleleVariant<RnaOutcome>),
-    ProteinAllele(AlleleVariant<ProteinOutcome>),
+    GenomicAllele(AlleleForm<GenomicOutcome>),
+    CodingDnaAllele(AlleleForm<CodingDnaOutcome>),
+    RnaAllele(AlleleForm<RnaOutcome>),
+    ProteinAllele(AlleleForm<ProteinOutcome>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -163,6 +163,60 @@ pub enum AlleleStateCertainty {
 pub enum AllelePhase {
     Trans,
     Uncertain,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DerivedAllele<T> {
+    pub outcomes: Vec<T>,
+}
+
+impl<T> DerivedAllele<T> {
+    pub fn try_from_outcomes(outcomes: Vec<T>) -> Option<Self> {
+        (outcomes.len() >= 2).then_some(Self { outcomes })
+    }
+
+    pub(crate) fn from_outcomes(outcomes: Vec<T>) -> Self {
+        assert!(outcomes.len() >= 2);
+        Self { outcomes }
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, T> {
+        self.outcomes.iter()
+    }
+
+    pub fn map_t<U, F>(self, f: F) -> DerivedAllele<U>
+    where
+        F: Fn(T) -> U + Copy,
+    {
+        DerivedAllele {
+            outcomes: self.outcomes.into_iter().map(f).collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AlleleForm<T> {
+    Single(AlleleVariant<T>),
+    Derived(DerivedAllele<T>),
+    Alternative(Vec<AlleleVariant<T>>),
+}
+
+impl<T> AlleleForm<T> {
+    pub fn map_t<U, F>(self, f: F) -> AlleleForm<U>
+    where
+        F: Fn(T) -> U + Copy,
+    {
+        match self {
+            Self::Single(variant) => AlleleForm::Single(variant.map_t(f)),
+            Self::Derived(derived) => AlleleForm::Derived(derived.map_t(f)),
+            Self::Alternative(alternatives) => AlleleForm::Alternative(
+                alternatives
+                    .into_iter()
+                    .map(|variant| variant.map_t(f))
+                    .collect(),
+            ),
+        }
+    }
 }
 
 /// One allele containing one or more inner variants.
