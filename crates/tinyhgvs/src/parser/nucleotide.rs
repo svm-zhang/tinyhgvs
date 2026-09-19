@@ -1,3 +1,5 @@
+//! Genomic description, nucleotide edit, and nucleotide allele parsers.
+
 use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::character::complete::char;
@@ -17,6 +19,9 @@ use super::core::{coordinate_system, nucleotide_literal, reference_spec};
 use super::location::{nucleotide_interval, nucleotide_location};
 use super::repeat::*;
 
+/// Parses one or more nucleotide edits written inside one allele.
+///
+/// Example: `[123G>A;345del]`
 pub(super) fn nucleotide_variants_on_allele(input: &str) -> ParseResult<'_, Vec<NucleotideEdit>> {
     delimited(
         char('['),
@@ -26,8 +31,9 @@ pub(super) fn nucleotide_variants_on_allele(input: &str) -> ParseResult<'_, Vec<
     .parse(input)
 }
 
-// [A;B]
-// [(A;B)]
+/// Parses nucleotide cis allele.
+///
+/// Example: `[123G>A;345del]`
 fn nucleotide_cis_allele(input: &str) -> ParseResult<'_, AlleleVariant<NucleotideEdit>> {
     map(nucleotide_variants_on_allele, |variants| AlleleVariant {
         allele_one: Allele::from_variants(variants),
@@ -38,6 +44,9 @@ fn nucleotide_cis_allele(input: &str) -> ParseResult<'_, AlleleVariant<Nucleotid
     .parse(input)
 }
 
+/// Parses two nucleotide alleles in trans, with optional unphased edits.
+///
+/// Examples: `[123G>A];[345del]`, `[A];[B](;)C`
 fn nucleotide_trans_allele(input: &str) -> ParseResult<'_, AlleleVariant<NucleotideEdit>> {
     map(
         pair(
@@ -61,6 +70,9 @@ fn nucleotide_trans_allele(input: &str) -> ParseResult<'_, AlleleVariant<Nucleot
     .parse(input)
 }
 
+/// Parses nucleotide alleles with uncertain phase.
+///
+/// Example: `123G>A(;)345del`
 fn nucleotide_uncertain_allele(input: &str) -> ParseResult<'_, AlleleVariant<NucleotideEdit>> {
     map(
         separated_pair(nucleotide_edit, tag("(;)"), nucleotide_edit),
@@ -74,15 +86,26 @@ fn nucleotide_uncertain_allele(input: &str) -> ParseResult<'_, AlleleVariant<Nuc
     .parse(input)
 }
 
+/// Parses nucleotide cis, trans and uncertain alleles.
+///
+/// This is the main entrance for handling possible nucleotide allele descriptions.
+///
+/// Examples: `[A;B]`, `[A];[B]`, `A(;)B`
 pub(super) fn nucleotide_allele(input: &str) -> ParseResult<'_, AlleleVariant<NucleotideEdit>> {
     alt((
+        // [123G>A];[345del](;)789dup
         nucleotide_trans_allele,
+        // 123G>A(;)345del
         nucleotide_uncertain_allele,
+        // [123G>A;345del]
         nucleotide_cis_allele,
     ))
     .parse(input)
 }
 
+/// Parses one nucleotide edit: location + edit.
+///
+/// Examples: `33038255C>A`, `4072_5145del`
 pub(super) fn nucleotide_edit(input: &str) -> ParseResult<'_, NucleotideEdit> {
     map(
         pair(nucleotide_location, nucleotide_edit_kind),
@@ -91,15 +114,20 @@ pub(super) fn nucleotide_edit(input: &str) -> ParseResult<'_, NucleotideEdit> {
     .parse(input)
 }
 
+/// Parses a genomic (g.) description: an edit or an allele.
+///
+/// Examples: `g.33038255C>A`, `g.[123G>A;345del]`
 pub(super) fn genomic_description(input: &str) -> ParseResult<'_, VariantDescription> {
     preceded(
         tag("g."),
         alt((
+            // g.[123G>A;345del]
             map(nucleotide_allele, |variant| {
                 VariantDescription::GenomicAllele(AlleleForm::Single(
                     variant.map_t(GenomicOutcome::from),
                 ))
             }),
+            // g.33038255C>A
             map(nucleotide_edit, |edit| {
                 VariantDescription::Genomic(GenomicOutcome::from(edit))
             }),
@@ -108,24 +136,31 @@ pub(super) fn genomic_description(input: &str) -> ParseResult<'_, VariantDescrip
     .parse(input)
 }
 
-/// Parses the currently supported nucleotide edit families.
+/// Parses various nucleotide edit families: substitution, deletion, etc.
+///
+/// Examples: `G>A`, `del`, `dup`, `insT`, `CAG[23]`
 fn nucleotide_edit_kind(input: &str) -> ParseResult<'_, NucleotideEditKind> {
     alt((
+        // =
         value(NucleotideEditKind::NoChange, char('=')),
+        // delinsT, delinsN[12], delins[T;450_470;AGGG]
         map(
             preceded(tag("delins"), nucleotide_sequence_items),
             |items| NucleotideEditKind::DeletionInsertion { items },
         ),
+        // del
         value(NucleotideEditKind::Deletion, tag("del")),
+        // dup
         value(NucleotideEditKind::Duplication, tag("dup")),
+        // insT, ins[T;450_470;AGGG]
         map(preceded(tag("ins"), nucleotide_sequence_items), |items| {
             NucleotideEditKind::Insertion { items }
         }),
+        // inv
         value(NucleotideEditKind::Inversion, tag("inv")),
-        // has to put repeat pattern behind insertion and deletion
-        // insN[(100_120)] will be mistaken as repeat edit. The inserted
-        // sequence item is a repeat but the repeat unit is not "insN"
+        // CAG[23], [14]. Keep this after insertion/deletion keywords.
         repeat_edits,
+        // C>A
         map(
             pair(nucleotide_literal, preceded(char('>'), nucleotide_literal)),
             |(reference, alternate)| NucleotideEditKind::Substitution {
@@ -139,6 +174,8 @@ fn nucleotide_edit_kind(input: &str) -> ParseResult<'_, NucleotideEditKind> {
 
 /// Parses inserted or replacement sequence items in an `ins` or `delins`
 /// variant.
+///
+/// Examples: `T`, `[T;450_470;AGGG]`, `N[12]`
 fn nucleotide_sequence_items(input: &str) -> ParseResult<'_, Vec<NucleotideSequenceItem>> {
     map(
         alt((
@@ -155,19 +192,18 @@ fn nucleotide_sequence_items(input: &str) -> ParseResult<'_, Vec<NucleotideSeque
 }
 
 /// Parses one sequence item as literal, repeat, or copied sequence.
+///
+/// Examples: `AGGG`, `N[12]`, `450_470`, `NC_000022.10:g.35788169_35788352`
 fn nucleotide_sequence_item(input: &str) -> ParseResult<'_, NucleotideSequenceItem> {
     alt((
-        // map(sequence_repeat, NucleotideSequenceItem::Repeat),
-        // This creates one possible concern that it allows N[80], N[(80-100)],
-        // and N[?] as one item of the insertion/delins edit items. However,
-        // the HGVS standard does not say it is invalid syntax either.
-        // - NC_000006.11:g.10791926_10791927ins[NC_000004.11:g.106370094_106370420;A[26]]
-        // - NC_000006.11:g.10791926_10791927ins[NC_000004.11:g.106370094_106370420;N[26]]
+        // N[12], CAG[23]
         map(
             alt((known_repeat_edit, unknown_repeat_edit)),
             NucleotideSequenceItem::Repeat,
         ),
+        // 450_470, NC_000022.10:g.35788169_35788352
         map(sequence_segment, NucleotideSequenceItem::Copied),
+        // T, AGGG
         map(nucleotide_literal, |value| {
             NucleotideSequenceItem::Literal(LiteralSequenceItem { value })
         }),
@@ -177,6 +213,8 @@ fn nucleotide_sequence_item(input: &str) -> ParseResult<'_, NucleotideSequenceIt
 
 /// Parses a segment- or interval-type edit component that comes from either
 /// local (current) or remote (other) reference source.
+///
+/// Examples: `850_900inv`, `NC_000022.10:g.35788169_35788352`
 fn sequence_segment(input: &str) -> ParseResult<'_, CopiedSequenceItem> {
     alt((remote_sequence_segment, same_reference_sequence_segment)).parse(input)
 }
@@ -195,7 +233,9 @@ fn same_reference_sequence_segment(input: &str) -> ParseResult<'_, CopiedSequenc
     .parse(input)
 }
 
-/// Parses a other-reference segment such as `NC_000022.10:g.35788169_35788352`.
+/// Parses a sequence segment on a different (remote) reference.
+///
+/// Example: `NC_000022.10:g.35788169_35788352`
 fn remote_sequence_segment(input: &str) -> ParseResult<'_, CopiedSequenceItem> {
     map(
         (

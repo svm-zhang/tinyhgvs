@@ -1,3 +1,5 @@
+//! Shared grammar primitives used by multiple parser families.
+
 use nom::branch::alt;
 use nom::bytes::complete::take_while1;
 use nom::character::complete::{char, digit1};
@@ -61,6 +63,9 @@ pub(super) fn parse_i32(input: &str) -> ParseResult<'_, i32> {
     map_res(digit1, str::parse::<i32>).parse(input)
 }
 
+/// Parses a one-based coordinate position.
+///
+/// This rejects `0`, which is not a valid HGVS position.
 pub(super) fn parse_position(input: &str) -> ParseResult<'_, i32> {
     let (input, value) = parse_i32(input)?;
     if value == 0 {
@@ -78,7 +83,9 @@ pub(super) fn parse_quantity(input: &str) -> ParseResult<'_, usize> {
     map_res(digit1, str::parse::<usize>).parse(input)
 }
 
-/// Parses an edit component of literal nucleotide base changes.
+/// Parses a literal nucleotide token.
+///
+/// Examples: `G`, `AGGG`, `CAG`
 pub(super) fn nucleotide_literal(input: &str) -> ParseResult<'_, String> {
     map(
         take_while1(|c: char| c.is_ascii_alphabetic()),

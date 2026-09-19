@@ -1,6 +1,10 @@
+//! Allele models shared by genomic, coding-DNA, RNA, and protein descriptions.
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AlleleStateCertainty {
+    // [A] or A(;)B
     Certain,
+    // A(;)(B)
     Uncertain,
 }
 
@@ -9,20 +13,24 @@ pub enum AlleleStateCertainty {
 /// # Examples
 ///
 /// ```rust
-/// use tinyhgvs::{AllelePhase, VariantDescription, parse_hgvs};
+/// use tinyhgvs::{AlleleForm, AllelePhase, VariantDescription, parse_hgvs};
 ///
-/// let variant = parse_hgvs("NC_000001.11:g.123G>A(;)345del").unwrap();
+/// # fn main() -> Result<(), tinyhgvs::ParseHgvsError> {
+/// let variant = parse_hgvs("NM_004006.2:c.76A>G(;)80del")?;
 ///
-/// match variant.description {
-///     VariantDescription::NucleotideAllele(allele) => {
-///         assert_eq!(allele.phase, Some(AllelePhase::Uncertain));
-///     }
-///     _ => unreachable!("expected nucleotide allele"),
-/// }
+/// let VariantDescription::CodingDnaAllele(AlleleForm::Single(allele)) = variant.description else {
+///     panic!("expected a coding-DNA allele");
+/// };
+///
+/// assert_eq!(allele.phase, Some(AllelePhase::Uncertain));
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AllelePhase {
+    // [A];[B]
     Trans,
+    // A(;)B, A(;)(B)
     Uncertain,
 }
 
@@ -57,8 +65,11 @@ impl<T> DerivedAllele<T> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AlleleForm<T> {
+    // [A;B], [A];[B], A(;)B
     Single(AlleleVariant<T>),
+    // [A,B,C]
     Derived(DerivedAllele<T>),
+    // [A]^[B]
     Alternative(Vec<AlleleVariant<T>>),
 }
 
@@ -87,16 +98,18 @@ impl<T> AlleleForm<T> {
 /// # Examples
 ///
 /// ```rust
-/// use tinyhgvs::{VariantDescription, parse_hgvs};
+/// use tinyhgvs::{AlleleForm, VariantDescription, parse_hgvs};
 ///
-/// let variant = parse_hgvs("NC_000001.11:g.[123G>A;345del]").unwrap();
+/// # fn main() -> Result<(), tinyhgvs::ParseHgvsError> {
+/// let variant = parse_hgvs("NC_000001.11:g.[123G>A;345del]")?;
 ///
-/// match variant.description {
-///     VariantDescription::NucleotideAllele(allele) => {
-///         assert_eq!(allele.allele_one.variants.len(), 2);
-///     }
-///     _ => unreachable!("expected nucleotide allele"),
-/// }
+/// let VariantDescription::GenomicAllele(AlleleForm::Single(allele)) = variant.description else {
+///     panic!("expected a genomic allele");
+/// };
+///
+/// assert_eq!(allele.allele_one.variants.len(), 2);
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Allele<T> {
@@ -151,19 +164,21 @@ impl<'a, T> IntoIterator for &'a Allele<T> {
 /// # Examples
 ///
 /// ```rust
-/// use tinyhgvs::{AllelePhase, VariantDescription, parse_hgvs};
+/// use tinyhgvs::{AlleleForm, AllelePhase, VariantDescription, parse_hgvs};
 ///
-/// let variant = parse_hgvs("NM_004006.2:c.[2376G>C];[2376=]").unwrap();
+/// # fn main() -> Result<(), tinyhgvs::ParseHgvsError> {
+/// let variant = parse_hgvs("NM_004006.2:c.[2376G>C];[2376=]")?;
 ///
-/// match variant.description {
-///     VariantDescription::NucleotideAllele(allele) => {
-///         assert_eq!(allele.allele_one.variants.len(), 1);
-///         assert!(allele.allele_two.is_some());
-///         assert_eq!(allele.phase, Some(AllelePhase::Trans));
-///         assert_eq!(allele.iter().count(), 2);
-///     }
-///     _ => unreachable!("expected nucleotide allele"),
-/// }
+/// let VariantDescription::CodingDnaAllele(AlleleForm::Single(allele)) = variant.description else {
+///     panic!("expected a coding-DNA allele");
+/// };
+///
+/// assert_eq!(allele.allele_one.variants.len(), 1);
+/// assert!(allele.allele_two.is_some());
+/// assert_eq!(allele.phase, Some(AllelePhase::Trans));
+/// assert_eq!(allele.iter_outcomes().count(), 2);
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AlleleVariant<T> {
@@ -193,8 +208,6 @@ impl<T> AlleleVariant<T> {
             .iter()
             .chain(self.allele_two.iter().flat_map(|v| v.variants.iter()))
             .chain(self.variants_unphased.iter())
-        // std::iter::once(&self.allele_one).chain(self.allele_two.iter())
-        // // .chain(self.variants_unphased.iter())
     }
 
     /// Returns any later alleles written in uncertain relation to the

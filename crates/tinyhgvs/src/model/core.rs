@@ -1,3 +1,5 @@
+//! Core public model types shared across coordinate systems.
+
 use super::{AlleleForm, NucleotideEdit, ProteinEdit};
 
 /// A parsed HGVS variant.
@@ -8,17 +10,19 @@ use super::{AlleleForm, NucleotideEdit, ProteinEdit};
 /// # Examples
 ///
 /// ```rust
-/// use tinyhgvs::{CoordinateSystem, VariantDescription, parse_hgvs};
+/// use tinyhgvs::{CodingDnaOutcome, CoordinateSystem, VariantDescription, parse_hgvs};
 ///
-/// let variant = parse_hgvs("NM_007373.4:c.-1C>T").unwrap();
+/// # fn main() -> Result<(), tinyhgvs::ParseHgvsError> {
+/// let variant = parse_hgvs("NM_007373.4:c.-1C>T")?;
 /// assert_eq!(variant.coordinate_system, CoordinateSystem::CodingDna);
 ///
-/// match variant.description {
-///     VariantDescription::Nucleotide(description) => {
-///         assert_eq!(description.location.start().unwrap().coordinate().unwrap(), -1);
-///     }
-///     _ => unreachable!("expected nucleotide variant"),
-/// }
+/// let VariantDescription::CodingDna(CodingDnaOutcome::Known(edit)) = variant.description else {
+///     panic!("expected a coding-DNA edit");
+/// };
+///
+/// assert_eq!(edit.location.start().unwrap().coordinate(), Some(-1));
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HgvsVariant {
@@ -123,39 +127,74 @@ impl CoordinateSystem {
     }
 }
 
-/// Top-level variant description for nucleotide or protein syntax.
+/// Top-level variant description.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VariantDescription {
+    // NC_000023.11:g.33038255C>A
     Genomic(GenomicOutcome),
+    // NM_004006.3:r.4072_5145del, NM_004006.3:r.spl
     Rna(RnaOutcome),
+    // NM_004006.2:c.357+1G>A
     CodingDna(CodingDnaOutcome),
+    // NP_003997.1:p.Trp24Ter
     Protein(ProteinOutcome),
 
+    // NC_000001.11:g.[123G>A;345del]
     GenomicAllele(AlleleForm<GenomicOutcome>),
+    // NM_004006.2:c.[2376G>C];[2376=]
     CodingDnaAllele(AlleleForm<CodingDnaOutcome>),
+    // NM_004006.3:r.[897u>g,832_960del,950a>g]
     RnaAllele(AlleleForm<RnaOutcome>),
+    // NP_003997.1:p.[Lys31Asn,Val25_Lys31del,Ser68Arg]
     ProteinAllele(AlleleForm<ProteinOutcome>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GenomicOutcome {
+    // g.33038255C>A
     Known(NucleotideEdit),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CodingDnaOutcome {
+    // c.357+1G>A
     Known(NucleotideEdit),
+    // c.?
     Unknown,
 }
 
+/// RNA description outcome.
+///
+/// # Examples
+///
+/// A nonspecial RNA indel is represented as a produced RNA outcome:
+///
+/// ```rust
+/// use tinyhgvs::{
+///     NucleotideEditKind, OutcomeCertainty, RnaOutcome, VariantDescription, parse_hgvs,
+/// };
+///
+/// # fn main() -> Result<(), tinyhgvs::ParseHgvsError> {
+/// let variant = parse_hgvs("NM_004006.3:r.4072_5145del")?;
+///
+/// let VariantDescription::Rna(RnaOutcome::Produced { edit, certainty }) = variant.description
+/// else {
+///     panic!("expected a produced RNA outcome");
+/// };
+///
+/// assert_eq!(certainty, OutcomeCertainty::Certain);
+/// assert!(matches!(edit.kind, NucleotideEditKind::Deletion));
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RnaOutcome {
-    // r.A, r.(A)
+    // r.4072_5145del, r.(4072_5145del)
     Produced {
         edit: NucleotideEdit,
         certainty: OutcomeCertainty,
     },
-    // =, (=)
+    // r.=, r.(=)
     NoChange(OutcomeCertainty),
     // r.0, r.0?
     NoneProduced(OutcomeCertainty),
@@ -179,6 +218,7 @@ pub enum ProteinOutcome {
     Unknown,
     // p.0, p.0?
     NoneProduced(OutcomeCertainty),
+    // p.Trp24Ter, p.(Trp24Ter)
     Produced {
         edit: ProteinEdit,
         certainty: OutcomeCertainty,

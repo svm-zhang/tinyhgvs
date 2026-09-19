@@ -1,9 +1,8 @@
-//! HGVS variant parsers.
+//! Public parser entry point and private grammar modules.
 //!
-//! The parsing strategy:
-//!
-//! - parse the accepted syntax into the Rust data model
-//! - route rejected inputs to the lightweight diagnostic classifier
+//! [`parse_hgvs`] is the crate-facing parser. The submodules below organize
+//! private grammar families for references, locations, repeats, nucleotide
+//! descriptions, RNA descriptions, and protein descriptions.
 
 use nom::branch::alt;
 use nom::bytes::complete::tag;
@@ -44,162 +43,49 @@ use rna::rna_description;
 ///
 /// # Examples
 ///
-/// A splice-adjacent substitution in an intron:
+/// A coding-DNA substitution with an intronic offset:
 ///
 /// ```rust
-/// use tinyhgvs::{NucleotideAnchor, NucleotideEdit, VariantDescription, parse_hgvs};
+/// use tinyhgvs::{
+///     CodingDnaOutcome, NucleotideAnchor, NucleotideEditKind, VariantDescription, parse_hgvs,
+/// };
 ///
-/// let variant = parse_hgvs("  NM_004006.2:c.357+1G>A  ").unwrap();
+/// # fn main() -> Result<(), tinyhgvs::ParseHgvsError> {
+/// let variant = parse_hgvs("  NM_004006.2:c.357+1G>A  ")?;
 ///
-/// match variant.description {
-///     VariantDescription::Nucleotide(nucleotide) => {
-///         assert_eq!(nucleotide.location.start().unwrap().anchor().unwrap(), NucleotideAnchor::Absolute);
-///         assert_eq!(nucleotide.location.start().unwrap().coordinate().unwrap(), 357);
-///         assert_eq!(nucleotide.location.start().unwrap().offset().unwrap(), 1);
-///         assert!(matches!(
-///             nucleotide.edit,
-///             NucleotideEdit::Substitution { ref reference, ref alternate }
-///                 if reference == "G" && alternate == "A"
-///         ));
-///     }
-///     _ => unreachable!("expected nucleotide variant"),
-/// }
+/// let VariantDescription::CodingDna(CodingDnaOutcome::Known(edit)) = variant.description else {
+///     panic!("expected a coding-DNA edit");
+/// };
+///
+/// assert_eq!(edit.location.start().unwrap().anchor(), Some(NucleotideAnchor::Absolute));
+/// assert_eq!(edit.location.start().unwrap().coordinate(), Some(357));
+/// assert_eq!(edit.location.start().unwrap().offset(), Some(1));
+/// assert!(matches!(
+///     edit.kind,
+///     NucleotideEditKind::Substitution { ref reference, ref alternate }
+///         if reference == "G" && alternate == "A"
+/// ));
+/// # Ok(())
+/// # }
 /// ```
 ///
-/// A 5' UTR substitution keeps the signed coordinate from the HGVS string:
+/// A coding-DNA allele variant with two in-trans alleles:
 ///
 /// ```rust
-/// use tinyhgvs::{NucleotideAnchor, VariantDescription, parse_hgvs};
+/// use tinyhgvs::{AlleleForm, AllelePhase, VariantDescription, parse_hgvs};
 ///
-/// let variant = parse_hgvs("NM_007373.4:c.-1C>T").unwrap();
+/// # fn main() -> Result<(), tinyhgvs::ParseHgvsError> {
+/// let variant = parse_hgvs("NM_004006.2:c.[2376G>C];[2376=]")?;
 ///
-/// match variant.description {
-///     VariantDescription::Nucleotide(nucleotide) => {
-///         assert_eq!(nucleotide.location.start().unwrap().anchor().unwrap(), NucleotideAnchor::RelativeCdsStart);
-///         assert_eq!(nucleotide.location.start().unwrap().coordinate().unwrap(), -1);
-///         assert_eq!(nucleotide.location.start().unwrap().offset().unwrap(), 0);
-///     }
-///     _ => unreachable!("expected nucleotide variant"),
-/// }
-/// ```
+/// let VariantDescription::CodingDnaAllele(AlleleForm::Single(allele)) = variant.description else {
+///     panic!("expected a coding-DNA allele");
+/// };
 ///
-/// CDS-anchored intronic positions in the 5' and 3' UTR:
-///
-/// ```rust
-/// use tinyhgvs::{NucleotideAnchor, VariantDescription, parse_hgvs};
-///
-/// let five_prime_intronic = parse_hgvs("NM_001385026.1:c.-106+2T>A").unwrap();
-/// let three_prime_intronic = parse_hgvs("NM_001272071.2:c.*639-1G>A").unwrap();
-///
-/// match five_prime_intronic.description {
-///     VariantDescription::Nucleotide(nucleotide) => {
-///         assert_eq!(nucleotide.location.start().unwrap().anchor().unwrap(), NucleotideAnchor::RelativeCdsStart);
-///         assert_eq!(nucleotide.location.start().unwrap().coordinate().unwrap(), -106);
-///         assert_eq!(nucleotide.location.start().unwrap().offset().unwrap(), 2);
-///     }
-///     _ => unreachable!("expected nucleotide variant"),
-/// }
-///
-/// match three_prime_intronic.description {
-///     VariantDescription::Nucleotide(nucleotide) => {
-///         assert_eq!(nucleotide.location.start().unwrap().anchor().unwrap(), NucleotideAnchor::RelativeCdsEnd);
-///         assert_eq!(nucleotide.location.start().unwrap().coordinate().unwrap(), 639);
-///         assert_eq!(nucleotide.location.start().unwrap().offset().unwrap(), -1);
-///     }
-///     _ => unreachable!("expected nucleotide variant"),
-/// }
-/// ```
-///
-/// A nonsense mutation leading to an early termination consequence at protein-level:
-///
-/// ```rust
-/// use tinyhgvs::{ProteinEffect, VariantDescription, parse_hgvs};
-///
-/// let variant = parse_hgvs("NP_003997.1:p.Trp24Ter").unwrap();
-///
-/// match variant.description {
-///     VariantDescription::Protein(protein) => {
-///         assert!(!protein.is_predicted);
-///         assert!(matches!(protein.effect, ProteinEffect::Known { .. }));
-///     }
-///     _ => unreachable!("expected protein variant"),
-/// }
-/// ```
-///
-/// A repeated sequence is returned as a repeat edit:
-///
-/// ```rust
-/// use tinyhgvs::{NucleotideEdit, RepeatEdit, Quantity, VariantDescription, parse_hgvs};
-///
-/// let variant = parse_hgvs("NM_004006.3:r.-124_-123[14]").unwrap();
-///
-/// match variant.description {
-///     VariantDescription::Nucleotide(nucleotide) => {
-///         let NucleotideEdit::Repeat { blocks } = nucleotide.edit else {
-///             unreachable!("expected repeat edit");
-///         };
-///         assert_eq!(blocks, &[RepeatEdit {
-///             unit: None, quantity: Quantity::Known {count: 14}
-///         }]);
-///     }
-///     _ => unreachable!("expected nucleotide variant"),
-/// }
-/// ```
-///
-/// A nucleotide allele variant with two in-trans alleles:
-///
-/// ```rust
-/// use tinyhgvs::{AllelePhase, VariantDescription, parse_hgvs};
-///
-/// let variant = parse_hgvs("NM_004006.2:c.[2376G>C];[2376=]").unwrap();
-///
-/// match variant.description {
-///     VariantDescription::NucleotideAllele(allele) => {
-///         assert_eq!(allele.allele_one.variants.len(), 1);
-///         assert!(allele.allele_two.is_some());
-///         assert_eq!(allele.phase, Some(AllelePhase::Trans));
-///     }
-///     _ => unreachable!("expected nucleotide allele"),
-/// }
-/// ```
-///
-/// A protein frameshift can be parsed in either short or long form:
-///
-/// ```rust
-/// use tinyhgvs::{ProteinEdit, ProteinEffect, VariantDescription, parse_hgvs};
-///
-/// let variant = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23").unwrap();
-///
-/// match variant.description {
-///     VariantDescription::Protein(protein) => match protein.effect {
-///         ProteinEffect::Known { edit: ProteinEdit::Frameshift { to_residue, stop }, .. } => {
-///             assert_eq!(to_residue.as_deref(), Some("Pro"));
-///             assert_eq!(stop.ordinal, Some(23));
-///         }
-///         _ => unreachable!("expected protein frameshift"),
-///     },
-///     _ => unreachable!("expected protein variant"),
-/// }
-/// ```
-///
-/// A protein extension keeps the extended terminus, the first new residue when
-/// present, and the new terminal ordinal together:
-///
-/// ```rust
-/// use tinyhgvs::{ProteinEdit, ProteinEffect, VariantDescription, parse_hgvs};
-///
-/// let variant = parse_hgvs("NP_003997.2:p.Ter110GlnextTer17").unwrap();
-///
-/// match variant.description {
-///     VariantDescription::Protein(protein) => match protein.effect {
-///         ProteinEffect::Known { edit: ProteinEdit::Extension(extension), .. } => {
-///             assert_eq!(extension.to_residue.as_deref(), Some("Gln"));
-///             assert_eq!(extension.terminal_ordinal, Some(17));
-///         }
-///         _ => unreachable!("expected protein extension"),
-///     },
-///     _ => unreachable!("expected protein variant"),
-/// }
+/// assert_eq!(allele.phase, Some(AllelePhase::Trans));
+/// assert_eq!(allele.allele_one.variants.len(), 1);
+/// assert_eq!(allele.allele_two.as_ref().unwrap().variants.len(), 1);
+/// # Ok(())
+/// # }
 /// ```
 ///
 /// Unsupported syntax is reported as a structured [`crate::ParseHgvsError`]:

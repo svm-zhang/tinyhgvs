@@ -1,3 +1,5 @@
+//! RNA outcome and RNA allele parsers.
+
 use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::character::complete::char;
@@ -15,6 +17,9 @@ use crate::model::{
     NucleotideEditKind, OutcomeCertainty, Quantity, RepeatEdit, RnaOutcome, VariantDescription,
 };
 
+/// Parses a produced RNA outcome.
+///
+/// Examples: `76a>u`, `(76a>u)`, `4072_5145del`
 pub(super) fn produced_rna_outcome(input: &str) -> ParseResult<'_, RnaOutcome> {
     alt((
         // r.(A)
@@ -33,6 +38,10 @@ pub(super) fn produced_rna_outcome(input: &str) -> ParseResult<'_, RnaOutcome> {
     .parse(input)
 }
 
+/// Parses special RNA outcomes that are not ordinary location-plus-edit
+/// variants.
+///
+/// Examples: `?`, `(?)`, `0`, `0?`, `=`, `(=)`, `spl`
 pub(super) fn special_rna_outcome(input: &str) -> ParseResult<'_, RnaOutcome> {
     alt((
         // `r.?`
@@ -65,10 +74,16 @@ pub(super) fn special_rna_outcome(input: &str) -> ParseResult<'_, RnaOutcome> {
     .parse(input)
 }
 
+/// Parses one special and regular RNA outcome.
+///
+/// Examples: `76a>u`, `(76a>u)`, `spl`, `?`
 pub(super) fn rna_outcome(input: &str) -> ParseResult<'_, RnaOutcome> {
     alt((special_rna_outcome, produced_rna_outcome)).parse(input)
 }
 
+/// Parses one or more RNA outcomes written on the same allele.
+///
+/// Examples: `76a>u;103del`, `(578c>u;1339a>g;1680del)`
 pub(super) fn rna_variants_on_allele(input: &str) -> ParseResult<'_, Vec<RnaOutcome>> {
     alt((
         // (578c>u;1339a>g;1680del)
@@ -95,6 +110,9 @@ pub(super) fn rna_variants_on_allele(input: &str) -> ParseResult<'_, Vec<RnaOutc
     .parse(input)
 }
 
+/// Parses one RNA allele component.
+///
+/// Examples: `[?]`, `[76a>u]`, `[(578c>u;1339a>g)]`
 pub(super) fn rna_allele_component(input: &str) -> ParseResult<'_, Allele<RnaOutcome>> {
     map(
         delimited(
@@ -110,6 +128,9 @@ pub(super) fn rna_allele_component(input: &str) -> ParseResult<'_, Allele<RnaOut
     .parse(input)
 }
 
+/// Parses one in-cis RNA allele.
+///
+/// Example: `[76a>u;103del]`
 pub(super) fn rna_cis_allele(input: &str) -> ParseResult<'_, AlleleVariant<RnaOutcome>> {
     map(rna_allele_component, |allele| AlleleVariant {
         allele_one: allele,
@@ -120,6 +141,9 @@ pub(super) fn rna_cis_allele(input: &str) -> ParseResult<'_, AlleleVariant<RnaOu
     .parse(input)
 }
 
+/// Parses RNA alleles in trans, with optional unphased outcomes.
+///
+/// Examples: `[76a>u];[?]`, `[A];[B](;)C`
 pub(super) fn rna_trans_allele(input: &str) -> ParseResult<'_, AlleleVariant<RnaOutcome>> {
     map(
         pair(
@@ -139,6 +163,9 @@ pub(super) fn rna_trans_allele(input: &str) -> ParseResult<'_, AlleleVariant<Rna
     .parse(input)
 }
 
+/// Parses RNA alleles with uncertain phase.
+///
+/// Examples: `76a>u(;)103del`, `76a>u(;)(103del)`
 pub(super) fn rna_uncertain_allele(input: &str) -> ParseResult<'_, AlleleVariant<RnaOutcome>> {
     let (input, a1) = produced_rna_outcome(input)?;
     let (input, _) = tag("(;)")(input)?;
@@ -173,6 +200,9 @@ pub(super) fn rna_uncertain_allele(input: &str) -> ParseResult<'_, AlleleVariant
 }
 
 // r.[location][14];[18], r.[position][unit][14];[18]
+/// Parses compact RNA repeat allele syntax.
+///
+/// Examples: `-124_-123[14];[18]`, `76ug[14];[18]`
 pub(super) fn rna_repeat_trans_allele(input: &str) -> ParseResult<'_, AlleleVariant<RnaOutcome>> {
     let (input, location) = nucleotide_location(input)?;
 
@@ -237,6 +267,9 @@ pub(super) fn rna_repeat_trans_allele(input: &str) -> ParseResult<'_, AlleleVari
     ))
 }
 
+/// Parses a derived RNA allele form.
+///
+/// Example: `[897u>g,832_960del,950a>g]`
 pub(super) fn rna_derived_allele_form(input: &str) -> ParseResult<'_, DerivedAllele<RnaOutcome>> {
     let (input, _) = char('[')(input)?;
 
@@ -255,26 +288,39 @@ pub(super) fn rna_derived_allele_form(input: &str) -> ParseResult<'_, DerivedAll
     Ok((input, DerivedAllele::from_outcomes(outcomes)))
 }
 
+/// Parses all supported RNA allele forms.
+///
+/// Examples: `[A;B]`, `[A];[B]`, `A(;)B`, `[A,B,C]`
 pub(super) fn rna_allele(input: &str) -> ParseResult<'_, AlleleVariant<RnaOutcome>> {
     alt((
+        // r.[-124_-123ug[14]];[-124_-123ug[18]]
         rna_repeat_trans_allele,
+        // r.[76a>u];[?]
         rna_trans_allele,
+        // r.76a>u(;)(103del)
         rna_uncertain_allele,
+        // r.[76a>u;103del]
         rna_cis_allele,
     ))
     .parse(input)
 }
 
+/// Parses a RNA (r.) description.
+///
+/// Examples: `r.76a>u`, `r.spl`, `r.[76a>u];[?]`
 pub(super) fn rna_description(input: &str) -> ParseResult<'_, VariantDescription> {
     preceded(
         tag("r."),
         alt((
+            // r.[897u>g,832_960del,950a>g]
             map(rna_derived_allele_form, |derived| {
                 VariantDescription::RnaAllele(AlleleForm::Derived(derived))
             }),
+            // r.[76a>u];[?]
             map(rna_allele, |variant| {
                 VariantDescription::RnaAllele(AlleleForm::Single(variant))
             }),
+            // r.4072_5145del, r.spl, r.?
             map(rna_outcome, VariantDescription::Rna),
         )),
     )

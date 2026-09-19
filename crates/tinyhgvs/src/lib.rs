@@ -1,17 +1,13 @@
 //! Lightweight HGVS variant parser.
 //!
-//! `tinyhgvs` parses a HGVS variant into explicit Rust structs and enums
-//! that describe:
+//! `tinyhgvs` parses an HGVS variant into explicit Rust structs and enums
+//! describing:
 //!
 //! - the reference sequence context such as `NM_004006.2` or `NP_003997.1`
 //! - the coordinate type such as coding DNA (`c.`), genomic DNA (`g.`), RNA
 //!   (`r.`), or protein (`p.`)
-//! - the biological description itself, represented as either a nucleotide
-//!   variant, a nucleotide allele, or a protein consequence
-//!
-//! The crate is intentionally small. It aims to represent common, high-value
-//! HGVS syntax clearly, while returning structured errors for syntax families
-//! tracked in the unsupported inventory.
+//! - the biological description itself, represented as genomic, coding-DNA,
+//!   RNA, or protein outcomes and allele forms
 //!
 //! The main entry points are:
 //!
@@ -29,62 +25,77 @@
 //!
 //! # Examples
 //!
-//! A substitution crossing exon/intron border (intronic):
+//! A coding-DNA substitution with an intronic offset:
 //!
 //! ```rust
-//! use tinyhgvs::{NucleotideAnchor, NucleotideEdit, VariantDescription, parse_hgvs};
+//! use tinyhgvs::{
+//!     CodingDnaOutcome, CoordinateSystem, NucleotideAnchor, NucleotideEditKind,
+//!     VariantDescription, parse_hgvs,
+//! };
 //!
-//! let variant = parse_hgvs("NM_004006.2:c.357+1G>A").unwrap();
-//! let description = variant.description;
+//! # fn main() -> Result<(), tinyhgvs::ParseHgvsError> {
+//! let variant = parse_hgvs("NM_004006.2:c.357+1G>A")?;
+//! assert_eq!(variant.coordinate_system, CoordinateSystem::CodingDna);
 //!
-//! match description {
-//!     VariantDescription::Nucleotide(nucleotide) => {
-//!         assert_eq!(nucleotide.location.start().unwrap().anchor().unwrap(), NucleotideAnchor::Absolute);
-//!         assert_eq!(nucleotide.location.start().unwrap().coordinate().unwrap(), 357);
-//!         assert_eq!(nucleotide.location.start().unwrap().offset().unwrap(), 1);
-//!         assert!(matches!(
-//!             nucleotide.edit,
-//!             NucleotideEdit::Substitution { ref reference, ref alternate }
-//!                 if reference == "G" && alternate == "A"
-//!         ));
-//!     }
-//!     _ => unreachable!("expected nucleotide variant"),
-//! }
+//! let VariantDescription::CodingDna(CodingDnaOutcome::Known(edit)) = variant.description else {
+//!     panic!("expected a coding-DNA edit");
+//! };
+//!
+//! assert_eq!(edit.location.start().unwrap().anchor(), Some(NucleotideAnchor::Absolute));
+//! assert_eq!(edit.location.start().unwrap().coordinate(), Some(357));
+//! assert_eq!(edit.location.start().unwrap().offset(), Some(1));
+//! assert!(matches!(
+//!     edit.kind,
+//!     NucleotideEditKind::Substitution { ref reference, ref alternate }
+//!         if reference == "G" && alternate == "A"
+//! ));
+//! # Ok(())
+//! # }
 //! ```
 //!
-//! A nucleotide allele keeps one first allele, an optional second
-//! established allele, and any later unphased additions:
+//! An RNA special outcome:
 //!
 //! ```rust
-//! use tinyhgvs::{AllelePhase, VariantDescription, parse_hgvs};
+//! use tinyhgvs::{RnaOutcome, VariantDescription, parse_hgvs};
 //!
-//! let variant = parse_hgvs("NM_004006.2:c.[2376G>C];[2376=]").unwrap();
+//! # fn main() -> Result<(), tinyhgvs::ParseHgvsError> {
+//! let variant = parse_hgvs("NM_004006.3:r.spl")?;
 //!
-//! match variant.description {
-//!     VariantDescription::NucleotideAllele(allele) => {
-//!         assert_eq!(allele.allele_one.variants.len(), 1);
-//!         assert!(allele.allele_two.is_some());
-//!         assert_eq!(allele.phase, Some(AllelePhase::Trans));
-//!     }
-//!     _ => unreachable!("expected nucleotide allele"),
-//! }
+//! let VariantDescription::Rna(outcome) = variant.description else {
+//!     panic!("expected an RNA outcome");
+//! };
+//!
+//! assert!(matches!(outcome, RnaOutcome::UncertainSplicing));
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! A nonsense mutation leading to an early termination at protein-level:
 //!
 //! ```rust
-//! use tinyhgvs::{CoordinateSystem, ProteinEffect, VariantDescription, parse_hgvs};
+//! use tinyhgvs::{
+//!     CoordinateSystem, OutcomeCertainty, ProteinEditKind, ProteinOutcome,
+//!     VariantDescription, parse_hgvs,
+//! };
 //!
-//! let variant = parse_hgvs("NP_003997.1:p.Trp24Ter").unwrap();
+//! # fn main() -> Result<(), tinyhgvs::ParseHgvsError> {
+//! let variant = parse_hgvs("NP_003997.1:p.Trp24Ter")?;
 //! assert_eq!(variant.coordinate_system, CoordinateSystem::Protein);
 //!
-//! match variant.description {
-//!     VariantDescription::Protein(protein) => {
-//!         assert!(!protein.is_predicted);
-//!         assert!(matches!(protein.effect, ProteinEffect::Known { .. }));
-//!     }
-//!     _ => unreachable!("expected protein variant"),
-//! }
+//! let VariantDescription::Protein(ProteinOutcome::Produced { edit, certainty }) =
+//!     variant.description
+//! else {
+//!     panic!("expected a produced protein outcome");
+//! };
+//!
+//! assert_eq!(certainty, OutcomeCertainty::Certain);
+//! assert_eq!(edit.location.start().unwrap().residue, "Trp");
+//! assert!(matches!(
+//!     edit.kind,
+//!     ProteinEditKind::Substitution { ref to } if to == "Ter"
+//! ));
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! Unsupported syntax is reported with a stable diagnostic code:

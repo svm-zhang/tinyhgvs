@@ -1,5 +1,8 @@
+//! Nucleotide coordinates, edits, and inserted sequence items.
+
 use super::{CoordinateSystem, Interval, Location, ReferenceSpec, RepeatEdit};
 
+/// A nucleotide edit applied at a location.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NucleotideEdit {
     pub location: Location<NucleotideCoordinate>,
@@ -9,26 +12,28 @@ pub struct NucleotideEdit {
 /// Supported nucleotide edit families.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NucleotideEditKind {
-    // "="
+    // c.2376=
     NoChange,
-    // "G>A"
+    // c.357+1G>A
     Substitution {
         reference: String,
         alternate: String,
     },
-    // "del"
+    // c.4072_5145del
     Deletion,
-    // "dup"
+    // g.1234_2345dup
     Duplication,
     /// Top-level repeated sequence such as `g.123CAG[23]`
     Repeat {
         blocks: Vec<RepeatEdit>,
     },
+    // c.419_420ins[T;450_470;AGGG]
     Insertion {
         items: Vec<NucleotideSequenceItem>,
     },
-    // "inv"
+    // g.32361330_32361333inv
     Inversion,
+    // c.812_829delinsN[12]
     DeletionInsertion {
         items: Vec<NucleotideSequenceItem>,
     },
@@ -37,8 +42,11 @@ pub enum NucleotideEditKind {
 /// A single sequence item inside a nucleotide insertion or deletion-insertion.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NucleotideSequenceItem {
+    // AGGG
     Literal(LiteralSequenceItem),
+    // N[12], CAG[23]
     Repeat(RepeatEdit),
+    // 450_470, NC_000022.10:g.35788169_35788352
     Copied(CopiedSequenceItem),
 }
 
@@ -53,24 +61,30 @@ pub struct LiteralSequenceItem {
 /// # Examples
 ///
 /// ```rust
-/// use tinyhgvs::{NucleotideEdit, NucleotideSequenceItem, VariantDescription, parse_hgvs};
+/// use tinyhgvs::{
+///     CodingDnaOutcome, NucleotideEditKind, NucleotideSequenceItem, VariantDescription,
+///     parse_hgvs,
+/// };
 ///
-/// let variant = parse_hgvs("LRG_199t1:c.419_420ins[T;450_470;AGGG]").unwrap();
+/// # fn main() -> Result<(), tinyhgvs::ParseHgvsError> {
+/// let variant = parse_hgvs("LRG_199t1:c.419_420ins[T;450_470;AGGG]")?;
 ///
-/// match variant.description {
-///     VariantDescription::Nucleotide(description) => {
-///         let NucleotideEdit::Insertion { items } = description.edit else {
-///             unreachable!("expected insertion");
-///         };
-///         let NucleotideSequenceItem::Copied(item) = &items[1] else {
-///             unreachable!("expected copied sequence");
-///         };
-///         assert!(item.is_from_same_reference());
-///         assert_eq!(item.source_location.start.coordinate().unwrap(), 450);
-///         assert_eq!(item.source_location.end.as_ref().unwrap().coordinate().unwrap(), 470);
-///     }
-///     _ => unreachable!("expected nucleotide variant"),
-/// }
+/// let VariantDescription::CodingDna(CodingDnaOutcome::Known(edit)) = variant.description else {
+///     panic!("expected a coding-DNA edit");
+/// };
+///
+/// let NucleotideEditKind::Insertion { items } = edit.kind else {
+///     panic!("expected insertion");
+/// };
+/// let NucleotideSequenceItem::Copied(item) = &items[1] else {
+///     panic!("expected copied sequence");
+/// };
+///
+/// assert!(item.is_from_same_reference());
+/// assert_eq!(item.source_location.start.coordinate(), Some(450));
+/// assert_eq!(item.source_location.end.as_ref().unwrap().coordinate(), Some(470));
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CopiedSequenceItem {
@@ -96,11 +110,11 @@ impl CopiedSequenceItem {
 /// Anchor used by nucleotide coordinates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NucleotideAnchor {
-    /// Coordinate is absolute.
+    /// Coordinate is absolute, such as `g.123` or `c.357+1`.
     Absolute,
-    /// Coordinate is relative to the CDS start site.
+    /// Coordinate is relative to the CDS start site, such as `c.-1`.
     RelativeCdsStart,
-    /// Coordinate is relative to the CDS end site.
+    /// Coordinate is relative to the CDS end site, such as `c.*1`.
     RelativeCdsEnd,
 }
 
@@ -115,42 +129,42 @@ pub enum NucleotideAnchor {
 /// # Examples
 ///
 /// ```rust
-/// use tinyhgvs::{NucleotideAnchor, VariantDescription, parse_hgvs};
+/// use tinyhgvs::{CodingDnaOutcome, NucleotideAnchor, VariantDescription, parse_hgvs};
 ///
-/// let five_prime = parse_hgvs("NM_007373.4:c.-1C>T").unwrap();
-/// let three_prime = parse_hgvs("NM_001272071.2:c.*1C>T").unwrap();
-/// let five_prime_intronic = parse_hgvs("NM_001385026.1:c.-106+2T>A").unwrap();
+/// # fn main() -> Result<(), tinyhgvs::ParseHgvsError> {
+/// let five_prime = parse_hgvs("NM_007373.4:c.-1C>T")?;
+/// let three_prime = parse_hgvs("NM_001272071.2:c.*1C>T")?;
 ///
-/// match five_prime.description {
-///     VariantDescription::Nucleotide(description) => {
-///         assert_eq!(description.location.start().unwrap().anchor(), Some(NucleotideAnchor::RelativeCdsStart));
-///         assert_eq!(description.location.start().unwrap().coordinate(), Some(-1));
-///         assert_eq!(description.location.start().unwrap().offset(), Some(0));
-///     }
-///     _ => unreachable!("expected nucleotide variant"),
-/// }
+/// let VariantDescription::CodingDna(CodingDnaOutcome::Known(five_prime_edit)) =
+///     five_prime.description
+/// else {
+///     panic!("expected a coding-DNA edit");
+/// };
 ///
-/// match three_prime.description {
-///     VariantDescription::Nucleotide(description) => {
-///         assert_eq!(description.location.start().unwrap().anchor(), Some(NucleotideAnchor::RelativeCdsEnd));
-///         assert_eq!(description.location.start().unwrap().coordinate(), Some(1));
-///         assert_eq!(description.location.start().unwrap().offset(), Some(0));
-///     }
-///     _ => unreachable!("expected nucleotide variant"),
-/// }
+/// let VariantDescription::CodingDna(CodingDnaOutcome::Known(three_prime_edit)) =
+///     three_prime.description
+/// else {
+///     panic!("expected a coding-DNA edit");
+/// };
 ///
-/// match five_prime_intronic.description {
-///     VariantDescription::Nucleotide(description) => {
-///         assert_eq!(description.location.start().unwrap().anchor(), Some(NucleotideAnchor::RelativeCdsStart));
-///         assert_eq!(description.location.start().unwrap().coordinate(), Some(-106));
-///         assert_eq!(description.location.start().unwrap().offset(), Some(2));
-///     }
-///     _ => unreachable!("expected nucleotide variant"),
-/// }
+/// assert_eq!(
+///     five_prime_edit.location.start().unwrap().anchor(),
+///     Some(NucleotideAnchor::RelativeCdsStart)
+/// );
+/// assert_eq!(five_prime_edit.location.start().unwrap().coordinate(), Some(-1));
+///
+/// assert_eq!(
+///     three_prime_edit.location.start().unwrap().anchor(),
+///     Some(NucleotideAnchor::RelativeCdsEnd)
+/// );
+/// assert_eq!(three_prime_edit.location.start().unwrap().coordinate(), Some(1));
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NucleotideCoordinate {
-    /// Known nucleotide coordinate with anchor and optional offset.
+    /// Known nucleotide coordinate with anchor and optional offset, such as
+    /// `357+1`, `-1`, or `*1`.
     Known {
         anchor: NucleotideAnchor,
         coordinate: i32,

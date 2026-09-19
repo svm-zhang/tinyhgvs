@@ -1,3 +1,5 @@
+//! Nucleotide location and coordinate parsers.
+
 use nom::branch::alt;
 use nom::character::complete::char;
 use nom::combinator::verify;
@@ -9,12 +11,16 @@ use super::core::{parse_i32, parse_position, range_with};
 use super::ParseResult;
 use crate::model::{Interval, Location, NucleotideAnchor, NucleotideCoordinate};
 
+/// Parses a nucleotide location as known or uncertain.
+///
+/// Examples: `93`, `93_94`, `(71_72)`, `(123_234)_(345_456)`
 pub(super) fn nucleotide_location(input: &str) -> ParseResult<'_, Location<NucleotideCoordinate>> {
     // Reject location description such as `(?_?)`, `(?_?)_(?_?)`.
     let is_valid_uncertain_location = |loc: &Interval<Interval<NucleotideCoordinate>>| {
         !(loc.start.is_fully_unknown() && loc.end.as_ref().map_or(true, Interval::is_fully_unknown))
     };
-    // Reject unknown location such as `(?_B)`, `(A_?).
+    // Reject partially unknown known-location intervals such as `?_87` and
+    // `123_?`, while keeping whole-location `?_?`.
     let is_valid_known_interval = |interval: &Interval<NucleotideCoordinate>| {
         !interval.has_unknown_bound() || interval.is_fully_unknown()
     };
@@ -36,41 +42,43 @@ pub(super) fn nucleotide_location(input: &str) -> ParseResult<'_, Location<Nucle
 
 /// Parses nucleotide location as a single position/coordinate or an interval
 /// joined by `_`.
-/// - A
-/// - A_B
-/// - ?_B
-/// - A_?
-/// - ?_?
+/// - `93`
+/// - `93_94`
+/// - `?_87`
+/// - `123_?`
+/// - `?_?`
 pub(super) fn nucleotide_interval(input: &str) -> ParseResult<'_, Interval<NucleotideCoordinate>> {
     alt((
-        // Interval coordinate, `A_B`
+        // Interval coordinate, `93_94`
         |input| range_with(input, nucleotide_coordinate),
-        // Single position coordinate, `A`
+        // Single position coordinate, `93`
         map(nucleotide_coordinate, |start| Interval { start, end: None }),
     ))
     .parse(input)
 }
 
-/// Parses one uncertain interval unit (with parenthesis)
+/// Parses one uncertain interval unit with parentheses.
 ///
-/// - (A_B)
-/// - (A_?)
-/// - (?_B)
+/// - `(71_72)`
+/// - `(123_?)`
+/// - `(?_87)`
 pub(super) fn nucleotide_uncertain_interval(
     input: &str,
 ) -> ParseResult<'_, Interval<NucleotideCoordinate>> {
     delimited(char('('), nucleotide_interval, char(')')).parse(input)
 }
 
-/// Parses nucleotide uncertain location. One location can be either one
-/// or two uncertain interval units (separated by '_')
+/// Parses a nucleotide uncertain location.
+///
+/// One location can be either one or two uncertain interval units separated by
+/// `_`.
 pub(super) fn nucleotide_uncertain_location(
     input: &str,
 ) -> ParseResult<'_, Interval<Interval<NucleotideCoordinate>>> {
     alt((
-        // (A_B)_(C_D)
+        // (123_234)_(345_456)
         |input| range_with(input, nucleotide_uncertain_interval),
-        // (A_B)
+        // (71_72)
         map(nucleotide_uncertain_interval, |start| Interval {
             start,
             end: None,
@@ -82,6 +90,7 @@ pub(super) fn nucleotide_uncertain_location(
 /// Parses a nucleotide coordinate with anchor and optional offset.
 fn nucleotide_coordinate(input: &str) -> ParseResult<'_, NucleotideCoordinate> {
     alt((
+        // -18, -106+2, -84-1
         map(
             pair(
                 preceded(char('-'), parse_position),
@@ -95,6 +104,7 @@ fn nucleotide_coordinate(input: &str) -> ParseResult<'_, NucleotideCoordinate> {
                 NucleotideCoordinate::known(NucleotideAnchor::RelativeCdsStart, -coordinate, offset)
             },
         ),
+        // *18, *639-1
         map(
             pair(
                 preceded(char('*'), parse_position),
@@ -108,7 +118,7 @@ fn nucleotide_coordinate(input: &str) -> ParseResult<'_, NucleotideCoordinate> {
                 NucleotideCoordinate::known(NucleotideAnchor::RelativeCdsEnd, coordinate, offset)
             },
         ),
-        // A, or A+offset, or A-offset, where A is the coordinate
+        // 93, 93+1, 93-2
         map(
             pair(parse_i32, opt(pair(alt((char('+'), char('-'))), parse_i32))),
             |(coordinate, offset)| {

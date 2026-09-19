@@ -1,5 +1,8 @@
+//! Protein coordinates, edits, and edit-specific model details.
+
 use super::{Location, OutcomeCertainty, RepeatEdit};
 
+/// A protein edit applied at a protein location.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProteinEdit {
     pub location: Location<ProteinCoordinate>,
@@ -10,27 +13,28 @@ pub struct ProteinEdit {
 pub enum ProteinEditKind {
     // p.=, p.(=)
     NoChange(OutcomeCertainty),
+    // p.Trp24Ter
     Substitution {
         to: String,
     },
+    // p.Lys23_Val25del
     Deletion,
+    // p.Ser68_Arg70dup
     Duplication,
-    /// Top-level repeated sequence such as `p.Ala2[10]` or
-    /// `p.Arg65_Ser67[12]`.
-    // Repeat {
-    //     count: usize,
-    // },
+    // p.Ala2[10], p.Arg65_Ser67[12]
     Repeat(RepeatEdit),
-    /// Protein extension such as `p.Met1ext-5` or `p.Ter110GlnextTer17`.
+    // p.Met1ext-5, p.Ter110GlnextTer17
     Extension(ProteinExtensionEdit),
-    /// Protein frameshift such as `p.Arg97fs` or `p.Arg97ProfsTer23`.
+    // p.Arg97fs, p.Arg97ProfsTer23
     Frameshift {
         to_residue: Option<String>,
         stop: ProteinFrameshiftStop,
     },
+    // p.Val582_Asn583insAla
     Insertion {
         sequence: ProteinSequence,
     },
+    // p.Ser68_Arg70delinsGly
     DeletionInsertion {
         sequence: ProteinSequence,
     },
@@ -44,8 +48,11 @@ pub enum ProteinEditKind {
 /// - "Unknown" or "not encountered": `p.Arg97ProfsTer?`
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProteinFrameshiftStopKind {
+    // p.Arg97fs
     Omitted,
+    // p.Arg97ProfsTer?
     Unknown,
+    // p.Arg97ProfsTer23
     Known,
 }
 
@@ -54,14 +61,17 @@ pub enum ProteinFrameshiftStopKind {
 /// # Examples
 ///
 /// ```rust
-/// use tinyhgvs::{ProteinEdit, ProteinEffect, ProteinExtensionTerminal, VariantDescription, parse_hgvs};
+/// use tinyhgvs::{
+///     ProteinEditKind, ProteinExtensionTerminal, ProteinOutcome, VariantDescription, parse_hgvs,
+/// };
 ///
-/// let n_terminal = parse_hgvs("NP_003997.2:p.Met1ext-5").unwrap();
-/// let c_terminal = parse_hgvs("NP_003997.2:p.Ter110GlnextTer17").unwrap();
+/// # fn main() -> Result<(), tinyhgvs::ParseHgvsError> {
+/// let n_terminal = parse_hgvs("NP_003997.2:p.Met1ext-5")?;
+/// let c_terminal = parse_hgvs("NP_003997.2:p.Ter110GlnextTer17")?;
 ///
 /// let extract_terminal = |variant: tinyhgvs::HgvsVariant| match variant.description {
-///     VariantDescription::Protein(description) => match description.effect {
-///         ProteinEffect::Known { edit: ProteinEdit::Extension(extension), .. } => {
+///     VariantDescription::Protein(ProteinOutcome::Produced { edit, .. }) => match edit.kind {
+///         ProteinEditKind::Extension(extension) => {
 ///             extension.to_terminal
 ///         }
 ///         _ => unreachable!("expected protein extension"),
@@ -71,10 +81,14 @@ pub enum ProteinFrameshiftStopKind {
 ///
 /// assert_eq!(extract_terminal(n_terminal), ProteinExtensionTerminal::N);
 /// assert_eq!(extract_terminal(c_terminal), ProteinExtensionTerminal::C);
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProteinExtensionTerminal {
+    // p.Met1ext-5
     N,
+    // p.Ter110GlnextTer17
     C,
 }
 
@@ -83,26 +97,27 @@ pub enum ProteinExtensionTerminal {
 /// # Examples
 ///
 /// ```rust
-/// use tinyhgvs::{ProteinEdit, ProteinEffect, VariantDescription, parse_hgvs};
-///
-/// let n_terminal = parse_hgvs("NP_003997.2:p.Met1ext-5").unwrap();
-/// let c_terminal = parse_hgvs("NP_003997.2:p.Ter110GlnextTer17").unwrap();
-///
-/// let extract_extension = |variant: tinyhgvs::HgvsVariant| match variant.description {
-///     VariantDescription::Protein(description) => match description.effect {
-///         ProteinEffect::Known { edit: ProteinEdit::Extension(extension), .. } => extension,
-///         _ => unreachable!("expected protein extension"),
-///     },
-///     _ => unreachable!("expected protein variant"),
+/// use tinyhgvs::{
+///     ProteinEditKind, ProteinExtensionTerminal, ProteinOutcome, VariantDescription, parse_hgvs,
 /// };
 ///
-/// let n_terminal = extract_extension(n_terminal);
-/// assert!(n_terminal.to_residue.is_none());
-/// assert_eq!(n_terminal.terminal_ordinal, Some(-5));
+/// # fn main() -> Result<(), tinyhgvs::ParseHgvsError> {
+/// let variant = parse_hgvs("NP_003997.2:p.Ter110GlnextTer17")?;
 ///
-/// let c_terminal = extract_extension(c_terminal);
-/// assert_eq!(c_terminal.to_residue.as_deref(), Some("Gln"));
-/// assert_eq!(c_terminal.terminal_ordinal, Some(17));
+/// let VariantDescription::Protein(ProteinOutcome::Produced { edit, .. }) = variant.description
+/// else {
+///     panic!("expected a produced protein outcome");
+/// };
+///
+/// let ProteinEditKind::Extension(extension) = edit.kind else {
+///     panic!("expected protein extension");
+/// };
+///
+/// assert_eq!(extension.to_terminal, ProteinExtensionTerminal::C);
+/// assert_eq!(extension.to_residue.as_deref(), Some("Gln"));
+/// assert_eq!(extension.terminal_ordinal, Some(17));
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProteinExtensionEdit {
@@ -116,31 +131,26 @@ pub struct ProteinExtensionEdit {
 /// # Examples
 ///
 /// ```rust
-/// use tinyhgvs::{ProteinEdit, ProteinEffect, ProteinFrameshiftStopKind, VariantDescription, parse_hgvs};
-///
-/// let short = parse_hgvs("NP_0123456.1:p.Arg97fs").unwrap();
-/// let known = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23").unwrap();
-/// let unknown = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer?").unwrap();
-///
-/// let extract_stop = |variant: tinyhgvs::HgvsVariant| match variant.description {
-///     VariantDescription::Protein(description) => match description.effect {
-///         ProteinEffect::Known { edit: ProteinEdit::Frameshift { stop, .. }, .. } => stop,
-///         _ => unreachable!("expected protein frameshift"),
-///     },
-///     _ => unreachable!("expected protein variant"),
+/// use tinyhgvs::{
+///     ProteinEditKind, ProteinFrameshiftStopKind, ProteinOutcome, VariantDescription, parse_hgvs,
 /// };
 ///
-/// let short_stop = extract_stop(short);
-/// assert_eq!(short_stop.kind, ProteinFrameshiftStopKind::Omitted);
-/// assert_eq!(short_stop.ordinal, None);
+/// # fn main() -> Result<(), tinyhgvs::ParseHgvsError> {
+/// let variant = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23")?;
 ///
-/// let known_stop = extract_stop(known);
-/// assert_eq!(known_stop.kind, ProteinFrameshiftStopKind::Known);
-/// assert_eq!(known_stop.ordinal, Some(23));
+/// let VariantDescription::Protein(ProteinOutcome::Produced { edit, .. }) = variant.description
+/// else {
+///     panic!("expected a produced protein outcome");
+/// };
 ///
-/// let unknown_stop = extract_stop(unknown);
-/// assert_eq!(unknown_stop.kind, ProteinFrameshiftStopKind::Unknown);
-/// assert_eq!(unknown_stop.ordinal, None);
+/// let ProteinEditKind::Frameshift { stop, .. } = edit.kind else {
+///     panic!("expected protein frameshift");
+/// };
+///
+/// assert_eq!(stop.kind, ProteinFrameshiftStopKind::Known);
+/// assert_eq!(stop.ordinal, Some(23));
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProteinFrameshiftStop {
@@ -149,30 +159,6 @@ pub struct ProteinFrameshiftStop {
 }
 
 /// Ordered protein insertion or replacement sequence.
-///
-/// # Examples
-///
-/// ```rust
-/// use tinyhgvs::{ProteinEdit, ProteinEffect, VariantDescription, parse_hgvs};
-///
-/// let variant = parse_hgvs("p.Lys2_Gly3insGlnSerLys").unwrap();
-///
-/// match variant.description {
-///     VariantDescription::Protein(description) => {
-///         let ProteinEffect::Known { edit, .. } = description.effect else {
-///             unreachable!("expected protein edit");
-///         };
-///         let ProteinEdit::Insertion { sequence } = edit else {
-///             unreachable!("expected protein insertion");
-///         };
-///         assert_eq!(
-///             sequence.residues,
-///             vec!["Gln".to_string(), "Ser".to_string(), "Lys".to_string()]
-///         );
-///     }
-///     _ => unreachable!("expected protein variant"),
-/// }
-/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProteinSequence {
     pub residues: Vec<String>,

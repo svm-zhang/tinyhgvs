@@ -1,4 +1,8 @@
-//! Core data model for supported HGVS variants.
+//! Public data model.
+//!
+//! The submodules under `model/` are private organization details. Users should
+//! import model types from the crate root, for example `tinyhgvs::HgvsVariant`
+//! and `tinyhgvs::VariantDescription`.
 
 mod allele;
 mod core;

@@ -1,3 +1,5 @@
+//! Coding-DNA description, outcome, and allele parsers.
+
 use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::character::complete::char;
@@ -13,16 +15,24 @@ use crate::model::{
     Allele, AlleleForm, AllelePhase, AlleleVariant, CodingDnaOutcome, VariantDescription,
 };
 
+/// Parses one or more coding-DNA outcomes written on the same allele.
+///
+/// Examples: `2376G>C`, `2376G>C;2376=`
 fn cdna_variants_on_allele(input: &str) -> ParseResult<'_, Vec<CodingDnaOutcome>> {
     separated_list1(char(';'), cdna_outcome).parse(input)
 }
 
+/// Parses one coding-DNA allele component.
+///
+/// Examples: `[?]`, `[2376G>C]`, `[2376G>C;2376=]`
 fn cdna_allele_component(input: &str) -> ParseResult<'_, Allele<CodingDnaOutcome>> {
     map(
         delimited(
             char('['),
             alt((
+                // [?]
                 map(char('?'), |_| vec![CodingDnaOutcome::Unknown]),
+                // [2376G>C;2376=]
                 cdna_variants_on_allele,
             )),
             char(']'),
@@ -32,6 +42,9 @@ fn cdna_allele_component(input: &str) -> ParseResult<'_, Allele<CodingDnaOutcome
     .parse(input)
 }
 
+/// Parses in-cis coding-DNA allele.
+///
+/// Example: `[2376G>C;2376=]`
 fn cdna_cis_allele(input: &str) -> ParseResult<'_, AlleleVariant<CodingDnaOutcome>> {
     map(cdna_allele_component, |allele| AlleleVariant {
         allele_one: allele,
@@ -42,6 +55,9 @@ fn cdna_cis_allele(input: &str) -> ParseResult<'_, AlleleVariant<CodingDnaOutcom
     .parse(input)
 }
 
+/// Parses coding-DNA alleles in trans.
+///
+/// Example: `[2376G>C];[2376=]`
 fn cdna_trans_allele(input: &str) -> ParseResult<'_, AlleleVariant<CodingDnaOutcome>> {
     map(
         separated_pair(cdna_allele_component, char(';'), cdna_allele_component),
@@ -55,6 +71,9 @@ fn cdna_trans_allele(input: &str) -> ParseResult<'_, AlleleVariant<CodingDnaOutc
     .parse(input)
 }
 
+/// Parses coding-DNA alleles with uncertain phase.
+///
+/// Examples: `76A>G(;)80del`, `76A>G(;)(80del)`
 fn cdna_uncertain_allele(input: &str) -> ParseResult<'_, AlleleVariant<CodingDnaOutcome>> {
     let (input, a1) = cdna_outcome(input)?;
     let (input, _) = tag("(;)")(input)?;
@@ -80,25 +99,48 @@ fn cdna_uncertain_allele(input: &str) -> ParseResult<'_, AlleleVariant<CodingDna
     ))
 }
 
+/// Parses in-cis, in-trans, and uncertain coding-DNA allele descriptions.
+///
+/// This is the main entrance for handling possible cdna allele descriptions.
+///
+/// Examples: `[A;B]`, `[A];[B]`, `A(;)B`, `A(;)(B)`
 fn cdna_allele(input: &str) -> ParseResult<'_, AlleleVariant<CodingDnaOutcome>> {
-    alt((cdna_trans_allele, cdna_uncertain_allele, cdna_cis_allele)).parse(input)
+    alt((
+        // [A];[B]
+        cdna_trans_allele,
+        // A(;)B, A(;)(B)
+        cdna_uncertain_allele,
+        // [A;B]
+        cdna_cis_allele,
+    ))
+    .parse(input)
 }
 
+/// Parses one coding-DNA outcome.
+///
+/// Examples: `?`, `357+1G>A`, `4072_5145del`
 fn cdna_outcome(input: &str) -> ParseResult<'_, CodingDnaOutcome> {
     alt((
+        // ?
         value(CodingDnaOutcome::Unknown, char('?')),
+        // 357+1G>A, 4072_5145del
         map(nucleotide_edit, CodingDnaOutcome::Known),
     ))
     .parse(input)
 }
 
+/// Parses a coding-DNA (c.) description.
+///
+/// Examples: `c.357+1G>A`, `c.[2376G>C];[2376=]`
 pub(super) fn cdna_description(input: &str) -> ParseResult<'_, VariantDescription> {
     preceded(
         tag("c."),
         alt((
+            // c.[2376G>C];[2376=]
             map(cdna_allele, |variant| {
                 VariantDescription::CodingDnaAllele(AlleleForm::Single(variant))
             }),
+            // c.357+1G>A, c.?
             map(cdna_outcome, VariantDescription::CodingDna),
         )),
     )

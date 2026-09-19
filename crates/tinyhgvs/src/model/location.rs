@@ -1,5 +1,8 @@
+//! Shared interval and location models.
+
 use super::NucleotideCoordinate;
 
+/// Inclusive interval used by known locations and uncertain breakpoint regions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Interval<T> {
     pub start: T,
@@ -25,13 +28,60 @@ impl Interval<NucleotideCoordinate> {
     }
 }
 
-/// Main edited location on a nucleotide or protein variant/effect.
+/// Main edited location on a nucleotide or protein edit.
 ///
 /// Known locations keep the current one-level interval shape. Uncertain
 /// locations wrap the left and right uncertain regions as intervals.
+///
+/// # Examples
+///
+/// Known one-position location:
+///
+/// ```rust
+/// use tinyhgvs::{CodingDnaOutcome, VariantDescription, parse_hgvs};
+///
+/// # fn main() -> Result<(), tinyhgvs::ParseHgvsError> {
+/// let variant = parse_hgvs("NM_004006.2:c.357+1G>A")?;
+///
+/// let VariantDescription::CodingDna(CodingDnaOutcome::Known(edit)) = variant.description else {
+///     panic!("expected a coding-DNA edit");
+/// };
+///
+/// assert!(!edit.location.is_uncertain());
+/// assert!(edit.location.start().is_some());
+/// assert!(edit.location.end().is_none());
+/// assert!(edit.location.l_interval().is_none());
+/// # Ok(())
+/// # }
+/// ```
+///
+/// Uncertain breakpoint intervals:
+///
+/// ```rust
+/// use tinyhgvs::{CodingDnaOutcome, VariantDescription, parse_hgvs};
+///
+/// # fn main() -> Result<(), tinyhgvs::ParseHgvsError> {
+/// let variant = parse_hgvs("NM_004006.2:c.(123_234)_(345_456)del")?;
+///
+/// let VariantDescription::CodingDna(CodingDnaOutcome::Known(edit)) = variant.description else {
+///     panic!("expected a coding-DNA edit");
+/// };
+///
+/// assert!(edit.location.is_uncertain());
+/// assert!(edit.location.start().is_none());
+/// assert_eq!(edit.location.l_interval().unwrap().start.coordinate(), Some(123));
+/// assert_eq!(
+///     edit.location.r_interval().unwrap().end.as_ref().unwrap().coordinate(),
+///     Some(456)
+/// );
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Location<T> {
+    // A, A_B
     Known(Interval<T>),
+    // (A_B), (A_B)_(C_D)
     Uncertain(Interval<Interval<T>>),
 }
 
