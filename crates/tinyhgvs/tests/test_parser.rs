@@ -2,9 +2,8 @@ mod utils;
 
 use tinyhgvs::{
     parse_hgvs, AlleleForm, AllelePhase, AlleleStateCertainty, CoordinateSystem, NucleotideAnchor,
-    NucleotideEditKind, NucleotideSequenceItem,
-    OutcomeCertainty, ProteinEditKind, ProteinExtensionTerminal, ProteinFrameshiftStopKind,
-    ProteinOutcome, RnaOutcome,
+    NucleotideEditKind, NucleotideSequenceItem, OutcomeCertainty, ProteinEditKind,
+    ProteinExtensionTerminal, ProteinFrameshiftStopKind, ProteinOutcome, RnaOutcome,
 };
 use utils::prelude::*;
 
@@ -15,7 +14,10 @@ fn parses_reference_context() {
     assert_eq!(variant.coordinate_system, CoordinateSystem::CodingDna);
     let reference = variant.reference.expect("expected reference");
     assert_eq!(reference.primary.id, "NG_012232.1");
-    assert_eq!(reference.context.expect("expected context").id, "NM_004006.2");
+    assert_eq!(
+        reference.context.expect("expected context").id,
+        "NM_004006.2"
+    );
 }
 
 #[test]
@@ -110,7 +112,10 @@ fn parses_remote_copied_sequence_in_genomic_insertion() {
         Some(CoordinateSystem::Genomic)
     );
     assert_eq!(item.source_location.start.coordinate(), Some(35788169));
-    assert_eq!(item.source_location.interval_end().coordinate(), Some(35788352));
+    assert_eq!(
+        item.source_location.interval_end().coordinate(),
+        Some(35788352)
+    );
 }
 
 #[test]
@@ -154,16 +159,17 @@ fn parses_repeat_variants() {
         &[make_shorthand_repeat_edit(make_quantity_range(600, 800))]
     );
 
-    assert_eq!(get_protein_repeat(&protein), &make_shorthand_repeat_edit(10));
+    assert_eq!(
+        get_protein_repeat(&protein),
+        &make_shorthand_repeat_edit(10)
+    );
 }
 
 #[test]
 fn parses_repeat_quantity_edges() {
     let unknown = parse_variant("NC_000023.10:g.32717298_32717299insN[?]").into_genomic_edit();
-    let lower_unknown =
-        parse_variant("NC_000003.12:g.63912687AGC[(?_60)]").into_genomic_edit();
-    let upper_unknown =
-        parse_variant("NC_000003.12:g.63912687AGC[(60_?)]").into_genomic_edit();
+    let lower_unknown = parse_variant("NC_000003.12:g.63912687AGC[(?_60)]").into_genomic_edit();
+    let upper_unknown = parse_variant("NC_000003.12:g.63912687AGC[(60_?)]").into_genomic_edit();
 
     assert_eq!(
         unknown.kind.insertion_items(),
@@ -259,7 +265,13 @@ fn parses_coordinate_specific_alleles() {
 
     assert_eq!(cdna.phase, Some(AllelePhase::Trans));
     assert_eq!(cdna.allele_one.variants.len(), 1);
-    assert_eq!(cdna.allele_two.expect("expected second allele").variants.len(), 1);
+    assert_eq!(
+        cdna.allele_two
+            .expect("expected second allele")
+            .variants
+            .len(),
+        1
+    );
 
     assert_eq!(rna.phase, Some(AllelePhase::Trans));
     assert!(matches!(
@@ -270,8 +282,7 @@ fn parses_coordinate_specific_alleles() {
 
 #[test]
 fn parses_rna_and_protein_derived_allele_forms() {
-    let rna =
-        parse_variant("NM_004006.3:r.[897u>g,832_960del,950a>g]").into_rna_allele_form();
+    let rna = parse_variant("NM_004006.3:r.[897u>g,832_960del,950a>g]").into_rna_allele_form();
     let protein = parse_variant("NP_003997.1:p.[Lys31Asn,Val25_Lys31del,Ser68Arg]")
         .into_protein_allele_form();
 
@@ -297,9 +308,8 @@ fn parses_rna_and_protein_derived_allele_forms() {
 
 #[test]
 fn parses_protein_alternative_allele_form() {
-    let protein =
-        parse_variant("NP_003997.2:p.[(Asn158Asp)(;)(Asn158Ile)]^[(Asn158Val)]")
-            .into_protein_allele_form();
+    let protein = parse_variant("NP_003997.2:p.[(Asn158Asp)(;)(Asn158Ile)]^[(Asn158Val)]")
+        .into_protein_allele_form();
 
     let AlleleForm::Alternative(alternatives) = protein else {
         panic!("expected an alternative protein allele form");
@@ -342,7 +352,10 @@ fn parses_uncertain_allele_state() {
     let rna = parse_variant("NM_004006.3:r.76a>u(;)(103del)").into_rna_allele();
 
     assert_eq!(dna.phase, Some(AllelePhase::Uncertain));
-    assert_eq!(dna.allele_one.state_certainty, AlleleStateCertainty::Certain);
+    assert_eq!(
+        dna.allele_one.state_certainty,
+        AlleleStateCertainty::Certain
+    );
     assert_eq!(
         dna.allele_two
             .expect("expected second allele")
@@ -434,7 +447,8 @@ fn parses_protein_alleles() {
 fn parses_protein_frameshift_extension_and_uncertain_location() {
     let frameshift = parse_variant("NP_0123456.1:p.Arg97ProfsTer23").into_protein_outcome();
     let extension = parse_variant("NP_003997.2:p.Ter110GlnextTer17").into_protein_outcome();
-    let uncertain_location = parse_variant("NP_003997.1:p.(Ala123_Pro131)Ter").into_protein_outcome();
+    let uncertain_location =
+        parse_variant("NP_003997.1:p.(Ala123_Pro131)Ter").into_protein_outcome();
 
     let (frameshift_edit, _) = frameshift.produced_edit();
     assert!(matches!(

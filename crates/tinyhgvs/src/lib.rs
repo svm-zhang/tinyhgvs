@@ -105,11 +105,11 @@ pub use error::{ParseHgvsError, ParseHgvsErrorKind};
 pub use model::{
     Accession, Allele, AlleleForm, AllelePhase, AlleleStateCertainty, AlleleVariant,
     CodingDnaOutcome, CoordinateSystem, CopiedSequenceItem, DerivedAllele, GenomicOutcome,
-    HgvsVariant, Interval,
-    LiteralSequenceItem, Location, NucleotideAnchor, NucleotideCoordinate, NucleotideEdit,
-    NucleotideEditKind, NucleotideSequenceItem, OutcomeCertainty, ProteinCoordinate, ProteinEdit,
-    ProteinEditKind, ProteinExtensionEdit, ProteinExtensionTerminal, ProteinFrameshiftStop,
-    ProteinFrameshiftStopKind, ProteinOutcome, ProteinSequence, Quantity, ReferenceSpec,
-    RepeatEdit, RepeatSequenceUnit, RnaOutcome, VariantDescription,
+    HgvsVariant, Interval, LiteralSequenceItem, Location, NucleotideAnchor, NucleotideCoordinate,
+    NucleotideEdit, NucleotideEditKind, NucleotideSequenceItem, OutcomeCertainty,
+    ProteinCoordinate, ProteinEdit, ProteinEditKind, ProteinExtensionEdit,
+    ProteinExtensionTerminal, ProteinFrameshiftStop, ProteinFrameshiftStopKind, ProteinOutcome,
+    ProteinSequence, Quantity, ReferenceSpec, RepeatEdit, RepeatSequenceUnit, RnaOutcome,
+    VariantDescription,
 };
 pub use parser::parse_hgvs;

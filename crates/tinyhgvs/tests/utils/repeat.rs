@@ -1,6 +1,6 @@
+use super::ProteinOutcomeExt;
 use tinyhgvs::{
-    LiteralSequenceItem, ProteinEditKind, ProteinOutcome, Quantity, RepeatEdit,
-    RepeatSequenceUnit,
+    LiteralSequenceItem, ProteinEditKind, ProteinOutcome, Quantity, RepeatEdit, RepeatSequenceUnit,
 };
 
 pub fn make_known_repeat_edit(unit: &str, count: usize) -> RepeatEdit {
@@ -76,7 +76,7 @@ pub fn make_unknown_quantity() -> Quantity {
 }
 
 pub fn get_protein_repeat(outcome: &ProteinOutcome) -> &RepeatEdit {
-    let (edit, _) = crate::utils::ProteinOutcomeExt::produced_edit(outcome);
+    let (edit, _) = ProteinOutcomeExt::produced_edit(outcome);
     if let ProteinEditKind::Repeat(repeat) = &edit.kind {
         repeat
     } else {
