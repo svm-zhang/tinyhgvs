@@ -60,34 +60,44 @@ pub(super) fn unknown_repeat_copy(input: &str) -> ParseResult<'_, Quantity> {
 /// Examples: `[(60_80)]`, `[(?_60)]`, `[(60_?)]`
 pub(super) fn uncertain_repeat_copy(input: &str) -> ParseResult<'_, Quantity> {
     // [(60_80)], [(?_60)], [(60_?)]
-    delimited(
+    let (input, (lo, hi)) = delimited(
         char('['),
         delimited(
             char('('),
-            map(
-                separated_pair(
-                    alt((map(parse_quantity, Some), value(None, char('?')))),
-                    char('_'),
-                    alt((map(parse_quantity, Some), value(None, char('?')))),
-                ),
-                |(lo, hi)| Quantity::Uncertain { lo, hi },
+            separated_pair(
+                alt((map(parse_quantity, Some), value(None, char('?')))),
+                char('_'),
+                alt((map(parse_quantity, Some), value(None, char('?')))),
             ),
             char(')'),
         ),
         char(']'),
     )
-    .parse(input)
+    .parse(input)?;
+
+    if lo.is_none() && hi.is_none() {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Verify,
+        )));
+    }
+
+    Ok((input, Quantity::Uncertain { lo, hi }))
 }
 
 /// Parses a repeat edit with a known repeat unit.
 ///
-/// Examples: `CAG[23]`, `CAG[(60_80)]`
+/// Examples: `CAG[23]`, `CAG[(60_80)]`, `CAG[?]`
 pub(super) fn known_repeat_edit(input: &str) -> ParseResult<'_, RepeatEdit> {
-    // CAG[23], CAG[(60_80)]
+    // CAG[23], CAG[(60_80)], CAG[?]
     map(
         pair(
             known_repeat_unit,
-            alt((known_repeat_copy, uncertain_repeat_copy)),
+            alt((
+                known_repeat_copy,
+                uncertain_repeat_copy,
+                unknown_repeat_copy,
+            )),
         ),
         |(unit, quantity)| RepeatEdit {
             quantity,

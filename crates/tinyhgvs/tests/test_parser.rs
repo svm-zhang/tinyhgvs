@@ -168,6 +168,7 @@ fn parses_repeat_variants() {
 #[test]
 fn parses_repeat_quantity_edges() {
     let unknown = parse_variant("NC_000023.10:g.32717298_32717299insN[?]").into_genomic_edit();
+    let unknown_known_unit = parse_variant("NC_000003.12:g.63912687AGC[?]").into_genomic_edit();
     let lower_unknown = parse_variant("NC_000003.12:g.63912687AGC[(?_60)]").into_genomic_edit();
     let upper_unknown = parse_variant("NC_000003.12:g.63912687AGC[(60_?)]").into_genomic_edit();
 
@@ -176,6 +177,13 @@ fn parses_repeat_quantity_edges() {
         &[NucleotideSequenceItem::Repeat(make_unknown_repeat_edit(
             make_unknown_quantity()
         ))]
+    );
+    assert_eq!(
+        unknown_known_unit.kind.repeat_blocks(),
+        &[make_known_repeat_edit_with_quantity(
+            "AGC",
+            make_unknown_quantity()
+        )]
     );
     assert_eq!(
         lower_unknown.kind.repeat_blocks(),
@@ -191,6 +199,16 @@ fn parses_repeat_quantity_edges() {
             (Some(60), None)
         )]
     );
+}
+
+#[test]
+fn rejects_fully_unknown_repeat_quantity_range() {
+    for input in [
+        "NC_000003.12:g.63912687AGC[(?_?)]",
+        "NM_004006.3:r.-128_-126[(?_?)]",
+    ] {
+        assert!(parse_hgvs(input).is_err(), "{input} should be rejected");
+    }
 }
 
 #[test]
