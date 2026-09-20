@@ -51,7 +51,7 @@ fn protein_residue_change(input: &str) -> ParseResult<'_, ResidueChange> {
 /// Parses a produced protein outcome.
 ///
 /// Examples: `Trp24Ter`, `(Trp24Ter)`
-pub(super) fn protein_outcome(input: &str) -> ParseResult<'_, ProteinOutcome> {
+fn protein_outcome(input: &str) -> ParseResult<'_, ProteinOutcome> {
     alt((
         // (Ser68Arg)
         map(delimited(char('('), protein_edit_form, char(')')), |edit| {
@@ -72,7 +72,7 @@ pub(super) fn protein_outcome(input: &str) -> ParseResult<'_, ProteinOutcome> {
 /// Parses special protein outcomes.
 ///
 /// Examples: `?`, `0`, `0?`
-pub(super) fn special_protein_outcome(input: &str) -> ParseResult<'_, ProteinOutcome> {
+fn special_protein_outcome(input: &str) -> ParseResult<'_, ProteinOutcome> {
     alt((
         // p.?
         value(ProteinOutcome::Unknown, char('?')),
@@ -93,7 +93,7 @@ pub(super) fn special_protein_outcome(input: &str) -> ParseResult<'_, ProteinOut
 /// Parses one or more protein outcomes written on the same allele.
 ///
 /// Examples: `Ser68Arg;Asn594del`, `(Ser68Arg;Asn594del)`
-pub(super) fn protein_variants_on_allele(input: &str) -> ParseResult<'_, Vec<ProteinOutcome>> {
+fn protein_variants_on_allele(input: &str) -> ParseResult<'_, Vec<ProteinOutcome>> {
     alt((
         // (Ser68Arg;Asn594del)
         map(
@@ -122,7 +122,7 @@ pub(super) fn protein_variants_on_allele(input: &str) -> ParseResult<'_, Vec<Pro
 /// Parses one protein allele component.
 ///
 /// Examples: `[?]`, `[0]`, `[Ser68Arg]`, `[Ser68Arg;Asn594del]`
-pub(super) fn protein_allele_component(input: &str) -> ParseResult<'_, Allele<ProteinOutcome>> {
+fn protein_allele_component(input: &str) -> ParseResult<'_, Allele<ProteinOutcome>> {
     map(
         delimited(
             char('['),
@@ -145,7 +145,7 @@ pub(super) fn protein_allele_component(input: &str) -> ParseResult<'_, Allele<Pr
 /// Parses one in-cis protein allele.
 ///
 /// Example: `[Ser68Arg;Asn594del]`
-pub(super) fn protein_cis_allele(input: &str) -> ParseResult<'_, AlleleVariant<ProteinOutcome>> {
+fn protein_cis_allele(input: &str) -> ParseResult<'_, AlleleVariant<ProteinOutcome>> {
     map(protein_allele_component, |allele| AlleleVariant {
         allele_one: allele,
         allele_two: None,
@@ -158,7 +158,7 @@ pub(super) fn protein_cis_allele(input: &str) -> ParseResult<'_, AlleleVariant<P
 /// Parses protein alleles in trans.
 ///
 /// Example: `[Ser68Arg];[Ser68=]`
-pub(super) fn protein_trans_allele(input: &str) -> ParseResult<'_, AlleleVariant<ProteinOutcome>> {
+fn protein_trans_allele(input: &str) -> ParseResult<'_, AlleleVariant<ProteinOutcome>> {
     map(
         separated_pair(
             protein_allele_component,
@@ -178,9 +178,7 @@ pub(super) fn protein_trans_allele(input: &str) -> ParseResult<'_, AlleleVariant
 /// Parses protein alleles with uncertain phase.
 ///
 /// Example: `Ser68Arg(;)Asn594del`
-pub(super) fn protein_uncertain_allele(
-    input: &str,
-) -> ParseResult<'_, AlleleVariant<ProteinOutcome>> {
+fn protein_uncertain_allele(input: &str) -> ParseResult<'_, AlleleVariant<ProteinOutcome>> {
     map(
         separated_pair(protein_outcome, tag("(;)"), protein_outcome),
         |(a1, a2)| AlleleVariant {
@@ -198,7 +196,7 @@ pub(super) fn protein_uncertain_allele(
 /// This is the main entrance for handling possible protein allele descriptions.
 ///
 /// Examples: `[A;B]`, `[A];[B]`, `A(;)B`
-pub(super) fn protein_allele(input: &str) -> ParseResult<'_, AlleleVariant<ProteinOutcome>> {
+fn protein_allele(input: &str) -> ParseResult<'_, AlleleVariant<ProteinOutcome>> {
     alt((
         // [Ser68Arg];[Ser68=]
         protein_trans_allele,
@@ -213,9 +211,7 @@ pub(super) fn protein_allele(input: &str) -> ParseResult<'_, AlleleVariant<Prote
 /// Parses a derived protein allele form.
 ///
 /// Example: `[Lys31Asn,Val25_Lys31del,Ser68Arg]`
-pub(super) fn protein_derived_allele_form(
-    input: &str,
-) -> ParseResult<'_, DerivedAllele<ProteinOutcome>> {
+fn protein_derived_allele_form(input: &str) -> ParseResult<'_, DerivedAllele<ProteinOutcome>> {
     // [Lys31Asn,Val25_Lys31del,Ser68Arg]
     let (input, _) = char('[')(input)?;
 
@@ -237,7 +233,7 @@ pub(super) fn protein_derived_allele_form(
 /// Parses alternative protein allele forms.
 ///
 /// Example: `[(Asn158Asp)(;)(Asn158Ile)]^[(Asn158Val)]`
-pub(super) fn protein_alternative_allele_form(
+fn protein_alternative_allele_form(
     input: &str,
 ) -> ParseResult<'_, Vec<AlleleVariant<ProteinOutcome>>> {
     fn alternate(input: &str) -> ParseResult<'_, AlleleVariant<ProteinOutcome>> {
@@ -292,7 +288,7 @@ pub(super) fn protein_description(input: &str) -> ParseResult<'_, VariantDescrip
 /// Parses one protein edit: location + edit.
 ///
 /// Examples: `Trp24Ter`, `Arg97ProfsTer23`, `Ter110GlnextTer17`
-pub(super) fn protein_edit(input: &str) -> ParseResult<'_, ProteinEdit> {
+fn protein_edit(input: &str) -> ParseResult<'_, ProteinEdit> {
     map_res(
         pair(protein_location, protein_edit_kind),
         build_protein_edit_effect,
@@ -304,7 +300,7 @@ pub(super) fn protein_edit(input: &str) -> ParseResult<'_, ProteinEdit> {
 ///
 /// This rejects malformed extension combinations such as C-terminal extension
 /// syntax on a non-terminating residue.
-pub(super) fn build_protein_edit_effect(
+fn build_protein_edit_effect(
     (location, kind): (Location<ProteinCoordinate>, ProteinEditKind),
 ) -> Result<ProteinEdit, ()> {
     let location = resolve_protein_effect_location(&location, &kind).ok_or(())?;
@@ -316,7 +312,7 @@ pub(super) fn build_protein_edit_effect(
 /// Early returns reject extension syntax that cannot apply to the parsed
 /// location, such as interval locations or N-terminal extension away from
 /// `Met1`.
-pub(super) fn resolve_protein_effect_location(
+fn resolve_protein_effect_location(
     location: &Location<ProteinCoordinate>,
     edit: &ProteinEditKind,
 ) -> Option<Location<ProteinCoordinate>> {
@@ -361,7 +357,7 @@ pub(super) fn resolve_protein_effect_location(
 /// Parses various protein edit families: duplication, deletion, etc.
 ///
 /// Examples: `Ter`, `del`, `dup`, `insAla`, `fs`, `GlnextTer17`
-pub(super) fn protein_edit_kind(input: &str) -> ParseResult<'_, ProteinEditKind> {
+fn protein_edit_kind(input: &str) -> ParseResult<'_, ProteinEditKind> {
     alt((
         // (=)
         value(
@@ -426,7 +422,7 @@ fn protein_edit_form(input: &str) -> ParseResult<'_, ProteinEditForm> {
 /// Parses one protein location, known or uncertain.
 ///
 /// Examples: `Trp24`, `Lys23_Val25`, `(Ala123_Pro131)`
-pub(super) fn protein_location(input: &str) -> ParseResult<'_, Location<ProteinCoordinate>> {
+fn protein_location(input: &str) -> ParseResult<'_, Location<ProteinCoordinate>> {
     alt((
         // (Ala123_Pro131) and (Ala123_Pro131)_(Gly140_Leu142)
         map(protein_uncertain_location, Location::from_uncertain),
@@ -439,7 +435,7 @@ pub(super) fn protein_location(input: &str) -> ParseResult<'_, Location<ProteinC
 /// Parses a single protein position or a known interval.
 ///
 /// Examples: `Ala237`, `Ala237_Pro161`
-pub(super) fn protein_interval(input: &str) -> ParseResult<'_, Interval<ProteinCoordinate>> {
+fn protein_interval(input: &str) -> ParseResult<'_, Interval<ProteinCoordinate>> {
     alt((
         |input| range_with(input, protein_coordinate),
         map(protein_coordinate, |start| Interval { start, end: None }),
@@ -450,16 +446,14 @@ pub(super) fn protein_interval(input: &str) -> ParseResult<'_, Interval<ProteinC
 /// Parses one protein uncertain interval unit.
 ///
 /// Example: `(Ala237_Pro161)`
-pub(super) fn protein_uncertain_interval(
-    input: &str,
-) -> ParseResult<'_, Interval<ProteinCoordinate>> {
+fn protein_uncertain_interval(input: &str) -> ParseResult<'_, Interval<ProteinCoordinate>> {
     delimited(char('('), protein_interval, char(')')).parse(input)
 }
 
 /// Parses protein locations written with uncertain-region syntax.
 ///
 /// Examples: `(Ala237_Pro161)`, `(Ala237_Pro161)_(Gly170_Leu180)`
-pub(super) fn protein_uncertain_location(
+fn protein_uncertain_location(
     input: &str,
 ) -> ParseResult<'_, Interval<Interval<ProteinCoordinate>>> {
     alt((
@@ -475,7 +469,7 @@ pub(super) fn protein_uncertain_location(
 /// Parses a protein symbol followed by its ordinal.
 ///
 /// Examples: `Trp24`, `Ala237`
-pub(super) fn protein_coordinate(input: &str) -> ParseResult<'_, ProteinCoordinate> {
+fn protein_coordinate(input: &str) -> ParseResult<'_, ProteinCoordinate> {
     map(pair(protein_symbol, parse_i32), |(residue, ordinal)| {
         ProteinCoordinate { residue, ordinal }
     })
@@ -485,7 +479,7 @@ pub(super) fn protein_coordinate(input: &str) -> ParseResult<'_, ProteinCoordina
 /// Parses protein repeat copy syntax after a protein location.
 ///
 /// Examples: `[10]`, `[(70_80)]`
-pub(super) fn protein_repeat(input: &str) -> ParseResult<'_, ProteinEditKind> {
+fn protein_repeat(input: &str) -> ParseResult<'_, ProteinEditKind> {
     // p.Ala2[10]
     // p.(Gln18)[(70_80)]
     map(
@@ -503,7 +497,7 @@ pub(super) fn protein_repeat(input: &str) -> ParseResult<'_, ProteinEditKind> {
 /// Parses N-terminal and C-terminal protein extension syntax.
 ///
 /// Examples: `ext-5`, `GlnextTer17`
-pub(super) fn protein_extension_edit(input: &str) -> ParseResult<'_, ProteinEditKind> {
+fn protein_extension_edit(input: &str) -> ParseResult<'_, ProteinEditKind> {
     alt((
         map(
             preceded(tag("ext"), protein_n_terminal_extension_ordinal),
@@ -535,14 +529,14 @@ pub(super) fn protein_extension_edit(input: &str) -> ParseResult<'_, ProteinEdit
 /// Parses the required negative ordinal in N-terminal extension syntax.
 ///
 /// Example: `-5`
-pub(super) fn protein_n_terminal_extension_ordinal(input: &str) -> ParseResult<'_, i32> {
+fn protein_n_terminal_extension_ordinal(input: &str) -> ParseResult<'_, i32> {
     map(preceded(char('-'), parse_i32), |ordinal| -ordinal).parse(input)
 }
 
 /// Parses the residue replacing the reference stop codon in C-terminal extension syntax.
 ///
 /// Example: `Gln`
-pub(super) fn protein_extension_residue(input: &str) -> ParseResult<'_, String> {
+fn protein_extension_residue(input: &str) -> ParseResult<'_, String> {
     let (input, residue) = protein_symbol(input)?;
 
     if residue == "Ter" {
@@ -558,7 +552,7 @@ pub(super) fn protein_extension_residue(input: &str) -> ParseResult<'_, String> 
 /// Parses the terminal state in C-terminal extension syntax.
 ///
 /// Examples: `extTer17`, `extTer?`
-pub(super) fn protein_c_terminal_extension_state(input: &str) -> ParseResult<'_, Option<i32>> {
+fn protein_c_terminal_extension_state(input: &str) -> ParseResult<'_, Option<i32>> {
     preceded(
         tag("ext"),
         alt((
@@ -600,7 +594,7 @@ fn protein_frameshift_residue(input: &str) -> ParseResult<'_, ResidueChange> {
 /// Parses short and long protein frameshift syntax.
 ///
 /// Examples: `fs`, `ProfsTer23`, `ProfsTer?`
-pub(super) fn protein_frameshift_edit(input: &str) -> ParseResult<'_, ProteinEditKind> {
+fn protein_frameshift_edit(input: &str) -> ParseResult<'_, ProteinEditKind> {
     alt((
         map(
             pair(
@@ -629,7 +623,7 @@ pub(super) fn protein_frameshift_edit(input: &str) -> ParseResult<'_, ProteinEdi
 /// Parses the explicit stop-state in long protein frameshift notation.
 ///
 /// Examples: `Ter23`, `Ter?`
-pub(super) fn protein_frameshift_stop(input: &str) -> ParseResult<'_, ProteinFrameshiftStop> {
+fn protein_frameshift_stop(input: &str) -> ParseResult<'_, ProteinFrameshiftStop> {
     alt((
         value(
             ProteinFrameshiftStop {
@@ -679,7 +673,7 @@ fn protein_insertion_sequence(input: &str) -> ParseResult<'_, ProteinInsertionSe
 /// Parses a contiguous protein sequence.
 ///
 /// Examples: `Ala`, `GlnSerLys`
-pub(super) fn protein_sequence(input: &str) -> ParseResult<'_, ProteinSequence> {
+fn protein_sequence(input: &str) -> ParseResult<'_, ProteinSequence> {
     map(many1(protein_symbol), |residues| ProteinSequence {
         residues,
     })
@@ -689,7 +683,7 @@ pub(super) fn protein_sequence(input: &str) -> ParseResult<'_, ProteinSequence> 
 /// Parses one supported amino-acid symbol.
 ///
 /// Examples: `Trp`, `W`, `*`
-pub(super) fn protein_symbol(input: &str) -> ParseResult<'_, String> {
+fn protein_symbol(input: &str) -> ParseResult<'_, String> {
     for symbol in PROTEIN_SYMBOLS {
         if let Some(rest) = input.strip_prefix(symbol) {
             return Ok((rest, normalize_protein_symbol(symbol)));
@@ -702,7 +696,7 @@ pub(super) fn protein_symbol(input: &str) -> ParseResult<'_, String> {
     )))
 }
 
-pub(super) fn normalize_protein_symbol(symbol: &str) -> String {
+fn normalize_protein_symbol(symbol: &str) -> String {
     if symbol == "*" {
         "Ter".to_string()
     } else {

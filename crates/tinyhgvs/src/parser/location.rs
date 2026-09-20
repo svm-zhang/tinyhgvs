@@ -62,9 +62,7 @@ pub(super) fn nucleotide_interval(input: &str) -> ParseResult<'_, Interval<Nucle
 /// - `(71_72)`
 /// - `(123_?)`
 /// - `(?_87)`
-pub(super) fn nucleotide_uncertain_interval(
-    input: &str,
-) -> ParseResult<'_, Interval<NucleotideCoordinate>> {
+fn nucleotide_uncertain_interval(input: &str) -> ParseResult<'_, Interval<NucleotideCoordinate>> {
     delimited(char('('), nucleotide_interval, char(')')).parse(input)
 }
 
@@ -72,7 +70,7 @@ pub(super) fn nucleotide_uncertain_interval(
 ///
 /// One location can be either one or two uncertain interval units separated by
 /// `_`.
-pub(super) fn nucleotide_uncertain_location(
+fn nucleotide_uncertain_location(
     input: &str,
 ) -> ParseResult<'_, Interval<Interval<NucleotideCoordinate>>> {
     alt((

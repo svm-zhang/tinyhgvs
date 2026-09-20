@@ -29,7 +29,7 @@ pub(super) fn known_repeat_unit(input: &str) -> ParseResult<'_, RepeatSequenceUn
 /// Parses an unknown repeat unit.
 ///
 /// Examples: `N`, `n`
-pub(super) fn unknown_repeat_unit(input: &str) -> ParseResult<'_, RepeatSequenceUnit> {
+fn unknown_repeat_unit(input: &str) -> ParseResult<'_, RepeatSequenceUnit> {
     // N, n
     value(RepeatSequenceUnit::Unknown, one_of("Nn")).parse(input)
 }
@@ -50,7 +50,7 @@ pub(super) fn known_repeat_copy(input: &str) -> ParseResult<'_, Quantity> {
 /// Parses an unknown repeat copy count.
 ///
 /// Example: `[?]`
-pub(super) fn unknown_repeat_copy(input: &str) -> ParseResult<'_, Quantity> {
+fn unknown_repeat_copy(input: &str) -> ParseResult<'_, Quantity> {
     // [?]
     delimited(char('['), value(Quantity::Unknown, char('?')), char(']')).parse(input)
 }

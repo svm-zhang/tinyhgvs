@@ -22,7 +22,7 @@ use super::repeat::*;
 /// Parses one or more nucleotide edits written inside one allele.
 ///
 /// Example: `[123G>A;345del]`
-pub(super) fn nucleotide_variants_on_allele(input: &str) -> ParseResult<'_, Vec<NucleotideEdit>> {
+fn nucleotide_variants_on_allele(input: &str) -> ParseResult<'_, Vec<NucleotideEdit>> {
     delimited(
         char('['),
         separated_list1(char(';'), nucleotide_edit),
@@ -101,7 +101,7 @@ fn nucleotide_uncertain_allele(input: &str) -> ParseResult<'_, AlleleVariant<Nuc
 /// This is the main entrance for handling possible nucleotide allele descriptions.
 ///
 /// Examples: `[A;B]`, `[A];[B]`, `A(;)B`
-pub(super) fn nucleotide_allele(input: &str) -> ParseResult<'_, AlleleVariant<NucleotideEdit>> {
+fn nucleotide_allele(input: &str) -> ParseResult<'_, AlleleVariant<NucleotideEdit>> {
     alt((
         // [123G>A];[345del](;)789dup
         nucleotide_trans_allele,
