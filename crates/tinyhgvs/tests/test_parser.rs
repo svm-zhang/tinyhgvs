@@ -2,8 +2,9 @@ mod utils;
 
 use tinyhgvs::{
     parse_hgvs, AlleleForm, AllelePhase, AlleleStateCertainty, CoordinateSystem, NucleotideAnchor,
-    NucleotideEditKind, NucleotideSequenceItem, OutcomeCertainty, ProteinEditKind,
-    ProteinExtensionTerminal, ProteinFrameshiftStopKind, ProteinOutcome, RnaOutcome,
+    NucleotideEditKind, NucleotideSequenceItem, OutcomeCertainty, ProteinEditForm, ProteinEditKind,
+    ProteinExtensionTerminal, ProteinFrameshiftStopKind, ProteinInsertionSequence, ProteinOutcome,
+    ResidueChange, RnaOutcome,
 };
 use utils::prelude::*;
 
@@ -415,13 +416,63 @@ fn parses_protein_substitution_and_prediction() {
     let (edit, certainty) = substitution.produced_edit();
     assert_eq!(*certainty, OutcomeCertainty::Certain);
     assert_eq!(edit.location.known_start().residue, "Trp");
-    assert!(matches!(
-        &edit.kind,
-        ProteinEditKind::Substitution { to } if to == "Ter"
-    ));
+    let ProteinEditKind::Substitution { to } = &edit.kind else {
+        panic!("expected protein substitution");
+    };
+    assert_known_residue_change(to, "Ter");
 
     let (_, certainty) = predicted.produced_edit();
     assert_eq!(*certainty, OutcomeCertainty::Predicted);
+}
+
+#[test]
+fn parses_protein_insertion_content() {
+    let unknown_count = parse_variant("NP_003997.1:p.Arg78_Gly79insXaa[23]").into_protein_outcome();
+    let bare_unknown = parse_variant("NP_003997.1:p.(Ser332_Ser333insXaa)").into_protein_outcome();
+    let terminal = parse_variant("NP_003997.1:p.Gln746_Lys747ins*63").into_protein_outcome();
+
+    assert!(matches!(
+        unknown_count.produced_edit().0.kind,
+        ProteinEditKind::Insertion {
+            sequence: ProteinInsertionSequence::Unknown { count: 23 },
+        }
+    ));
+    assert!(matches!(
+        bare_unknown.produced_edit().0.kind,
+        ProteinEditKind::Insertion {
+            sequence: ProteinInsertionSequence::Unknown { count: 1 },
+        }
+    ));
+    assert!(matches!(
+        terminal.produced_edit().0.kind,
+        ProteinEditKind::Insertion {
+            sequence: ProteinInsertionSequence::Terminating { ordinal: 63 },
+        }
+    ));
+}
+
+#[test]
+fn parses_protein_uncertain_consequence_forms() {
+    let residue_alternative = parse_variant("NP_003997.1:p.(Gly719Ala^Ser)").into_protein_outcome();
+    let edit_alternative =
+        parse_variant("NP_003997.1:p.(Gly23GlufsTer7^Gly23CysfsTer26)").into_protein_outcome();
+
+    let (edit, certainty) = residue_alternative.produced_edit();
+    assert_eq!(*certainty, OutcomeCertainty::Predicted);
+    let ProteinEditKind::Substitution {
+        to: ResidueChange::Alternative(alternatives),
+    } = &edit.kind
+    else {
+        panic!("expected substitution with alternative residues");
+    };
+    assert_eq!(alternatives, &["Ala", "Ser"]);
+
+    let (form, certainty) = edit_alternative.produced_edit_form();
+    assert_eq!(*certainty, OutcomeCertainty::Predicted);
+    let ProteinEditForm::Alternative(alternatives) = form else {
+        panic!("expected alternative protein edit form");
+    };
+    assert_eq!(alternatives.len(), 2);
 }
 
 #[test]
@@ -474,7 +525,7 @@ fn parses_protein_frameshift_extension_and_uncertain_location() {
         ProteinEditKind::Frameshift {
             to_residue: Some(residue),
             stop,
-        } if residue == "Pro"
+        } if matches!(residue, ResidueChange::Known(value) if value == "Pro")
             && stop.ordinal == Some(23)
             && stop.kind == ProteinFrameshiftStopKind::Known
     ));
@@ -495,10 +546,10 @@ fn parses_protein_frameshift_extension_and_uncertain_location() {
         uncertain_edit.location.left_bp().interval_end().residue,
         "Pro"
     );
-    assert!(matches!(
-        &uncertain_edit.kind,
-        ProteinEditKind::Substitution { to } if to == "Ter"
-    ));
+    let ProteinEditKind::Substitution { to } = &uncertain_edit.kind else {
+        panic!("expected protein substitution");
+    };
+    assert_known_residue_change(to, "Ter");
 }
 
 #[test]

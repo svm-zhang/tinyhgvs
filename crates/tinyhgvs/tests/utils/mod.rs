@@ -5,15 +5,15 @@ pub mod prelude {
     pub use super::location::*;
     pub use super::repeat::*;
     pub use super::{
-        assert_nucleotide_substitution, parse_variant, HgvsVariantExt, NucleotideEditKindExt,
-        ProteinOutcomeExt, RnaOutcomeExt,
+        assert_known_residue_change, assert_nucleotide_substitution, parse_variant, HgvsVariantExt,
+        NucleotideEditKindExt, ProteinOutcomeExt, RnaOutcomeExt,
     };
 }
 
 use tinyhgvs::{
     parse_hgvs, AlleleForm, AlleleVariant, CodingDnaOutcome, GenomicOutcome, HgvsVariant,
     NucleotideEdit, NucleotideEditKind, NucleotideSequenceItem, OutcomeCertainty, ProteinEdit,
-    ProteinOutcome, RepeatEdit, RnaOutcome, VariantDescription,
+    ProteinEditForm, ProteinOutcome, RepeatEdit, ResidueChange, RnaOutcome, VariantDescription,
 };
 
 pub fn parse_variant(example: &str) -> HgvsVariant {
@@ -127,15 +127,24 @@ impl RnaOutcomeExt for RnaOutcome {
 }
 
 pub trait ProteinOutcomeExt {
+    fn produced_edit_form(&self) -> (&ProteinEditForm, &OutcomeCertainty);
     fn produced_edit(&self) -> (&ProteinEdit, &OutcomeCertainty);
 }
 
 impl ProteinOutcomeExt for ProteinOutcome {
-    fn produced_edit(&self) -> (&ProteinEdit, &OutcomeCertainty) {
+    fn produced_edit_form(&self) -> (&ProteinEditForm, &OutcomeCertainty) {
         match self {
             Self::Produced { edit, certainty } => (edit, certainty),
             _ => panic!("expected a produced protein outcome"),
         }
+    }
+
+    fn produced_edit(&self) -> (&ProteinEdit, &OutcomeCertainty) {
+        let (form, certainty) = self.produced_edit_form();
+        let ProteinEditForm::Single(edit) = form else {
+            panic!("expected a single protein edit");
+        };
+        (edit, certainty)
     }
 }
 
@@ -176,4 +185,8 @@ pub fn assert_nucleotide_substitution(edit: &NucleotideEdit, reference: &str, al
             alternate: observed_alternate,
         } if observed_reference == reference && observed_alternate == alternate
     ));
+}
+
+pub fn assert_known_residue_change(change: &ResidueChange, expected: &str) {
+    assert!(matches!(change, ResidueChange::Known(residue) if residue == expected));
 }

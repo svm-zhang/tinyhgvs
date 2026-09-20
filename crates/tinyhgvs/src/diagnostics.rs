@@ -43,18 +43,6 @@ const UNSUPPORTED_MATCHERS: &[DiagnosticMatcher] = &[
         message: "epigenetic edit syntax is not supported yet",
         detect: epigenetic_edit_fragment,
     },
-    // Examples: `p.Arg78_Gly79insXaa[23]`, `...ins*63`
-    DiagnosticMatcher {
-        code: "unsupported.protein_insertion_content",
-        message: "quantified or terminal protein insertion content is not supported yet",
-        detect: protein_insertion_content_fragment,
-    },
-    // Example: `p.(Gly719Ala^Ser)`
-    DiagnosticMatcher {
-        code: "unsupported.protein_uncertain_consequence",
-        message: "uncertain protein consequence syntax is not supported yet",
-        detect: protein_uncertain_consequence_fragment,
-    },
 ];
 
 /// Classifies a parse failure into a stable diagnostic code when possible.
@@ -116,42 +104,6 @@ fn epigenetic_edit_fragment(input: &str) -> Option<String> {
     description
         .split_once('|')
         .map(|(_, modifier)| format!("|{modifier}"))
-}
-
-/// Detects unsupported quantified or terminal protein insertion content.
-fn protein_insertion_content_fragment(input: &str) -> Option<String> {
-    let description = protein_description_fragment(input)?;
-    if !description.contains("ins") {
-        return None;
-    }
-
-    if description.contains("Xaa[") {
-        Some("Xaa[...]".to_string())
-    } else if description.contains("ins*") {
-        Some("*".to_string())
-    } else {
-        None
-    }
-}
-
-/// Detects uncertain protein consequences written with `^`.
-fn protein_uncertain_consequence_fragment(input: &str) -> Option<String> {
-    let description = protein_description_fragment(input)?;
-    if description.starts_with('[') {
-        return None;
-    }
-
-    if description.contains('^') {
-        Some("^".to_string())
-    } else if description.contains("[(") {
-        Some("[(...)]".to_string())
-    } else {
-        None
-    }
-}
-
-fn protein_description_fragment(input: &str) -> Option<&str> {
-    coordinate_description_fragment(input, "p.")
 }
 
 fn variant_description_fragment(input: &str) -> Option<&str> {

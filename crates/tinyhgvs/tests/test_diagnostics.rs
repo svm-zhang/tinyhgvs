@@ -28,20 +28,6 @@ fn classifies_supported_diagnostic_codes() {
             "RNA adjoined transcript syntax is not supported yet",
             Some("::"),
         ),
-        (
-            "p.Arg78_Gly79insXaa[23]",
-            "unsupported.protein_insertion_content",
-            ParseHgvsErrorKind::UnsupportedSyntax,
-            "quantified or terminal protein insertion content is not supported yet",
-            Some("Xaa[...]"),
-        ),
-        (
-            "p.(Gly719Ala^Ser)",
-            "unsupported.protein_uncertain_consequence",
-            ParseHgvsErrorKind::UnsupportedSyntax,
-            "uncertain protein consequence syntax is not supported yet",
-            Some("^"),
-        ),
     ];
 
     for (input, code, kind, message, fragment) in cases {
@@ -76,6 +62,9 @@ fn formerly_unsupported_outcomes_and_alleles_now_parse() {
         "NP_003997.1:p.[(Ser68Arg)];[?]",
         "NP_003997.1:p.[Lys31Asn,Val25_Lys31del]",
         "NP_003997.2:p.[(Asn158Asp)(;)(Asn158Ile)]^[(Asn158Val)]",
+        "NP_003997.1:p.Arg78_Gly79insXaa[23]",
+        "NP_003997.1:p.Gln746_Lys747ins*63",
+        "NP_003997.1:p.(Gly719Ala^Ser)",
     ];
 
     for input in cases {
@@ -115,13 +104,11 @@ fn malformed_uncertain_range_now_falls_back_to_generic_invalid_syntax() {
 
 #[test]
 fn displays_machine_code_message_and_version() {
-    let error = parse_error("p.Arg78_Gly79insXaa[23]");
+    let error = parse_error("NC_000023.11:g.pter_qtersup");
     let rendered = error.to_string();
 
-    assert!(rendered.contains("[unsupported.protein_insertion_content]"));
-    assert!(
-        rendered.contains("quantified or terminal protein insertion content is not supported yet")
-    );
-    assert!(rendered.contains("`p.Arg78_Gly79insXaa[23]`"));
+    assert!(rendered.contains("[unsupported.telomeric_position]"));
+    assert!(rendered.contains("telomeric positions such as pter and qter are not supported yet"));
+    assert!(rendered.contains("`NC_000023.11:g.pter_qtersup`"));
     assert!(rendered.contains(env!("CARGO_PKG_VERSION")));
 }
