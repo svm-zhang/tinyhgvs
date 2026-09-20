@@ -74,16 +74,26 @@ fn nucleotide_trans_allele(input: &str) -> ParseResult<'_, AlleleVariant<Nucleot
 ///
 /// Example: `123G>A(;)345del`
 fn nucleotide_uncertain_allele(input: &str) -> ParseResult<'_, AlleleVariant<NucleotideEdit>> {
-    map(
-        separated_pair(nucleotide_edit, tag("(;)"), nucleotide_edit),
-        |(a1, a2)| AlleleVariant {
-            allele_one: Allele::from_variants(vec![a1]),
-            allele_two: Some(Allele::from_variants(vec![a2])),
+    let (input, first) = nucleotide_edit(input)?;
+    let (input, _) = tag("(;)")(input)?;
+
+    let (input, second) = alt((
+        map(delimited(char('('), nucleotide_edit, char(')')), |edit| {
+            Allele::uncertain_from_variants(vec![edit])
+        }),
+        map(nucleotide_edit, |edit| Allele::from_variants(vec![edit])),
+    ))
+    .parse(input)?;
+
+    Ok((
+        input,
+        AlleleVariant {
+            allele_one: Allele::from_variants(vec![first]),
+            allele_two: Some(second),
             phase: Some(AllelePhase::Uncertain),
             variants_unphased: vec![],
         },
-    )
-    .parse(input)
+    ))
 }
 
 /// Parses nucleotide cis, trans and uncertain alleles.
@@ -265,8 +275,8 @@ mod tests {
 
     use super::*;
     use crate::model::{
-        CoordinateSystem, NucleotideEditKind, NucleotideSequenceItem, Quantity, RepeatEdit,
-        RepeatSequenceUnit,
+        AlleleStateCertainty, CoordinateSystem, NucleotideEditKind, NucleotideSequenceItem,
+        Quantity, RepeatEdit, RepeatSequenceUnit,
     };
 
     #[test]
@@ -356,5 +366,51 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn parses_genomic_uncertain_allele_state() {
+        let (_, variant) = all_consuming(nucleotide_allele)
+            .parse("123G>A(;)345del")
+            .unwrap();
+
+        assert_eq!(variant.phase, Some(AllelePhase::Uncertain));
+
+        assert_eq!(
+            variant.allele_one.state_certainty,
+            AlleleStateCertainty::Certain
+        );
+
+        assert_eq!(
+            variant.allele_two.as_ref().unwrap().state_certainty,
+            AlleleStateCertainty::Certain
+        );
+
+        let (_, variant) = all_consuming(nucleotide_allele)
+            .parse("123G>A(;)(123G>A)")
+            .unwrap();
+
+        assert_eq!(variant.phase, Some(AllelePhase::Uncertain));
+
+        assert_eq!(
+            variant.allele_one.state_certainty,
+            AlleleStateCertainty::Certain
+        );
+
+        assert_eq!(
+            variant.allele_two.as_ref().unwrap().state_certainty,
+            AlleleStateCertainty::Uncertain
+        );
+    }
+
+    #[test]
+    fn rejects_bracketed_genomic_uncertain_phase_forms() {
+        assert!(all_consuming(nucleotide_allele)
+            .parse("[123G>A](;)345del")
+            .is_err());
+
+        assert!(all_consuming(nucleotide_allele)
+            .parse("[123G>A](;)(345del)")
+            .is_err());
     }
 }
