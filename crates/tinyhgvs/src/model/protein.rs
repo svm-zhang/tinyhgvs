@@ -42,20 +42,27 @@ pub enum ProteinEditKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResidueChange {
+    // p.Trp24Ter, p.Arg97ProfsTer23
     Known(String),
+    // p.(Gly719Ala^Ser), p.Gly719(Ala^Ser)fsTer23
     Alternative(Vec<String>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProteinInsertionSequence {
+    // p.Val582_Asn583insAla
     Known(ProteinSequence),
+    // p.Ser332_Ser333insXaa, p.Arg78_Gly79insXaa[23]
     Unknown { count: usize },
+    // p.Gln746_Lys747ins*63
     Terminating { ordinal: usize },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProteinEditForm {
+    // p.Trp24Ter
     Single(ProteinEdit),
+    // p.(Gly23GlufsTer7^Gly23CysfsTer26)
     Alternative(Vec<ProteinEdit>),
 }
 
@@ -81,7 +88,8 @@ pub enum ProteinFrameshiftStopKind {
 ///
 /// ```rust
 /// use tinyhgvs::{
-///     ProteinEditKind, ProteinExtensionTerminal, ProteinOutcome, VariantDescription, parse_hgvs,
+///     ProteinEditForm, ProteinEditKind, ProteinExtensionTerminal, ProteinOutcome,
+///     VariantDescription, parse_hgvs,
 /// };
 ///
 /// # fn main() -> Result<(), tinyhgvs::ParseHgvsError> {
@@ -89,10 +97,11 @@ pub enum ProteinFrameshiftStopKind {
 /// let c_terminal = parse_hgvs("NP_003997.2:p.Ter110GlnextTer17")?;
 ///
 /// let extract_terminal = |variant: tinyhgvs::HgvsVariant| match variant.description {
-///     VariantDescription::Protein(ProteinOutcome::Produced { edit, .. }) => match edit.kind {
-///         ProteinEditKind::Extension(extension) => {
-///             extension.to_terminal
-///         }
+///     VariantDescription::Protein(ProteinOutcome::Produced {
+///         edit: ProteinEditForm::Single(edit),
+///         ..
+///     }) => match edit.kind {
+///         ProteinEditKind::Extension(extension) => extension.to_terminal,
 ///         _ => unreachable!("expected protein extension"),
 ///     },
 ///     _ => unreachable!("expected protein variant"),
@@ -117,14 +126,17 @@ pub enum ProteinExtensionTerminal {
 ///
 /// ```rust
 /// use tinyhgvs::{
-///     ProteinEditKind, ProteinExtensionTerminal, ProteinOutcome, VariantDescription, parse_hgvs,
+///     ProteinEditForm, ProteinEditKind, ProteinExtensionTerminal, ProteinOutcome,
+///     VariantDescription, parse_hgvs,
 /// };
 ///
 /// # fn main() -> Result<(), tinyhgvs::ParseHgvsError> {
 /// let variant = parse_hgvs("NP_003997.2:p.Ter110GlnextTer17")?;
 ///
-/// let VariantDescription::Protein(ProteinOutcome::Produced { edit, .. }) = variant.description
-/// else {
+/// let VariantDescription::Protein(ProteinOutcome::Produced {
+///     edit: ProteinEditForm::Single(edit),
+///     ..
+/// }) = variant.description else {
 ///     panic!("expected a produced protein outcome");
 /// };
 ///
@@ -151,14 +163,17 @@ pub struct ProteinExtensionEdit {
 ///
 /// ```rust
 /// use tinyhgvs::{
-///     ProteinEditKind, ProteinFrameshiftStopKind, ProteinOutcome, VariantDescription, parse_hgvs,
+///     ProteinEditForm, ProteinEditKind, ProteinFrameshiftStopKind, ProteinOutcome,
+///     VariantDescription, parse_hgvs,
 /// };
 ///
 /// # fn main() -> Result<(), tinyhgvs::ParseHgvsError> {
 /// let variant = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23")?;
 ///
-/// let VariantDescription::Protein(ProteinOutcome::Produced { edit, .. }) = variant.description
-/// else {
+/// let VariantDescription::Protein(ProteinOutcome::Produced {
+///     edit: ProteinEditForm::Single(edit),
+///     ..
+/// }) = variant.description else {
 ///     panic!("expected a produced protein outcome");
 /// };
 ///

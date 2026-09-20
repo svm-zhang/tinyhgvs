@@ -42,7 +42,9 @@ fn protein_alternative_residues(input: &str) -> ParseResult<'_, Vec<String>> {
 
 fn protein_residue_change(input: &str) -> ParseResult<'_, ResidueChange> {
     alt((
+        // A^B, A^B^C
         map(protein_alternative_residues, ResidueChange::Alternative),
+        // A
         map(protein_symbol, ResidueChange::Known),
     ))
     .parse(input)
@@ -383,12 +385,12 @@ fn protein_edit_kind(input: &str) -> ParseResult<'_, ProteinEditKind> {
         protein_extension_edit,
         // fs, ProfsTer23
         protein_frameshift_edit,
-        // FIXME: insAla
+        // insX, insXaa[n], ins*n
         map(
             preceded(tag("ins"), protein_insertion_sequence),
             |sequence| ProteinEditKind::Insertion { sequence },
         ),
-        // FIXME: Ter, Asp
+        // A, A^B
         map(protein_residue_change, |to| ProteinEditKind::Substitution {
             to,
         }),
@@ -413,7 +415,9 @@ fn protein_alternative_edit_form(input: &str) -> ParseResult<'_, ProteinEditForm
 
 fn protein_edit_form(input: &str) -> ParseResult<'_, ProteinEditForm> {
     alt((
+        // A^B
         protein_alternative_edit_form,
+        // A
         map(protein_edit, ProteinEditForm::Single),
     ))
     .parse(input)
@@ -645,6 +649,7 @@ fn protein_frameshift_stop(input: &str) -> ParseResult<'_, ProteinFrameshiftStop
 
 fn protein_insertion_sequence(input: &str) -> ParseResult<'_, ProteinInsertionSequence> {
     alt((
+        // Xaa, Xaa[n]
         map(
             pair(
                 tag("Xaa"),
@@ -658,6 +663,7 @@ fn protein_insertion_sequence(input: &str) -> ParseResult<'_, ProteinInsertionSe
                 count: count.unwrap_or(1),
             },
         ),
+        // *n, Tern
         map(
             preceded(
                 alt((tag("*"), tag("Ter"))),
@@ -665,6 +671,7 @@ fn protein_insertion_sequence(input: &str) -> ParseResult<'_, ProteinInsertionSe
             ),
             |ordinal| ProteinInsertionSequence::Terminating { ordinal },
         ),
+        // X, XY
         map(protein_sequence, ProteinInsertionSequence::Known),
     ))
     .parse(input)

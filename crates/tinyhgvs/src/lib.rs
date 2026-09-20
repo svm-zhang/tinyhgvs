@@ -74,8 +74,8 @@
 //!
 //! ```rust
 //! use tinyhgvs::{
-//!     CoordinateSystem, OutcomeCertainty, ProteinEditKind, ProteinOutcome,
-//!     VariantDescription, parse_hgvs,
+//!     CoordinateSystem, OutcomeCertainty, ProteinEditForm, ProteinEditKind,
+//!     ProteinOutcome, ResidueChange, VariantDescription, parse_hgvs,
 //! };
 //!
 //! # fn main() -> Result<(), tinyhgvs::ParseHgvsError> {
@@ -87,12 +87,17 @@
 //! else {
 //!     panic!("expected a produced protein outcome");
 //! };
+//! let ProteinEditForm::Single(edit) = edit else {
+//!     panic!("expected one protein edit");
+//! };
 //!
 //! assert_eq!(certainty, OutcomeCertainty::Certain);
 //! assert_eq!(edit.location.start().unwrap().residue, "Trp");
 //! assert!(matches!(
 //!     edit.kind,
-//!     ProteinEditKind::Substitution { ref to } if to == "Ter"
+//!     ProteinEditKind::Substitution {
+//!         to: ResidueChange::Known(ref residue),
+//!     } if residue == "Ter"
 //! ));
 //! # Ok(())
 //! # }

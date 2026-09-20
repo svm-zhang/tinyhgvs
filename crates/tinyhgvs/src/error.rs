@@ -47,10 +47,10 @@ use std::fmt::{self, Display, Formatter};
 /// ```rust
 /// use tinyhgvs::{ParseHgvsErrorKind, parse_hgvs};
 ///
-/// let error = parse_hgvs("p.Arg78_Gly79insXaa[23]").unwrap_err();
+/// let error = parse_hgvs("NC_000023.11:g.pter_qtersup").unwrap_err();
 /// assert_eq!(error.kind(), ParseHgvsErrorKind::UnsupportedSyntax);
-/// assert_eq!(error.code(), "unsupported.protein_insertion_content");
-/// assert_eq!(error.fragment(), Some("Xaa[...]"));
+/// assert_eq!(error.code(), "unsupported.telomeric_position");
+/// assert_eq!(error.fragment(), Some("pter"));
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseHgvsError {
@@ -150,8 +150,8 @@ impl ParseHgvsError {
 
     /// Returns the most relevant fragment recognized by the diagnostic layer.
     ///
-    /// For example, a quantified protein insertion may return `"Xaa[...]"`,
-    /// while an allele expression may return a bracketed fragment such as `"["`.
+    /// For example, a telomeric position may return `"pter"`, while an
+    /// epigenetic edit may return a modifier such as `"|gom"`.
     pub fn fragment(&self) -> Option<&str> {
         self.fragment.as_deref()
     }
