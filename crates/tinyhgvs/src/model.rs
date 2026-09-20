@@ -24,7 +24,8 @@ pub use nucleotide::{
     NucleotideEdit, NucleotideEditKind, NucleotideSequenceItem,
 };
 pub use protein::{
-    ProteinCoordinate, ProteinEdit, ProteinEditKind, ProteinExtensionEdit,
-    ProteinExtensionTerminal, ProteinFrameshiftStop, ProteinFrameshiftStopKind, ProteinSequence,
+    ProteinCoordinate, ProteinEdit, ProteinEditForm, ProteinEditKind, ProteinExtensionEdit,
+    ProteinExtensionTerminal, ProteinFrameshiftStop, ProteinFrameshiftStopKind,
+    ProteinInsertionSequence, ProteinSequence, ResidueChange,
 };
 pub use repeat::{Quantity, RepeatEdit, RepeatSequenceUnit};

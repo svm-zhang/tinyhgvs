@@ -2,8 +2,8 @@
 
 use nom::branch::alt;
 use nom::bytes::complete::tag;
-use nom::character::complete::char;
-use nom::combinator::{map, map_res, value};
+use nom::character::complete::{char, digit1};
+use nom::combinator::{map, map_res, opt, value};
 use nom::multi::{many0, many1, separated_list1};
 use nom::sequence::{delimited, pair, preceded, separated_pair};
 use nom::Parser;
@@ -13,9 +13,10 @@ use super::repeat::{known_repeat_copy, uncertain_repeat_copy};
 use super::ParseResult;
 use crate::model::{
     Allele, AlleleForm, AllelePhase, AlleleVariant, DerivedAllele, Interval, Location,
-    OutcomeCertainty, ProteinCoordinate, ProteinEdit, ProteinEditKind, ProteinExtensionEdit,
-    ProteinExtensionTerminal, ProteinFrameshiftStop, ProteinFrameshiftStopKind, ProteinOutcome,
-    ProteinSequence, RepeatEdit, VariantDescription,
+    OutcomeCertainty, ProteinCoordinate, ProteinEdit, ProteinEditForm, ProteinEditKind,
+    ProteinExtensionEdit, ProteinExtensionTerminal, ProteinFrameshiftStop,
+    ProteinFrameshiftStopKind, ProteinInsertionSequence, ProteinOutcome, ProteinSequence,
+    RepeatEdit, ResidueChange, VariantDescription,
 };
 
 const PROTEIN_SYMBOLS: &[&str] = &[
@@ -24,20 +25,43 @@ const PROTEIN_SYMBOLS: &[&str] = &[
     "N", "D", "C", "Q", "E", "G", "H", "I", "L", "K", "M", "F", "P", "S", "T", "W", "Y", "V",
 ];
 
+fn protein_alternative_residues(input: &str) -> ParseResult<'_, Vec<String>> {
+    let (input, first) = protein_symbol(input)?;
+    let (input, _) = char('^')(input)?;
+    let (input, second) = protein_symbol(input)?;
+
+    let (input, rest) = many0(preceded(char('^'), protein_symbol)).parse(input)?;
+
+    let mut residues = Vec::with_capacity(2 + rest.len());
+    residues.push(first);
+    residues.push(second);
+    residues.extend(rest);
+
+    Ok((input, residues))
+}
+
+fn protein_residue_change(input: &str) -> ParseResult<'_, ResidueChange> {
+    alt((
+        map(protein_alternative_residues, ResidueChange::Alternative),
+        map(protein_symbol, ResidueChange::Known),
+    ))
+    .parse(input)
+}
+
 /// Parses a produced protein outcome.
 ///
 /// Examples: `Trp24Ter`, `(Trp24Ter)`
 pub(super) fn protein_outcome(input: &str) -> ParseResult<'_, ProteinOutcome> {
     alt((
         // (Ser68Arg)
-        map(delimited(char('('), protein_edit, char(')')), |edit| {
+        map(delimited(char('('), protein_edit_form, char(')')), |edit| {
             ProteinOutcome::Produced {
                 edit,
                 certainty: OutcomeCertainty::Predicted,
             }
         }),
         // Ser68Arg
-        map(protein_edit, |edit| ProteinOutcome::Produced {
+        map(protein_edit_form, |edit| ProteinOutcome::Produced {
             edit,
             certainty: OutcomeCertainty::Certain,
         }),
@@ -75,7 +99,7 @@ pub(super) fn protein_variants_on_allele(input: &str) -> ParseResult<'_, Vec<Pro
         map(
             delimited(
                 char('('),
-                separated_list1(char(';'), protein_edit),
+                separated_list1(char(';'), protein_edit_form),
                 char(')'),
             ),
             |edits| {
@@ -363,12 +387,38 @@ pub(super) fn protein_edit_kind(input: &str) -> ParseResult<'_, ProteinEditKind>
         protein_extension_edit,
         // fs, ProfsTer23
         protein_frameshift_edit,
-        // insAla
-        map(preceded(tag("ins"), protein_sequence), |sequence| {
-            ProteinEditKind::Insertion { sequence }
+        // FIXME: insAla
+        map(
+            preceded(tag("ins"), protein_insertion_sequence),
+            |sequence| ProteinEditKind::Insertion { sequence },
+        ),
+        // FIXME: Ter, Asp
+        map(protein_residue_change, |to| ProteinEditKind::Substitution {
+            to,
         }),
-        // Ter, Asp
-        map(protein_symbol, |to| ProteinEditKind::Substitution { to }),
+    ))
+    .parse(input)
+}
+
+fn protein_alternative_edit_form(input: &str) -> ParseResult<'_, ProteinEditForm> {
+    let (input, first) = protein_edit(input)?;
+    let (input, _) = char('^')(input)?;
+    let (input, second) = protein_edit(input)?;
+
+    let (input, rest) = many0(preceded(char('^'), protein_edit)).parse(input)?;
+
+    let mut edits = Vec::with_capacity(2 + rest.len());
+    edits.push(first);
+    edits.push(second);
+    edits.extend(rest);
+
+    Ok((input, ProteinEditForm::Alternative(edits)))
+}
+
+fn protein_edit_form(input: &str) -> ParseResult<'_, ProteinEditForm> {
+    alt((
+        protein_alternative_edit_form,
+        map(protein_edit, ProteinEditForm::Single),
     ))
     .parse(input)
 }
@@ -519,6 +569,34 @@ pub(super) fn protein_c_terminal_extension_state(input: &str) -> ParseResult<'_,
     .parse(input)
 }
 
+/// Parses the explicitly written first residue in long protein frameshift syntax.
+///
+/// Example: `Pro`
+fn protein_frameshift_residue(input: &str) -> ParseResult<'_, ResidueChange> {
+    let (input, residue) = alt((
+        map(
+            delimited(char('('), protein_alternative_residues, char(')')),
+            ResidueChange::Alternative,
+        ),
+        map(protein_symbol, ResidueChange::Known),
+    ))
+    .parse(input)?;
+
+    let has_terminating_residue = match &residue {
+        ResidueChange::Known(residue) => residue == "Ter",
+        ResidueChange::Alternative(residues) => residues.iter().any(|residue| residue == "Ter"),
+    };
+
+    if has_terminating_residue {
+        Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Verify,
+        )))
+    } else {
+        Ok((input, residue))
+    }
+}
+
 /// Parses short and long protein frameshift syntax.
 ///
 /// Examples: `fs`, `ProfsTer23`, `ProfsTer?`
@@ -571,20 +649,31 @@ pub(super) fn protein_frameshift_stop(input: &str) -> ParseResult<'_, ProteinFra
     .parse(input)
 }
 
-/// Parses the explicitly written first residue in long protein frameshift syntax.
-///
-/// Example: `Pro`
-pub(super) fn protein_frameshift_residue(input: &str) -> ParseResult<'_, String> {
-    let (input, residue) = protein_symbol(input)?;
-
-    if residue == "Ter" {
-        Err(nom::Err::Error(nom::error::Error::new(
-            input,
-            nom::error::ErrorKind::Verify,
-        )))
-    } else {
-        Ok((input, residue))
-    }
+fn protein_insertion_sequence(input: &str) -> ParseResult<'_, ProteinInsertionSequence> {
+    alt((
+        map(
+            pair(
+                tag("Xaa"),
+                opt(delimited(
+                    char('['),
+                    map_res(digit1, str::parse::<usize>),
+                    char(']'),
+                )),
+            ),
+            |(_, count)| ProteinInsertionSequence::Unknown {
+                count: count.unwrap_or(1),
+            },
+        ),
+        map(
+            preceded(
+                alt((tag("*"), tag("Ter"))),
+                map_res(digit1, str::parse::<usize>),
+            ),
+            |ordinal| ProteinInsertionSequence::Terminating { ordinal },
+        ),
+        map(protein_sequence, ProteinInsertionSequence::Known),
+    ))
+    .parse(input)
 }
 
 /// Parses a contiguous protein sequence.
@@ -618,5 +707,254 @@ pub(super) fn normalize_protein_symbol(symbol: &str) -> String {
         "Ter".to_string()
     } else {
         symbol.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use nom::combinator::all_consuming;
+
+    use super::*;
+
+    #[test]
+    fn parses_unknown_protein_insertion_sequence() {
+        let (_, outcome) = all_consuming(protein_outcome)
+            .parse("Arg78_Gly79insXaa[23]")
+            .unwrap();
+
+        let ProteinOutcome::Produced {
+            edit: ProteinEditForm::Single(edit),
+            certainty: OutcomeCertainty::Certain,
+        } = outcome
+        else {
+            panic!("expected certain single protein edit");
+        };
+
+        assert!(matches!(
+            edit.kind,
+            ProteinEditKind::Insertion {
+                sequence: ProteinInsertionSequence::Unknown { count: 23 },
+            }
+        ));
+    }
+
+    #[test]
+    fn parses_bare_unknown_protein_insertion_sequence() {
+        let (_, outcome) = all_consuming(protein_outcome)
+            .parse("(Ser332_Ser333insXaa)")
+            .unwrap();
+
+        let ProteinOutcome::Produced {
+            edit: ProteinEditForm::Single(edit),
+            certainty: OutcomeCertainty::Predicted,
+        } = outcome
+        else {
+            panic!("expected predicted single protein edit");
+        };
+
+        assert!(matches!(
+            edit.kind,
+            ProteinEditKind::Insertion {
+                sequence: ProteinInsertionSequence::Unknown { count: 1 },
+            }
+        ));
+    }
+
+    #[test]
+    fn parses_terminating_protein_insertion_sequence() {
+        let (_, outcome) = all_consuming(protein_outcome)
+            .parse("Gln746_Lys747ins*63")
+            .unwrap();
+
+        let ProteinOutcome::Produced {
+            edit: ProteinEditForm::Single(edit),
+            certainty: OutcomeCertainty::Certain,
+        } = outcome
+        else {
+            panic!("expected certain single protein edit");
+        };
+
+        assert!(matches!(
+            edit.kind,
+            ProteinEditKind::Insertion {
+                sequence: ProteinInsertionSequence::Terminating { ordinal: 63 },
+            }
+        ));
+    }
+
+    #[test]
+    fn parses_predicted_unknown_protein_insertion() {
+        let (_, outcome) = all_consuming(protein_outcome)
+            .parse("(Val582_Asn583insXaa[5])")
+            .unwrap();
+
+        let ProteinOutcome::Produced {
+            edit: ProteinEditForm::Single(edit),
+            certainty: OutcomeCertainty::Predicted,
+        } = outcome
+        else {
+            panic!("expected predicted single protein edit");
+        };
+
+        assert!(matches!(
+            edit.kind,
+            ProteinEditKind::Insertion {
+                sequence: ProteinInsertionSequence::Unknown { count: 5 },
+            }
+        ));
+    }
+
+    #[test]
+    fn parses_protein_substitution_with_alternative_residues() {
+        let (_, outcome) = all_consuming(protein_outcome)
+            .parse("(Gly719Ala^Ser)")
+            .unwrap();
+
+        let ProteinOutcome::Produced {
+            edit: ProteinEditForm::Single(edit),
+            certainty: OutcomeCertainty::Predicted,
+        } = outcome
+        else {
+            panic!("expected predicted single protein edit");
+        };
+
+        let ProteinEditKind::Substitution {
+            to: ResidueChange::Alternative(alternatives),
+        } = edit.kind
+        else {
+            panic!("expected substitution with alternative residues");
+        };
+
+        assert_eq!(alternatives, vec!["Ala", "Ser"]);
+    }
+
+    #[test]
+    fn parses_multiple_protein_substitution_alternatives() {
+        let (_, outcome) = all_consuming(protein_outcome)
+            .parse("(Gly56Ala^Ser^Cys)")
+            .unwrap();
+
+        let ProteinOutcome::Produced {
+            edit: ProteinEditForm::Single(edit),
+            certainty: OutcomeCertainty::Predicted,
+        } = outcome
+        else {
+            panic!("expected predicted single protein edit");
+        };
+
+        let ProteinEditKind::Substitution {
+            to: ResidueChange::Alternative(alternatives),
+        } = edit.kind
+        else {
+            panic!("expected substitution with alternative residues");
+        };
+
+        assert_eq!(alternatives, vec!["Ala", "Ser", "Cys"]);
+    }
+
+    #[test]
+    fn parses_frameshift_with_alternative_residues() {
+        let (_, outcome) = all_consuming(protein_outcome)
+            .parse("Gly719(Ala^Ser)fsTer23")
+            .unwrap();
+
+        let ProteinOutcome::Produced {
+            edit: ProteinEditForm::Single(edit),
+            certainty: OutcomeCertainty::Certain,
+        } = outcome
+        else {
+            panic!("expected certain single protein edit");
+        };
+
+        let ProteinEditKind::Frameshift {
+            to_residue: Some(ResidueChange::Alternative(alternatives)),
+            stop,
+        } = edit.kind
+        else {
+            panic!("expected frameshift with alternative residues");
+        };
+
+        assert_eq!(alternatives, vec!["Ala", "Ser"]);
+        assert_eq!(stop.ordinal, Some(23));
+    }
+
+    #[test]
+    fn rejects_frameshift_with_terminating_residue_change() {
+        assert!(all_consuming(protein_outcome)
+            .parse("Arg97TerfsTer23")
+            .is_err());
+        assert!(all_consuming(protein_outcome)
+            .parse("Gly719(Ala^Ter)fsTer23")
+            .is_err());
+    }
+
+    #[test]
+    fn parses_alternative_protein_edits() {
+        let (_, outcome) = all_consuming(protein_outcome)
+            .parse("(Gly23GlufsTer7^Gly23CysfsTer26)")
+            .unwrap();
+
+        let ProteinOutcome::Produced {
+            edit: ProteinEditForm::Alternative(alternatives),
+            certainty: OutcomeCertainty::Predicted,
+        } = outcome
+        else {
+            panic!("expected predicted alternative protein edits");
+        };
+
+        assert_eq!(alternatives.len(), 2);
+
+        assert!(matches!(
+            &alternatives[0].kind,
+            ProteinEditKind::Frameshift {
+                to_residue: Some(ResidueChange::Known(residue)),
+                stop,
+            } if residue == "Glu" && stop.ordinal == Some(7)
+        ));
+
+        assert!(matches!(
+            &alternatives[1].kind,
+            ProteinEditKind::Frameshift {
+                to_residue: Some(ResidueChange::Known(residue)),
+                stop,
+            } if residue == "Cys" && stop.ordinal == Some(26)
+        ));
+    }
+
+    #[test]
+    fn parses_multiple_alternative_protein_edits() {
+        let (_, form) = all_consuming(protein_edit_form)
+            .parse("Gly23GlufsTer7^Gly23CysfsTer26^Gly23SerfsTer10")
+            .unwrap();
+
+        let ProteinEditForm::Alternative(alternatives) = form else {
+            panic!("expected alternative protein edit form");
+        };
+
+        assert_eq!(alternatives.len(), 3);
+    }
+
+    #[test]
+    fn distinguishes_residue_and_edit_alternatives() {
+        let (_, residue_alternative) = all_consuming(protein_edit_form)
+            .parse("Gly719Ala^Ser")
+            .unwrap();
+
+        let ProteinEditForm::Single(edit) = residue_alternative else {
+            panic!("residue alternatives must remain one protein edit");
+        };
+
+        assert!(matches!(
+            edit.kind,
+            ProteinEditKind::Substitution {
+                to: ResidueChange::Alternative(_),
+            }
+        ));
+
+        let (_, edit_alternative) = all_consuming(protein_edit_form)
+            .parse("Gly23GlufsTer7^Gly23CysfsTer26")
+            .unwrap();
+
+        assert!(matches!(edit_alternative, ProteinEditForm::Alternative(_)));
     }
 }

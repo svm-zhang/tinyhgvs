@@ -15,7 +15,7 @@ pub enum ProteinEditKind {
     NoChange(OutcomeCertainty),
     // p.Trp24Ter
     Substitution {
-        to: String,
+        to: ResidueChange,
     },
     // p.Lys23_Val25del
     Deletion,
@@ -27,17 +27,36 @@ pub enum ProteinEditKind {
     Extension(ProteinExtensionEdit),
     // p.Arg97fs, p.Arg97ProfsTer23
     Frameshift {
-        to_residue: Option<String>,
+        to_residue: Option<ResidueChange>,
         stop: ProteinFrameshiftStop,
     },
     // p.Val582_Asn583insAla
     Insertion {
-        sequence: ProteinSequence,
+        sequence: ProteinInsertionSequence,
     },
     // p.Ser68_Arg70delinsGly
     DeletionInsertion {
         sequence: ProteinSequence,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResidueChange {
+    Known(String),
+    Alternative(Vec<String>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProteinInsertionSequence {
+    Known(ProteinSequence),
+    Unknown { count: usize },
+    Terminating { ordinal: usize },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProteinEditForm {
+    Single(ProteinEdit),
+    Alternative(Vec<ProteinEdit>),
 }
 
 /// Model describing a stop codon is known (long-form), or omitted (short-form),

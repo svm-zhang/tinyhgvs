@@ -1,6 +1,6 @@
 //! Core public model types shared across coordinate systems.
 
-use super::{AlleleForm, NucleotideEdit, ProteinEdit};
+use super::{AlleleForm, NucleotideEdit, ProteinEdit, ProteinEditForm};
 
 /// A parsed HGVS variant.
 ///
@@ -214,13 +214,12 @@ pub enum OutcomeCertainty {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProteinOutcome {
-    // p.?
     Unknown,
-    // p.0, p.0?
+
     NoneProduced(OutcomeCertainty),
-    // p.Trp24Ter, p.(Trp24Ter)
+
     Produced {
-        edit: ProteinEdit,
+        edit: ProteinEditForm,
         certainty: OutcomeCertainty,
     },
 }
@@ -249,8 +248,14 @@ impl From<NucleotideEdit> for RnaOutcome {
 impl From<ProteinEdit> for ProteinOutcome {
     fn from(edit: ProteinEdit) -> Self {
         Self::Produced {
-            edit,
+            edit: edit.into(),
             certainty: OutcomeCertainty::Certain,
         }
+    }
+}
+
+impl From<ProteinEdit> for ProteinEditForm {
+    fn from(edit: ProteinEdit) -> Self {
+        Self::Single(edit)
     }
 }

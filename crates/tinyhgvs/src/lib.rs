@@ -118,9 +118,9 @@ pub use model::{
     CodingDnaOutcome, CoordinateSystem, CopiedSequenceItem, DerivedAllele, GenomicOutcome,
     HgvsVariant, Interval, LiteralSequenceItem, Location, NucleotideAnchor, NucleotideCoordinate,
     NucleotideEdit, NucleotideEditKind, NucleotideSequenceItem, OutcomeCertainty,
-    ProteinCoordinate, ProteinEdit, ProteinEditKind, ProteinExtensionEdit,
-    ProteinExtensionTerminal, ProteinFrameshiftStop, ProteinFrameshiftStopKind, ProteinOutcome,
-    ProteinSequence, Quantity, ReferenceSpec, RepeatEdit, RepeatSequenceUnit, RnaOutcome,
-    VariantDescription,
+    ProteinCoordinate, ProteinEdit, ProteinEditForm, ProteinEditKind, ProteinExtensionEdit,
+    ProteinExtensionTerminal, ProteinFrameshiftStop, ProteinFrameshiftStopKind,
+    ProteinInsertionSequence, ProteinOutcome, ProteinSequence, Quantity, ReferenceSpec, RepeatEdit,
+    RepeatSequenceUnit, ResidueChange, RnaOutcome, VariantDescription,
 };
 pub use parser::parse_hgvs;
