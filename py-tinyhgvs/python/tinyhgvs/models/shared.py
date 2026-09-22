@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Generic, Iterator, TypeVar
+from typing import Generic, Iterator, TypeAlias, TypeVar
 
 
 class CoordinateSystem(str, Enum):
@@ -52,6 +52,9 @@ class CoordinateSystem(str, Enum):
     NON_CODING_DNA = "n"
     RNA = "r"
     PROTEIN = "p"
+
+
+PositionT = TypeVar("PositionT")
 
 
 @dataclass(frozen=True, slots=True)
@@ -348,6 +351,102 @@ class Location(Generic[PositionT]):
         if self._uncertain is None:
             return None
         return self._uncertain.end
+
+
+@dataclass(frozen=True, slots=True)
+class KnownLocation(Generic[PositionT]):
+    """A known HGVS location.
+
+    A missing end represents a single position.
+    """
+
+    start: PositionT
+    end: PositionT | None = None
+
+    @property
+    def is_position(self) -> bool:
+        return self.end is None
+
+    @property
+    def is_interval(self) -> bool:
+        return self.end is not None
+
+
+@dataclass(frozen=True, slots=True)
+class PossibleRange(Generic[PositionT]):
+    """Range within which one uncertain location boundary may lie."""
+
+    start: PositionT
+    end: PositionT | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class UncertainLocation(Generic[PositionT]):
+    """An HGVS location with uncertain positional boundaries."""
+
+    start: PossibleRange[PositionT]
+    end: PossibleRange[PositionT] | None = None
+
+    @property
+    def is_position(self) -> bool:
+        return self.end is None
+
+    @property
+    def is_interval(self) -> bool:
+        return self.end is not None
+
+
+Location: TypeAlias = KnownLocation[PositionT] | UncertainLocation[PositionT]
+
+
+@dataclass(frozen=True, slots=True)
+class KnownQuantity:
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
+class UncertainQuantity:
+    lo: int | None
+    hi: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class UnknownQuantity:
+    pass
+
+
+Quantity: TypeAlias = KnownQuantity | UncertainQuantity | UnknownQuantity
+
+
+@dataclass(frozen=True, slots=True)
+class KnownRepeatUnit:
+    value: str
+
+
+@dataclass(frozen=True, slots=True)
+class UnknownRepeatUnit:
+    pass
+
+
+RepeatUnit: TypeAlias = KnownRepeatUnit | UnknownRepeatUnit
+
+
+@dataclass(frozen=True, slots=True)
+class Repeat:
+    unit: RepeatUnit | None
+    quantity: Quantity
+
+    @property
+    def is_unit_known(self) -> bool:
+        return isinstance(self.unit, KnownRepeatUnit)
+
+    @property
+    def is_copy_known(self) -> bool:
+        return isinstance(self.quantity, KnownQuantity)
+
+    @property
+    def is_copy_unknown(self) -> bool:
+        return isinstance(self.quantity, UnknownQuantity)
 
 
 class AllelePhase(str, Enum):
