@@ -1,20 +1,22 @@
 use pyo3::prelude::*;
-use pyo3::types::PyTuple;
+use pyo3::types::{PyModule, PyTuple};
 
 use tinyhgvs::{
     Accession, AllelePhase, CoordinateSystem, CopiedSequenceItem, Interval, Location,
     NucleotideAnchor, NucleotideCoordinate, NucleotideEdit, NucleotideEditKind,
-    NucleotideSequenceItem, ProteinCoordinate, Quantity, ReferenceSpec, RepeatEdit,
-    RepeatSequenceUnit,
+    NucleotideSequenceItem, OutcomeCertainty, ProteinCoordinate, ProteinEdit, ProteinEditForm,
+    ProteinEditKind, ProteinExtensionTerminal, ProteinFrameshiftStop, ProteinFrameshiftStopKind,
+    ProteinInsertionSequence, ProteinOutcome, ProteinSequence, Quantity, ReferenceSpec, RepeatEdit,
+    RepeatSequenceUnit, ResidueChange, RnaOutcome,
 };
 
-struct PyModelCodec<'py> {
+pub(crate) struct PyModelCodec<'py> {
     py: Python<'py>,
     module: Bound<'py, PyModule>,
 }
 
 impl<'py> PyModelCodec<'py> {
-    fn import(py: Python<'py>) -> PyResult<Self> {
+    pub(crate) fn import(py: Python<'py>) -> PyResult<Self> {
         Ok(Self {
             py,
             module: PyModule::import(py, PY_MODELS_MODULE)?,
@@ -291,16 +293,21 @@ impl<'py> PyModelCodec<'py> {
         ))
     }
 
-    fn nucleotide_variant(&self, value: &NucleotideVariant) -> PyResult<Bound<'py, PyAny>> {
-        self.class("NucleotideVariant")?.call1((
-            self.nucleotide_location(&value.location)?,
-            self.nucleotide_edit(&value.edit)?,
-        ))
+    fn residue_change(&self, value: &ResidueChange) -> PyResult<Bound<'py, PyAny>> {
+        match value {
+            ResidueChange::Known(residue) => Ok(residue.into_pyobject(self.py)?.into_any()),
+
+            ResidueChange::Alternative(residues) => {
+                Ok(PyTuple::new(self.py, residues.iter())?.into_any())
+            }
+        }
     }
 
-    fn protein_variant(&self, value: &tinyhgvs::ProteinVariant) -> PyResult<Bound<'py, PyAny>> {
-        self.class("ProteinVariant")?
-            .call1((value.is_predicted, self.protein_effect(&value.effect)?))
+    fn protein_sequence_to_py_tuple(
+        &self,
+        value: &ProteinSequence,
+    ) -> PyResult<Bound<'py, PyTuple>> {
+        PyTuple::new(self.py, value.residues.iter())
     }
 
     fn protein_sequence(&self, value: &ProteinSequence) -> PyResult<Bound<'py, PyAny>> {
@@ -351,37 +358,25 @@ impl<'py> PyModelCodec<'py> {
         }
     }
 
-    fn protein_sequence_omitted_edit(&self, value: &ProteinEdit) -> PyResult<Bound<'py, PyAny>> {
-        let name = match value {
-            ProteinEdit::Unknown => "unknown",
-            ProteinEdit::NoChange => "no_change",
-            ProteinEdit::Deletion => "deletion",
-            ProteinEdit::Duplication => "duplication",
-            _ => unreachable!("protein_sequence_omitted_edit called for non-enum edit"),
-        };
-        self.class("ProteinSequenceOmittedEdit")?.call1((name,))
-    }
-
-    fn protein_frameshift_stop_kind(
-        &self,
-        value: ProteinFrameshiftStopKind,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        let name = match value {
-            ProteinFrameshiftStopKind::Omitted => "omitted",
-            ProteinFrameshiftStopKind::Unknown => "unknown",
-            ProteinFrameshiftStopKind::Known => "known",
-        };
-        self.class("ProteinFrameshiftStopKind")?.call1((name,))
-    }
-
     fn protein_frameshift_stop(
         &self,
         value: &ProteinFrameshiftStop,
     ) -> PyResult<Bound<'py, PyAny>> {
-        self.class("ProteinFrameshiftStop")?.call1((
-            value.ordinal,
-            self.protein_frameshift_stop_kind(value.kind)?,
-        ))
+        match value.kind {
+            ProteinFrameshiftStopKind::Omitted => {
+                self.class("OmittedProteinFrameshiftStop")?.call0()
+            }
+
+            ProteinFrameshiftStopKind::Unknown => {
+                self.class("UnknownProteinFrameshiftStop")?.call0()
+            }
+
+            ProteinFrameshiftStopKind::Known => {
+                self.class("KnownProteinFrameshiftStop")?.call1((value
+                    .ordinal
+                    .expect("known frameshift stop requires ordinal"),))
+            }
+        }
     }
 
     fn protein_extension_terminal(
@@ -389,50 +384,162 @@ impl<'py> PyModelCodec<'py> {
         value: ProteinExtensionTerminal,
     ) -> PyResult<Bound<'py, PyAny>> {
         let name = match value {
-            ProteinExtensionTerminal::N => "n",
-            ProteinExtensionTerminal::C => "c",
+            ProteinExtensionTerminal::N => "N",
+            ProteinExtensionTerminal::C => "C",
         };
         self.class("ProteinExtensionTerminal")?.call1((name,))
     }
 
-    fn protein_extension_edit(&self, value: &ProteinExtensionEdit) -> PyResult<Bound<'py, PyAny>> {
-        self.class("ProteinExtensionEdit")?.call1((
-            self.protein_extension_terminal(value.to_terminal)?,
-            value.to_residue.as_deref(),
-            value.terminal_ordinal,
-        ))
-    }
-
     fn protein_edit(&self, value: &ProteinEdit) -> PyResult<Bound<'py, PyAny>> {
-        match value {
-            ProteinEdit::Unknown => self.protein_sequence_omitted_edit(value),
-            ProteinEdit::NoChange => self.protein_sequence_omitted_edit(value),
-            ProteinEdit::Substitution { to } => self.class("ProteinSubstitutionEdit")?.call1((to,)),
-            ProteinEdit::Deletion => self.protein_sequence_omitted_edit(value),
-            ProteinEdit::Duplication => self.protein_sequence_omitted_edit(value),
-            ProteinEdit::Extension(extension) => self.protein_extension_edit(extension),
-            ProteinEdit::Frameshift { to_residue, stop } => self
-                .class("ProteinFrameshiftEdit")?
-                .call1((to_residue, self.protein_frameshift_stop(stop)?)),
-            ProteinEdit::Insertion { sequence } => self
-                .class("ProteinInsertionEdit")?
-                .call1((self.protein_sequence(sequence)?,)),
-            ProteinEdit::DeletionInsertion { sequence } => self
-                .class("ProteinDeletionInsertionEdit")?
-                .call1((self.protein_sequence(sequence)?,)),
-            ProteinEdit::Repeat { count } => self.class("ProteinRepeatEdit")?.call1((count,)),
+        let location = self.protein_location(&value.location)?;
+
+        match &value.kind {
+            ProteinEditKind::Substitution { to } => {
+                let to = self.residue_change(to)?;
+
+                self.class("ProteinSubstitution")?.call1((location, to))
+            }
+
+            ProteinEditKind::Deletion => self.class("ProteinDeletion")?.call1((location,)),
+
+            ProteinEditKind::Duplication => self.class("ProteinDuplication")?.call1((location,)),
+
+            ProteinEditKind::Repeat(repeat) => {
+                let repeat = self.repeat_edit(repeat)?;
+
+                self.class("ProteinRepeat")?.call1((location, repeat))
+            }
+
+            ProteinEditKind::Extension(extension) => {
+                let terminal = self.protein_extension_terminal(extension.to_terminal)?;
+
+                self.class("ProteinExtension")?.call1((
+                    location,
+                    terminal,
+                    extension.to_residue.as_deref(),
+                    extension.terminal_ordinal,
+                ))
+            }
+
+            ProteinEditKind::Frameshift { to_residue, stop } => {
+                let to_residue = to_residue
+                    .as_ref()
+                    .map(|residue| self.residue_change(residue))
+                    .transpose()?;
+
+                let stop = self.protein_frameshift_stop(stop)?;
+
+                self.class("ProteinFrameshift")?
+                    .call1((location, to_residue, stop))
+            }
+
+            ProteinEditKind::Insertion { sequence } => match sequence {
+                ProteinInsertionSequence::Known(sequence) => {
+                    let sequence = self.protein_sequence_to_py_tuple(sequence)?;
+
+                    self.class("KnownProteinInsertion")?
+                        .call1((location, sequence))
+                }
+
+                ProteinInsertionSequence::Unknown { count } => self
+                    .class("UnknownProteinInsertion")?
+                    .call1((location, *count)),
+
+                ProteinInsertionSequence::Terminating { ordinal } => self
+                    .class("TerminatingProteinInsertion")?
+                    .call1((location, *ordinal)),
+            },
+
+            ProteinEditKind::DeletionInsertion { sequence } => {
+                let sequence = self.protein_sequence_to_py_tuple(sequence)?;
+
+                self.class("ProteinDeletionInsertion")?
+                    .call1((location, sequence))
+            }
+
+            ProteinEditKind::NoChange(_) => {
+                unreachable!("protein no-change edits must be handled by protein_outcome")
+            }
         }
     }
 
-    fn protein_effect(&self, value: &ProteinEffect) -> PyResult<Bound<'py, PyAny>> {
+    fn outcome_certainty(&self, value: &OutcomeCertainty) -> PyResult<Bound<'py, PyAny>> {
+        let value = match value {
+            OutcomeCertainty::Certain => "certain",
+            OutcomeCertainty::Predicted => "predicted",
+        };
+
+        self.class("OutcomeCertainty")?.call1((value,))
+    }
+
+    fn rna_outcome(&self, value: &RnaOutcome) -> PyResult<Bound<'py, PyAny>> {
         match value {
-            ProteinEffect::Unknown => self.class("ProteinUnknownEffect")?.call0(),
-            ProteinEffect::NoProteinProduced => {
-                self.class("ProteinNoProteinProducedEffect")?.call0()
+            RnaOutcome::Produced { edit, certainty } => {
+                let edit = self.nucleotide_edit(edit)?;
+                let certainty = self.outcome_certainty(certainty)?;
+
+                self.class("RnaProduced")?.call1((edit, certainty))
             }
-            ProteinEffect::Known { location, edit } => self
-                .class("ProteinEditEffect")?
-                .call1((self.protein_location(location)?, self.protein_edit(edit)?)),
+
+            RnaOutcome::NoChange(certainty) => {
+                let certainty = self.outcome_certainty(certainty)?;
+
+                self.class("RnaNoChange")?.call1((certainty,))
+            }
+
+            RnaOutcome::NoneProduced(certainty) => {
+                let certainty = self.outcome_certainty(certainty)?;
+
+                self.class("RnaNotProduced")?.call1((certainty,))
+            }
+
+            RnaOutcome::UncertainSplicing => self.class("RnaUncertainSplicing")?.call0(),
+
+            RnaOutcome::Unknown => self.class("RnaUnknown")?.call0(),
+
+            RnaOutcome::Indeterminate => self.class("RnaIndeterminate")?.call0(),
+        }
+    }
+
+    fn protein_outcome(&self, value: &ProteinOutcome) -> PyResult<Bound<'py, PyAny>> {
+        match value {
+            ProteinOutcome::Unknown => self.class("ProteinUnknown")?.call0(),
+
+            ProteinOutcome::NoneProduced(certainty) => {
+                let certainty = self.outcome_certainty(certainty)?;
+
+                self.class("ProteinNotProduced")?.call1((certainty,))
+            }
+
+            ProteinOutcome::Produced { edit, certainty } => match edit {
+                ProteinEditForm::Single(edit) => match &edit.kind {
+                    ProteinEditKind::NoChange(certainty) => {
+                        let certainty = self.outcome_certainty(certainty)?;
+
+                        self.class("ProteinNoChange")?.call1((certainty,))
+                    }
+
+                    _ => {
+                        let edit = self.protein_edit(edit)?;
+                        let certainty = self.outcome_certainty(certainty)?;
+
+                        self.class("ProteinProduced")?.call1((edit, certainty))
+                    }
+                },
+
+                ProteinEditForm::Alternative(edits) => {
+                    let edits = edits
+                        .iter()
+                        .map(|edit| self.protein_edit(edit))
+                        .collect::<PyResult<Vec<_>>>()?;
+
+                    let edits = PyTuple::new(self.py, edits)?;
+                    let certainty = self.outcome_certainty(certainty)?;
+
+                    self.class("ProteinProducedAlternatives")?
+                        .call1((edits, certainty))
+                }
+            },
         }
     }
 
@@ -449,7 +556,7 @@ impl<'py> PyModelCodec<'py> {
         }
     }
 
-    fn variant(&self, value: &CoreHgvsVariant) -> PyResult<Bound<'py, PyAny>> {
+    pub(crate) fn variant(&self, value: &CoreHgvsVariant) -> PyResult<Bound<'py, PyAny>> {
         let reference = value
             .reference
             .as_ref()
