@@ -89,3 +89,14 @@ class RnaIndeterminate(RnaOutcome):
     @property
     def is_indeterminate(self) -> bool:
         return True
+
+
+__all__ = [
+    "RnaOutcome",
+    "RnaProduced",
+    "RnaNoChange",
+    "RnaNotProduced",
+    "RnaUncertainSplicing",
+    "RnaUnknown",
+    "RnaIndeterminate",
+]

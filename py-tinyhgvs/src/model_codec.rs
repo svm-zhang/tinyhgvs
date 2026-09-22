@@ -3,13 +3,15 @@ use pyo3::types::{PyModule, PyTuple};
 
 use tinyhgvs::{
     Accession, Allele, AlleleForm, AllelePhase, AlleleStateCertainty, AlleleVariant,
-    CodingDnaOutcome, CoordinateSystem, CopiedSequenceItem, GenomicOutcome, Interval, Location,
-    NucleotideAnchor, NucleotideCoordinate, NucleotideEdit, NucleotideEditKind,
+    CodingDnaOutcome, CoordinateSystem, CopiedSequenceItem, GenomicOutcome, HgvsVariant, Interval,
+    Location, NucleotideAnchor, NucleotideCoordinate, NucleotideEdit, NucleotideEditKind,
     NucleotideSequenceItem, OutcomeCertainty, ProteinCoordinate, ProteinEdit, ProteinEditForm,
     ProteinEditKind, ProteinExtensionTerminal, ProteinFrameshiftStop, ProteinFrameshiftStopKind,
     ProteinInsertionSequence, ProteinOutcome, ProteinSequence, Quantity, ReferenceSpec, RepeatEdit,
-    RepeatSequenceUnit, ResidueChange, RnaOutcome,
+    RepeatSequenceUnit, ResidueChange, RnaOutcome, VariantDescription,
 };
+
+const PY_MODELS_MODULE: &str = "tinyhgvs.models";
 
 pub(crate) struct PyModelCodec<'py> {
     py: Python<'py>,
@@ -28,13 +30,18 @@ impl<'py> PyModelCodec<'py> {
         self.module.getattr(name)
     }
 
-    fn coordinate_system(&self, value: CoordinateSystem) -> PyResult<Bound<'py, PyAny>> {
+    fn coordinate_system(&self, value: &CoordinateSystem) -> PyResult<Bound<'py, PyAny>> {
         self.class("CoordinateSystem")?.call1((value.as_str(),))
     }
 
     fn nucleotide_anchor(&self, value: NucleotideAnchor) -> PyResult<Bound<'py, PyAny>> {
-        self.class("NucleotideAnchor")?
-            .call1((nucleotide_anchor_value(value),))
+        let value = match value {
+            NucleotideAnchor::Absolute => "absolute",
+            NucleotideAnchor::RelativeCdsStart => "relative_cds_start",
+            NucleotideAnchor::RelativeCdsEnd => "relative_cds_end",
+        };
+
+        self.class("NucleotideAnchor")?.call1((value,))
     }
 
     fn accession(&self, value: &Accession) -> PyResult<Bound<'py, PyAny>> {
@@ -166,7 +173,7 @@ impl<'py> PyModelCodec<'py> {
         let coordinate_system = value
             .source_coordinate_system
             .as_ref()
-            .map(|coordinate_system| self.coordinate_system(*coordinate_system))
+            .map(|coordinate_system| self.coordinate_system(coordinate_system))
             .transpose()?;
 
         let location = self.known_nucleotide_location_from_interval(&value.source_location)?;
@@ -334,7 +341,9 @@ impl<'py> PyModelCodec<'py> {
         &self,
         value: &AlleleForm<GenomicOutcome>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        self.allele_form_with(value, |codec, outcome| codec.genomic_outcome(outcome))
+        self.allele_form_with(value, |codec, outcome| match outcome {
+            GenomicOutcome::Known(edit) => codec.nucleotide_edit(edit),
+        })
     }
 
     fn coding_dna_allele_form(
@@ -370,11 +379,6 @@ impl<'py> PyModelCodec<'py> {
         value: &ProteinSequence,
     ) -> PyResult<Bound<'py, PyTuple>> {
         PyTuple::new(self.py, value.residues.iter())
-    }
-
-    fn protein_sequence(&self, value: &ProteinSequence) -> PyResult<Bound<'py, PyAny>> {
-        let residues = PyTuple::new(self.py, &value.residues)?;
-        self.class("ProteinSequence")?.call1((residues,))
     }
 
     fn nucleotide_edit(&self, value: &NucleotideEdit) -> PyResult<Bound<'py, PyAny>> {
@@ -534,6 +538,14 @@ impl<'py> PyModelCodec<'py> {
         self.class("OutcomeCertainty")?.call1((value,))
     }
 
+    fn coding_dna_outcome(&self, value: &CodingDnaOutcome) -> PyResult<Bound<'py, PyAny>> {
+        match value {
+            CodingDnaOutcome::Known(edit) => self.nucleotide_edit(edit),
+
+            CodingDnaOutcome::Unknown => self.class("CodingDnaUnknown")?.call0(),
+        }
+    }
+
     fn rna_outcome(&self, value: &RnaOutcome) -> PyResult<Bound<'py, PyAny>> {
         match value {
             RnaOutcome::Produced { edit, certainty } => {
@@ -605,38 +617,44 @@ impl<'py> PyModelCodec<'py> {
         }
     }
 
-    fn description(&self, value: &VariantDescription) -> PyResult<Bound<'py, PyAny>> {
+    fn variant_description(&self, value: &VariantDescription) -> PyResult<Bound<'py, PyAny>> {
         match value {
-            VariantDescription::Nucleotide(value) => self.nucleotide_variant(value),
-            VariantDescription::NucleotideAllele(value) => {
-                self.allele_variant(value, Self::nucleotide_variant)
+            VariantDescription::Genomic(outcome) => match outcome {
+                GenomicOutcome::Known(edit) => self.nucleotide_edit(edit),
+            },
+
+            VariantDescription::CodingDna(outcome) => {
+                // Placeholder:
+                // use the CURRENT existing cDNA conversion.
+                self.coding_dna_outcome(outcome)
             }
-            VariantDescription::Protein(value) => self.protein_variant(value),
-            VariantDescription::ProteinAllele(value) => {
-                self.allele_variant(value, Self::protein_variant)
-            }
+
+            VariantDescription::Rna(outcome) => self.rna_outcome(outcome),
+
+            VariantDescription::Protein(outcome) => self.protein_outcome(outcome),
+
+            VariantDescription::GenomicAllele(form) => self.genomic_allele_form(form),
+
+            VariantDescription::CodingDnaAllele(form) => self.coding_dna_allele_form(form),
+
+            VariantDescription::RnaAllele(form) => self.rna_allele_form(form),
+
+            VariantDescription::ProteinAllele(form) => self.protein_allele_form(form),
         }
     }
 
-    pub(crate) fn variant(&self, value: &CoreHgvsVariant) -> PyResult<Bound<'py, PyAny>> {
+    pub(crate) fn hgvs_variant(&self, value: &HgvsVariant) -> PyResult<Bound<'py, PyAny>> {
         let reference = value
             .reference
             .as_ref()
             .map(|reference| self.reference_spec(reference))
             .transpose()?;
 
-        self.class("HgvsVariant")?.call1((
-            reference,
-            self.coordinate_system(value.coordinate_system)?,
-            self.description(&value.description)?,
-        ))
-    }
-}
+        let coordinate_system = self.coordinate_system(&value.coordinate_system)?;
 
-fn nucleotide_anchor_value(value: NucleotideAnchor) -> &'static str {
-    match value {
-        NucleotideAnchor::Absolute => "absolute",
-        NucleotideAnchor::RelativeCdsStart => "relative_cds_start",
-        NucleotideAnchor::RelativeCdsEnd => "relative_cds_end",
+        let description = self.variant_description(&value.description)?;
+
+        self.class("HgvsVariant")?
+            .call1((reference, coordinate_system, description))
     }
 }

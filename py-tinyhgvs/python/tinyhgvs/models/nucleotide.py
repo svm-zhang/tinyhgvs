@@ -55,18 +55,6 @@ class NucleotideAnchor(str, Enum):
     RELATIVE_CDS_END = "relative_cds_end"
 
 
-class NucleotideCoordinateKind(str, Enum):
-    """Known/unknown state for a nucleotide coordinate.
-
-    Attributes:
-        KNOWN: Coordinate has anchor, coordinate, and offset values.
-        UNKNOWN: Coordinate is written as ``?``.
-    """
-
-    KNOWN = "known"
-    UNKNOWN = "unknown"
-
-
 @dataclass(frozen=True, slots=True)
 class NucleotideCoordinate:
     """A nucleotide coordinate or the explicit HGVS unknown coordinate `?`."""
@@ -179,33 +167,6 @@ class CopiedSequence:
 NucleotideSequenceItem: TypeAlias = LiteralSequence | Repeat | CopiedSequence
 
 
-@dataclass(frozen=True, slots=True)
-class NucleotideVariant:
-    """Model describing a nucleotide-level variant.
-
-    Attributes:
-        location: [`Location`][tinyhgvs.models.shared.Location] where the
-            nucleotide edit occurs.
-        edit: Nucleotide edit applied at the location.
-
-    Examples:
-        A splice-site substitution is represented by a nucleotide location and
-        a nucleotide substitution edit.
-        >>> from tinyhgvs import NucleotideSubstitutionEdit, parse_hgvs
-        >>> variant = parse_hgvs("NM_004006.2:c.357+1G>A")
-        >>> isinstance(variant.description.edit, NucleotideSubstitutionEdit)
-        True
-        >>> variant_description = variant.description
-        >>> variant_description.location.start.coordinate
-        357
-        >>> variant_description.location.start.offset
-        1
-    """
-
-    location: Location[NucleotideCoordinate]
-    edit: NucleotideEdit
-
-
 __all__ = [
     "Allele",
     "AllelePhase",
@@ -222,6 +183,5 @@ __all__ = [
     "NucleotideSequenceItem",
     "NucleotideSubstitution",
     "NucleotideNoChange",
-    "NucleotideVariant",
     "LiteralSequence",
 ]

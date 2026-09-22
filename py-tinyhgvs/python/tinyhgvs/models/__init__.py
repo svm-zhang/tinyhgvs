@@ -24,6 +24,10 @@ from .allele import (
     AlternativeAlleleForm,
     DerivedAlleleForm,
 )
+from .cdna import (
+    CodingDnaOutcome,
+    CodingDnaUnknown,
+)
 from .nucleotide import (
     CopiedSequence,
     LiteralSequence,
@@ -40,7 +44,6 @@ from .nucleotide import (
     NucleotideRepeatBlock,
     NucleotideSequenceItem,
     NucleotideSubstitution,
-    NucleotideVariant,
     RepeatSequenceItem,
 )
 from .protein import (
@@ -80,6 +83,7 @@ from .rna import (
     RnaIndeterminate,
     RnaNoChange,
     RnaNotProduced,
+    RnaOutcome,
     RnaProduced,
     RnaUncertainSplicing,
     RnaUnknown,
@@ -96,19 +100,13 @@ from .shared import (
     UncertainLocation,
 )
 
-VariantDescription: TypeAlias = (
-    NucleotideVariant
-    | AlleleVariant[NucleotideVariant]
-    | ProteinVariant
-    | AlleleVariant[ProteinVariant]
+_VariantDescription: TypeAlias = (
+    NucleotideEdit
+    | RnaOutcome
+    | ProteinOutcome
+    | AlleleForm
+    | CodingDnaUnknown
 )
-"""Tagged union for supported top-level variant models:
-
-- [`NucleotideVariant`][tinyhgvs.models.nucleotide.NucleotideVariant]
-- `AlleleVariant[NucleotideVariant]`
-- [`ProteinVariant`][tinyhgvs.models.protein.ProteinVariant]
-- `AlleleVariant[ProteinVariant]`
-"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,7 +160,7 @@ class HgvsVariant:
 
     reference: ReferenceSpec | None
     coordinate_system: CoordinateSystem
-    description: VariantDescription
+    description: _VariantDescription
 
 
 __all__ = [
@@ -192,7 +190,6 @@ __all__ = [
     "NucleotideInversion",
     "NucleotideDuplication",
     "NucleotideNoChange",
-    "NucleotideVariant",
     "RnaOutcome",
     "RnaProduced",
     "RnaNoChange",
@@ -237,4 +234,6 @@ __all__ = [
     "ProteinProducedAlternatives",
     "ProteinUnknown",
     "UnknownQuantity",
+    "CodingDnaUnknown",
+    "CodingDnaOutcome",
 ]

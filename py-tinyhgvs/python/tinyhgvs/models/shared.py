@@ -54,7 +54,7 @@ class CoordinateSystem(str, Enum):
     PROTEIN = "p"
 
 
-PositionT = TypeVar("PositionT")
+_PositionT = TypeVar("_PositionT")
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,14 +125,14 @@ class ReferenceSpec:
 
 
 @dataclass(frozen=True, slots=True)
-class KnownLocation(Generic[PositionT]):
+class KnownLocation(Generic[_PositionT]):
     """A known HGVS location.
 
     A missing end represents a single position.
     """
 
-    start: PositionT
-    end: PositionT | None = None
+    start: _PositionT
+    end: _PositionT | None = None
 
     @property
     def is_position(self) -> bool:
@@ -144,19 +144,19 @@ class KnownLocation(Generic[PositionT]):
 
 
 @dataclass(frozen=True, slots=True)
-class PossibleRange(Generic[PositionT]):
+class PossibleRange(Generic[_PositionT]):
     """Range within which one uncertain location boundary may lie."""
 
-    start: PositionT
-    end: PositionT | None = None
+    start: _PositionT
+    end: _PositionT | None = None
 
 
 @dataclass(frozen=True, slots=True)
-class UncertainLocation(Generic[PositionT]):
+class UncertainLocation(Generic[_PositionT]):
     """An HGVS location with uncertain positional boundaries."""
 
-    start: PossibleRange[PositionT]
-    end: PossibleRange[PositionT] | None = None
+    start: PossibleRange[_PositionT]
+    end: PossibleRange[_PositionT] | None = None
 
     @property
     def is_position(self) -> bool:
@@ -167,7 +167,7 @@ class UncertainLocation(Generic[PositionT]):
         return self.end is not None
 
 
-Location: TypeAlias = KnownLocation[PositionT] | UncertainLocation[PositionT]
+Location: TypeAlias = KnownLocation[_PositionT] | UncertainLocation[_PositionT]
 
 
 class OutcomeCertainty(str, Enum):
@@ -180,7 +180,6 @@ __all__ = [
     "CoordinateSystem",
     "KnownLocation",
     "Location",
-    "PositionT",
     "ReferenceSpec",
     "OutcomeCertainty",
     "UncertainLocation",
