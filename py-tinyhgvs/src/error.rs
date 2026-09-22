@@ -1,12 +1,16 @@
-const PY_ERRORS_MODULE: &str = "tinyhgvs.errors";
-const PY_MODELS_MODULE: &str = "tinyhgvs.models";
+use pyo3::prelude::*;
+use pyo3::types::PyModule;
 
-struct PyErrorFactory<'py> {
+use tinyhgvs::{ParseHgvsError, ParseHgvsErrorKind};
+
+const PY_ERRORS_MODULE: &str = "tinyhgvs.errors";
+
+pub(crate) struct PyErrorFactory<'py> {
     module: Bound<'py, PyModule>,
 }
 
 impl<'py> PyErrorFactory<'py> {
-    fn import(py: Python<'py>) -> PyResult<Self> {
+    pub(crate) fn import(py: Python<'py>) -> PyResult<Self> {
         Ok(Self {
             module: PyModule::import(py, PY_ERRORS_MODULE)?,
         })
@@ -17,11 +21,16 @@ impl<'py> PyErrorFactory<'py> {
     }
 
     fn error_kind(&self, value: ParseHgvsErrorKind) -> PyResult<Bound<'py, PyAny>> {
-        self.class("ParseHgvsErrorKind")?
-            .call1((error_kind_value(value),))
+        let value = match value {
+            ParseHgvsErrorKind::InvalidSyntax => "invalid_syntax",
+            ParseHgvsErrorKind::UnsupportedSyntax => "unsupported_syntax",
+            ParseHgvsErrorKind::SemanticConstraint => "semantic_constraint",
+        };
+
+        self.class("ParseHgvsErrorKind")?.call1((value,))
     }
 
-    fn parse_error(&self, value: &CoreParseHgvsError) -> PyResult<PyErr> {
+    pub(crate) fn parse_error(&self, value: &ParseHgvsError) -> PyResult<PyErr> {
         let error = self.class("TinyHGVSError")?.call1((
             self.error_kind(value.kind())?,
             value.code(),
@@ -32,13 +41,5 @@ impl<'py> PyErrorFactory<'py> {
         ))?;
 
         Ok(PyErr::from_value(error))
-    }
-}
-
-fn error_kind_value(value: ParseHgvsErrorKind) -> &'static str {
-    match value {
-        ParseHgvsErrorKind::InvalidSyntax => "invalid_syntax",
-        ParseHgvsErrorKind::UnsupportedSyntax => "unsupported_syntax",
-        ParseHgvsErrorKind::SemanticConstraint => "semantic_constraint",
     }
 }
