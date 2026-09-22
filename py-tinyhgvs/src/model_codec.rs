@@ -2,7 +2,8 @@ use pyo3::prelude::*;
 use pyo3::types::{PyModule, PyTuple};
 
 use tinyhgvs::{
-    Accession, AllelePhase, CoordinateSystem, CopiedSequenceItem, Interval, Location,
+    Accession, Allele, AlleleForm, AllelePhase, AlleleStateCertainty, AlleleVariant,
+    CodingDnaOutcome, CoordinateSystem, CopiedSequenceItem, GenomicOutcome, Interval, Location,
     NucleotideAnchor, NucleotideCoordinate, NucleotideEdit, NucleotideEditKind,
     NucleotideSequenceItem, OutcomeCertainty, ProteinCoordinate, ProteinEdit, ProteinEditForm,
     ProteinEditKind, ProteinExtensionTerminal, ProteinFrameshiftStop, ProteinFrameshiftStopKind,
@@ -227,70 +228,131 @@ impl<'py> PyModelCodec<'py> {
     fn repeat_blocks_to_py_tuple(&self, blocks: &[RepeatEdit]) -> PyResult<Bound<'py, PyTuple>> {
         let items = blocks
             .iter()
-            .map(|item| self.nucleotide_repeat_block(item))
+            .map(|item| self.repeat_edit(item))
             .collect::<PyResult<Vec<_>>>()?;
         PyTuple::new(self.py, items)
     }
 
-    fn allele_phase(&self, value: AllelePhase) -> PyResult<Bound<'py, PyAny>> {
-        let name = match value {
+    fn allele_state_certainty(&self, value: &AlleleStateCertainty) -> PyResult<Bound<'py, PyAny>> {
+        let value = match value {
+            AlleleStateCertainty::Certain => "certain",
+            AlleleStateCertainty::Uncertain => "uncertain",
+        };
+
+        self.class("AlleleStateCertainty")?.call1((value,))
+    }
+
+    fn allele_phase(&self, value: &AllelePhase) -> PyResult<Bound<'py, PyAny>> {
+        let value = match value {
             AllelePhase::Trans => "trans",
             AllelePhase::Uncertain => "uncertain",
         };
-        self.class("AllelePhase")?.call1((name,))
+        self.class("AllelePhase")?.call1((value,))
     }
 
-    fn allele<T>(
+    fn allele_with<T>(
         &self,
         value: &Allele<T>,
-        map_variant: fn(&Self, &T) -> PyResult<Bound<'py, PyAny>>,
+        convert: impl Fn(&Self, &T) -> PyResult<Bound<'py, PyAny>>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let variants = value
             .variants
             .iter()
-            .map(|item| map_variant(self, item))
+            .map(|variant| convert(self, variant))
             .collect::<PyResult<Vec<_>>>()?;
 
-        self.class("Allele")?
-            .call1((PyTuple::new(self.py, variants)?,))
+        let variants = PyTuple::new(self.py, variants)?;
+        let state_certainty = self.allele_state_certainty(&value.state_certainty)?;
+
+        self.class("Allele")?.call1((variants, state_certainty))
     }
 
-    fn alleles_tuple<T>(
-        &self,
-        value: &[Allele<T>],
-        map_variant: fn(&Self, &T) -> PyResult<Bound<'py, PyAny>>,
-    ) -> PyResult<Bound<'py, PyTuple>> {
-        let alleles = value
-            .iter()
-            .map(|item| self.allele(item, map_variant))
-            .collect::<PyResult<Vec<_>>>()?;
-
-        PyTuple::new(self.py, alleles)
-    }
-
-    fn allele_variant<T>(
+    fn allele_variant_with<T>(
         &self,
         value: &AlleleVariant<T>,
-        map_variant: fn(&Self, &T) -> PyResult<Bound<'py, PyAny>>,
+        convert: impl Copy + Fn(&Self, &T) -> PyResult<Bound<'py, PyAny>>,
     ) -> PyResult<Bound<'py, PyAny>> {
+        let allele_one = self.allele_with(&value.allele_one, convert)?;
+
         let allele_two = value
             .allele_two
             .as_ref()
-            .map(|allele| self.allele(allele, map_variant))
-            .transpose()?;
-        let phase = value
-            .phase
-            .map(|phase| self.allele_phase(phase))
+            .map(|allele| self.allele_with(allele, convert))
             .transpose()?;
 
-        // Python reuses the same Allele / AlleleVariant container types for
-        // nucleotide and protein allele descriptions.
-        self.class("AlleleVariant")?.call1((
-            self.allele(&value.allele_one, map_variant)?,
-            allele_two,
-            phase,
-            self.alleles_tuple(&value.variants_unphased, map_variant)?,
-        ))
+        let phase = value
+            .phase
+            .map(|phase| self.allele_phase(&phase))
+            .transpose()?;
+
+        let unphased = value
+            .variants_unphased
+            .iter()
+            .map(|variant| convert(self, variant))
+            .collect::<PyResult<Vec<_>>>()?;
+
+        let unphased = PyTuple::new(self.py, unphased)?;
+
+        self.class("AlleleVariant")?
+            .call1((allele_one, allele_two, phase, unphased))
+    }
+
+    fn allele_form_with<T>(
+        &self,
+        value: &AlleleForm<T>,
+        convert: impl Copy + Fn(&Self, &T) -> PyResult<Bound<'py, PyAny>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        match value {
+            AlleleForm::Single(variant) => self.allele_variant_with(variant, convert),
+
+            AlleleForm::Derived(derived) => {
+                let outcomes = derived
+                    .outcomes
+                    .iter()
+                    .map(|outcome| convert(self, outcome))
+                    .collect::<PyResult<Vec<_>>>()?;
+
+                let outcomes = PyTuple::new(self.py, outcomes)?;
+
+                self.class("DerivedAlleleForm")?.call1((outcomes,))
+            }
+
+            AlleleForm::Alternative(alternatives) => {
+                let alternatives = alternatives
+                    .iter()
+                    .map(|variant| self.allele_variant_with(variant, convert))
+                    .collect::<PyResult<Vec<_>>>()?;
+
+                let alternatives = PyTuple::new(self.py, alternatives)?;
+
+                self.class("AlternativeAlleleForm")?.call1((alternatives,))
+            }
+        }
+    }
+
+    fn genomic_allele_form(
+        &self,
+        value: &AlleleForm<GenomicOutcome>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        self.allele_form_with(value, |codec, outcome| codec.genomic_outcome(outcome))
+    }
+
+    fn coding_dna_allele_form(
+        &self,
+        value: &AlleleForm<CodingDnaOutcome>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        self.allele_form_with(value, |codec, outcome| codec.coding_dna_outcome(outcome))
+    }
+
+    fn rna_allele_form(&self, value: &AlleleForm<RnaOutcome>) -> PyResult<Bound<'py, PyAny>> {
+        self.allele_form_with(value, |codec, outcome| codec.rna_outcome(outcome))
+    }
+
+    fn protein_allele_form(
+        &self,
+        value: &AlleleForm<ProteinOutcome>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        self.allele_form_with(value, |codec, outcome| codec.protein_outcome(outcome))
     }
 
     fn residue_change(&self, value: &ResidueChange) -> PyResult<Bound<'py, PyAny>> {

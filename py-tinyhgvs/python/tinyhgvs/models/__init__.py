@@ -15,6 +15,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TypeAlias
 
+from .allele import (
+    Allele,
+    AlleleForm,
+    AllelePhase,
+    AlleleStateCertainty,
+    AlleleVariant,
+    AlternativeAlleleForm,
+    DerivedAlleleForm,
+)
 from .nucleotide import (
     CopiedSequence,
     LiteralSequence,
@@ -58,6 +67,15 @@ from .protein import (
     ProteinUnknown,
     UnknownProteinFrameshiftStop,
 )
+from .repeat import (
+    KnownQuantity,
+    KnownRepeatUnit,
+    Repeat,
+    RepeatUnit,
+    UncertainQuantity,
+    UnknownQuantity,
+    UnknownRepeatUnit,
+)
 from .rna import (
     RnaIndeterminate,
     RnaNoChange,
@@ -68,23 +86,14 @@ from .rna import (
 )
 from .shared import (
     Accession,
-    Allele,
-    AllelePhase,
-    AlleleVariant,
     CoordinateSystem,
     KnownLocation,
-    KnownQuantity,
-    KnownRepeatUnit,
     Location,
     OutcomeCertainty,
     PossibleRange,
     Quantity,
     ReferenceSpec,
-    Repeat,
-    RepeatUnit,
     UncertainLocation,
-    UncertainQuantity,
-    UnknownRepeatUnit,
 )
 
 VariantDescription: TypeAlias = (
@@ -159,8 +168,12 @@ class HgvsVariant:
 __all__ = [
     "Accession",
     "Allele",
+    "AlleleStateCertainty",
     "AllelePhase",
     "AlleleVariant",
+    "AlleleForm",
+    "DerivedAlleleForm",
+    "AlternativeAlleleForm",
     "CopiedSequence",
     "CoordinateSystem",
     "HgvsVariant",
@@ -223,4 +236,5 @@ __all__ = [
     "ProteinNotProduced",
     "ProteinProducedAlternatives",
     "ProteinUnknown",
+    "UnknownQuantity",
 ]
