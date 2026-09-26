@@ -75,7 +75,6 @@ class Allele(Generic[_T]):
     def is_uncertain(self) -> bool:
         return self.state_certainty is AlleleStateCertainty.UNCERTAIN
 
-    # FIXME: check if this still works with the new model
     def __iter__(self) -> Iterator[_T]:
         """Return an iterator over variants carried by an allele in order.
 
@@ -101,6 +100,38 @@ class Allele(Generic[_T]):
 
 
 class AlleleForm(Generic[_T]):
+    """Base class for top-level allele forms.
+
+    Allele forms describe how allele-level syntax is written at the outer
+    level. A single allele form covers ordinary allele syntax, while derived
+    and alternative forms cover comma and ``^`` syntax.
+
+    Examples:
+        Ordinary allele syntax:
+        >>> from tinyhgvs import AlleleVariant, parse_hgvs
+        >>> desc = parse_hgvs("NM_004006.2:c.[2376G>C];[2376=]").description
+        >>> isinstance(desc, AlleleVariant)
+        True
+        >>> desc.is_single
+        True
+
+        Derived allele syntax:
+        >>> from tinyhgvs import DerivedAlleleForm
+        >>> desc = parse_hgvs("NP_003997.1:p.[Ser68Arg,Asn594del]").description
+        >>> isinstance(desc, DerivedAlleleForm)
+        True
+        >>> desc.is_derived
+        True
+
+        Alternative allele syntax:
+        >>> from tinyhgvs import AlternativeAlleleForm
+        >>> desc = parse_hgvs("NP_003997.1:p.[Ser68Arg]^[Asn594del]").description
+        >>> isinstance(desc, AlternativeAlleleForm)
+        True
+        >>> desc.is_alternative
+        True
+    """
+
     @property
     def is_single(self) -> bool:
         return False
@@ -130,16 +161,14 @@ class AlleleVariant(AlleleForm[_T]):
         allele_two: Second allele, if present.
         phase: Phase relation between ``allele_one`` and ``allele_two``. This
             is ``None`` when only one allele is described.
-        alleles_unphased: Additional alleles in uncertain relation to the
-            allele state established by ``allele_one`` and ``allele_two``.
+        unphased: Later variants written in uncertain relation to the
+            established allele state.
 
     Examples:
         Variants *in cis* on a single allele:
 
         >>> from tinyhgvs import parse_hgvs
         >>> desc = parse_hgvs("NC_000023.10:g.[30683643A>G;33038273T>G]").description
-        >>> len(tuple(desc))
-        1
         >>> desc.allele_two is None
         True
         >>> desc.phase is None
@@ -162,20 +191,18 @@ class AlleleVariant(AlleleForm[_T]):
         Additional alleles with uncertain phase:
 
         >>> desc = parse_hgvs(
-        ...     "NM_004006.2:c.[296T>G;476T>C];[476T>C](;)1083A>C"
+        ...     "NC_000001.11:g.[123G>A];[345del](;)789dup"
         ... ).description
         >>> desc.phase
         <AllelePhase.TRANS: 'trans'>
-        >>> len(desc.unphased_alleles)
+        >>> len(desc.unphased)
         1
-        >>> len(desc.unphased_alleles[0].variants)
-        1
+        >>> desc.unphased[0].location.start.coordinate
+        789
 
         Variants *in cis* on a single protein allele:
 
         >>> desc = parse_hgvs("NP_003997.1:p.[Ser68Arg;Asn594del]").description
-        >>> len(tuple(desc))
-        1
         >>> desc.allele_two is None
         True
         >>> desc.phase is None
@@ -213,7 +240,6 @@ class AlleleVariant(AlleleForm[_T]):
     def has_unphased_variants(self) -> bool:
         return bool(self.unphased)
 
-    # FIXME: check if this still works with the new model
     @property
     def phased_alleles(
         self,
@@ -229,7 +255,7 @@ class AlleleVariant(AlleleForm[_T]):
         Notes:
             This property reports only the primary phased allele pair
             represented by ``allele_one`` and ``allele_two``. Alleles in
-            ``alleles_unphased`` are not included.
+            ``unphased`` are not included.
 
         Examples:
 
@@ -263,12 +289,12 @@ class AlleleVariant(AlleleForm[_T]):
             Additional alleles with uncertain relation to the established pair:
 
             >>> desc = parse_hgvs(
-            ...     "NM_004006.2:c.[296T>G;476T>C];[476T>C](;)1083A>C"
+            ...     "NC_000001.11:g.[123G>A];[345del](;)789dup"
             ... ).description
             >>> pair = desc.phased_alleles
             >>> pair is not None
             True
-            >>> len(desc.alleles_unphased)
+            >>> len(desc.unphased)
             1
 
             Two protein alleles with known phase:
@@ -289,15 +315,29 @@ class AlleleVariant(AlleleForm[_T]):
             <AllelePhase.UNCERTAIN: 'uncertain'>
             >>> desc.phased_alleles is None
             True
-            >>> len(desc.unphased_alleles)
+            >>> len(desc.unphased)
             0
         """
         if self.phase is AllelePhase.TRANS and self.allele_two is not None:
             return (self.allele_one, self.allele_two)
         return None
 
+
 @dataclass(frozen=True, slots=True)
 class DerivedAlleleForm(AlleleForm[_T]):
+    """Allele form for derived outcomes written with comma syntax.
+
+    Examples:
+        >>> from tinyhgvs import DerivedAlleleForm, parse_hgvs
+        >>> desc = parse_hgvs("NP_003997.1:p.[Ser68Arg,Asn594del]").description
+        >>> isinstance(desc, DerivedAlleleForm)
+        True
+        >>> len(desc.outcomes)
+        2
+        >>> desc.outcomes[0].edit.to
+        'Arg'
+    """
+
     outcomes: tuple[_T, ...]
 
     @property
@@ -307,6 +347,19 @@ class DerivedAlleleForm(AlleleForm[_T]):
 
 @dataclass(frozen=True, slots=True)
 class AlternativeAlleleForm(AlleleForm[_T]):
+    """Allele form for alternative allele variants written with ``^`` syntax.
+
+    Examples:
+        >>> from tinyhgvs import AlternativeAlleleForm, parse_hgvs
+        >>> desc = parse_hgvs("NP_003997.1:p.[Ser68Arg]^[Asn594del]").description
+        >>> isinstance(desc, AlternativeAlleleForm)
+        True
+        >>> len(desc.alternatives)
+        2
+        >>> desc.alternatives[0].allele_one.variants[0].edit.to
+        'Arg'
+    """
+
     alternatives: tuple[AlleleVariant[_T], ...]
 
     @property

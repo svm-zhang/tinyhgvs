@@ -123,6 +123,24 @@ class KnownLocation(Generic[_PositionT]):
     """A known HGVS location.
 
     A missing end represents a single position.
+
+    Examples:
+        A single-position coding DNA substitution has no end coordinate:
+        >>> from tinyhgvs import parse_hgvs
+        >>> variant = parse_hgvs("NM_004006.2:c.357+1G>A")
+        >>> location = variant.description.location
+        >>> location.start.coordinate
+        357
+        >>> location.end is None
+        True
+
+        A protein deletion spanning multiple residues has both start and end:
+        >>> variant = parse_hgvs("NP_003997.2:p.Lys23_Val25del")
+        >>> location = variant.description.edit.location
+        >>> location.start.residue
+        'Lys'
+        >>> location.end.residue
+        'Val'
     """
 
     start: _PositionT
@@ -139,7 +157,18 @@ class KnownLocation(Generic[_PositionT]):
 
 @dataclass(frozen=True, slots=True)
 class PossibleRange(Generic[_PositionT]):
-    """Range within which one uncertain location boundary may lie."""
+    """Range within which one uncertain location boundary may lie.
+
+    Examples:
+        A genomic deletion can have an uncertain left boundary:
+        >>> from tinyhgvs import parse_hgvs
+        >>> variant = parse_hgvs("NC_000023.10:g.(?_32238146)_(32984039_?)del")
+        >>> left = variant.description.location.start
+        >>> left.start.is_unknown
+        True
+        >>> left.end.coordinate
+        32238146
+    """
 
     start: _PositionT
     end: _PositionT | None = None
@@ -147,7 +176,44 @@ class PossibleRange(Generic[_PositionT]):
 
 @dataclass(frozen=True, slots=True)
 class UncertainLocation(Generic[_PositionT]):
-    """An HGVS location with uncertain positional boundaries."""
+    """An HGVS location with uncertain positional boundaries.
+
+    Examples:
+        A substitution written in parentheses has an uncertain location:
+        >>> from tinyhgvs import parse_hgvs
+        >>> variant = parse_hgvs("NC_000023.10:g.(33038277_33038278)C>T")
+        >>> location = variant.description.location
+        >>> location.is_interval
+        False
+        >>> location.start.start.coordinate
+        33038277
+        >>> location.start.end.coordinate
+        33038278
+        >>> location.end is None
+        True
+
+        A deletion can have uncertain left and right boundaries:
+        >>> variant = parse_hgvs("NC_000023.10:g.(?_32238146)_(32984039_?)del")
+        >>> location = variant.description.location
+        >>> location.is_interval
+        True
+        >>> location.start.start.is_unknown
+        True
+        >>> location.start.end.coordinate
+        32238146
+        >>> location.end.start.coordinate
+        32984039
+        >>> location.end.end.is_unknown
+        True
+
+        Protein locations can also be uncertain:
+        >>> variant = parse_hgvs("NP_003997.1:p.(Ala123_Pro131)Ter")
+        >>> location = variant.description.edit.location
+        >>> location.start.start.residue
+        'Ala'
+        >>> location.start.end.residue
+        'Pro'
+    """
 
     start: PossibleRange[_PositionT]
     end: PossibleRange[_PositionT] | None = None
@@ -162,6 +228,11 @@ class UncertainLocation(Generic[_PositionT]):
 
 
 Location: TypeAlias = KnownLocation[_PositionT] | UncertainLocation[_PositionT]
+"""Tagged union for supported location models:
+
+- [`KnownLocation`][tinyhgvs.models.shared.KnownLocation]
+- [`UncertainLocation`][tinyhgvs.models.shared.UncertainLocation]
+"""
 
 
 class OutcomeCertainty(str, Enum):

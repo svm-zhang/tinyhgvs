@@ -5,6 +5,8 @@ from .shared import OutcomeCertainty
 
 
 class RnaOutcome:
+    """Base class for RNA outcomes."""
+
     @property
     def is_produced(self) -> bool:
         return False
@@ -32,6 +34,17 @@ class RnaOutcome:
 
 @dataclass(frozen=True, slots=True)
 class RnaProduced(RnaOutcome):
+    """RNA outcome where a nucleotide edit is produced.
+
+    Examples:
+        >>> from tinyhgvs import RnaProduced, parse_hgvs
+        >>> variant = parse_hgvs("NM_004006.3:r.456_465del")
+        >>> isinstance(variant.description, RnaProduced)
+        True
+        >>> variant.description.edit.location.start.coordinate
+        456
+    """
+
     edit: NucleotideEdit
     certainty: OutcomeCertainty
 
@@ -46,6 +59,17 @@ class RnaProduced(RnaOutcome):
 
 @dataclass(frozen=True, slots=True)
 class RnaNoChange(RnaOutcome):
+    """RNA outcome with no sequence change.
+
+    Examples:
+        >>> from tinyhgvs import RnaNoChange, parse_hgvs
+        >>> variant = parse_hgvs("NM_004006.3:r.=")
+        >>> isinstance(variant.description, RnaNoChange)
+        True
+        >>> variant.description.is_no_change
+        True
+    """
+
     certainty: OutcomeCertainty
 
     @property
@@ -59,6 +83,15 @@ class RnaNoChange(RnaOutcome):
 
 @dataclass(frozen=True, slots=True)
 class RnaNotProduced(RnaOutcome):
+    """RNA outcome where no RNA product is produced.
+
+    Examples:
+        >>> from tinyhgvs import RnaNotProduced, parse_hgvs
+        >>> variant = parse_hgvs("NM_004006.3:r.0")
+        >>> isinstance(variant.description, RnaNotProduced)
+        True
+    """
+
     certainty: OutcomeCertainty
 
     @property
@@ -72,6 +105,15 @@ class RnaNotProduced(RnaOutcome):
 
 @dataclass(frozen=True, slots=True)
 class RnaUncertainSplicing(RnaOutcome):
+    """RNA outcome for uncertain splicing, written as ``r.spl``.
+
+    Examples:
+        >>> from tinyhgvs import RnaUncertainSplicing, parse_hgvs
+        >>> variant = parse_hgvs("NM_004006.3:r.spl")
+        >>> isinstance(variant.description, RnaUncertainSplicing)
+        True
+    """
+
     @property
     def is_uncertain_splicing(self) -> bool:
         return True
@@ -79,6 +121,15 @@ class RnaUncertainSplicing(RnaOutcome):
 
 @dataclass(frozen=True, slots=True)
 class RnaUnknown(RnaOutcome):
+    """RNA outcome ``r.?`` where the RNA consequence is unknown.
+
+    Examples:
+        >>> from tinyhgvs import RnaUnknown, parse_hgvs
+        >>> variant = parse_hgvs("NM_004006.3:r.?")
+        >>> isinstance(variant.description, RnaUnknown)
+        True
+    """
+
     @property
     def is_unknown(self) -> bool:
         return True
@@ -86,6 +137,15 @@ class RnaUnknown(RnaOutcome):
 
 @dataclass(frozen=True, slots=True)
 class RnaIndeterminate(RnaOutcome):
+    """RNA outcome ``r.(?)`` where the RNA consequence is indeterminate.
+
+    Examples:
+        >>> from tinyhgvs import RnaIndeterminate, parse_hgvs
+        >>> variant = parse_hgvs("NM_004006.3:r.(?)")
+        >>> isinstance(variant.description, RnaIndeterminate)
+        True
+    """
+
     @property
     def is_indeterminate(self) -> bool:
         return True

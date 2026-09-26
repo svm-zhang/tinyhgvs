@@ -4,10 +4,10 @@ The package is split into:
 
 - :mod:`tinyhgvs.models.shared` for shared reference and coordinate models
 - :mod:`tinyhgvs.models.nucleotide` for nucleotide coordinates, edits, and variants
-- :mod:`tinyhgvs.models.protein` for protein coordinates, effects, and variants
+- :mod:`tinyhgvs.models.protein` for protein coordinates, edits, and outcomes
 
 Type Aliases:
-    VariantDescription: Tagged union for supported top-level variant models.
+    Internal description aliases are used for annotations only.
 """
 
 from __future__ import annotations
@@ -107,6 +107,10 @@ _VariantDescription: TypeAlias = (
     | AlleleForm
     | CodingDnaUnknown
 )
+"""Private tagged union for the parsed description stored on `HgvsVariant`.
+
+This alias is intentionally not exported from the package surface.
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,9 +144,10 @@ class HgvsVariant:
         <NucleotideAnchor.ABSOLUTE: 'absolute'>
         >>> variant_location.end is None
         True
-        >>> variant_edit = variant_description.edit
-        >>> variant_edit
-        NucleotideSubstitutionEdit(reference='G', alternate='A', kind='substitution')
+        >>> variant_description.reference
+        'G'
+        >>> variant_description.alternate
+        'A'
 
         A 5' UTR substitution keeps the signed coordinate from the HGVS string:
         >>> utr = parse_hgvs("NM_007373.4:c.-1C>T")
@@ -154,8 +159,10 @@ class HgvsVariant:
         A protein frameshift is still exposed through the same top-level
         variant container:
         >>> protein = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23")
-        >>> protein.description.effect.edit.kind
-        'frameshift'
+        >>> protein.description.edit.is_frameshift
+        True
+        >>> protein.description.edit.to_residue
+        'Pro'
     """
 
     reference: ReferenceSpec | None
