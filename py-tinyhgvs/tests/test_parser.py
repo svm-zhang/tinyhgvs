@@ -7,22 +7,27 @@ import tinyhgvs as tinyhgvs_package
 from tinyhgvs import (
     AllelePhase,
     AlleleVariant,
+    AlternativeAlleleForm,
     CoordinateSystem,
     CopiedSequence,
+    DerivedAlleleForm,
     KnownLocation,
     KnownProteinFrameshiftStop,
     KnownProteinInsertion,
+    KnownQuantity,
     KnownRepeatUnit,
     LiteralSequence,
     NucleotideDeletion,
     NucleotideDeletionInsertion,
     NucleotideAnchor,
+    NucleotideCoordinate,
     NucleotideDuplication,
     NucleotideInsertion,
     NucleotideInversion,
     NucleotideNoChange,
     NucleotideRepeat,
     OmittedProteinFrameshiftStop,
+    OutcomeCertainty,
     ParseHgvsErrorKind,
     ProteinExtensionTerminal,
     ProteinDeletion,
@@ -33,12 +38,23 @@ from tinyhgvs import (
     ProteinNoChange,
     ProteinNotProduced,
     ProteinProduced,
+    ProteinProducedAlternatives,
     ProteinRepeat,
     ProteinSubstitution,
     ProteinUnknown,
     Repeat,
+    RnaIndeterminate,
+    RnaNoChange,
+    RnaNotProduced,
+    RnaProduced,
+    RnaUncertainSplicing,
+    RnaUnknown,
+    TerminatingProteinInsertion,
     UncertainLocation,
+    UncertainQuantity,
     UnknownProteinFrameshiftStop,
+    UnknownProteinInsertion,
+    UnknownQuantity,
     UnknownRepeatUnit,
     TinyHGVSError,
     parse_hgvs,
@@ -376,6 +392,97 @@ def test_parses_nucleotide_repeat_variants():
     assert composite_edit.sequence[2].unit.value == "gccag"
 
 
+def test_reports_repeat_quantity_helper_views():
+    known = parse_hgvs("NC_000014.8:g.123CAG[23]")
+    unknown = parse_hgvs("NC_000003.12:g.63912687AGC[?]")
+    uncertain = parse_hgvs("NC_000003.12:g.63912687AGC[(19_23)]")
+    omitted_unit = parse_hgvs("NM_004006.3:r.-124_-123[14]")
+
+    repeat = known.description.sequence[0]
+    assert isinstance(repeat, Repeat)
+    assert repeat.is_unit_known is True
+    assert repeat.is_quantity_known is True
+    assert repeat.is_quantity_unknown is False
+    assert repeat.is_quantity_uncertain is False
+    assert isinstance(repeat.quantity, KnownQuantity)
+    assert repeat.quantity.count == 23
+
+    repeat = unknown.description.sequence[0]
+    assert repeat.is_quantity_unknown is True
+    assert repeat.is_quantity_known is False
+    assert repeat.is_quantity_uncertain is False
+    assert isinstance(repeat.quantity, UnknownQuantity)
+
+    repeat = uncertain.description.sequence[0]
+    assert repeat.is_quantity_uncertain is True
+    assert repeat.is_quantity_known is False
+    assert repeat.is_quantity_unknown is False
+    assert isinstance(repeat.quantity, UncertainQuantity)
+    assert repeat.quantity.lo == 19
+    assert repeat.quantity.hi == 23
+
+    repeat = omitted_unit.description.edit.sequence[0]
+    assert repeat.unit is None
+    assert repeat.is_unit_known is False
+    assert repeat.is_quantity_known is True
+    assert isinstance(repeat.quantity, KnownQuantity)
+
+
+def test_parses_rna_special_outcomes_and_helper_views():
+    produced = parse_hgvs("NM_004006.3:r.(4072_5145del)")
+    no_change = parse_hgvs("NM_004006.3:r.=")
+    predicted_no_change = parse_hgvs("NM_004006.3:r.(=)")
+    not_produced = parse_hgvs("NM_004006.3:r.0")
+    predicted_not_produced = parse_hgvs("NM_004006.3:r.0?")
+    uncertain_splicing = parse_hgvs("NM_004006.3:r.spl")
+    unknown = parse_hgvs("NM_004006.3:r.?")
+    indeterminate = parse_hgvs("NM_004006.3:r.(?)")
+
+    assert isinstance(produced.description, RnaProduced)
+    assert produced.description.is_produced is True
+    assert produced.description.is_no_change is False
+    assert produced.description.is_not_produced is False
+    assert produced.description.is_uncertain_splicing is False
+    assert produced.description.is_unknown is False
+    assert produced.description.is_indeterminate is False
+    assert produced.description.is_predicted is True
+    assert produced.description.certainty is OutcomeCertainty.PREDICTED
+    assert isinstance(produced.description.edit, NucleotideDeletion)
+    assert produced.description.edit.location.start.coordinate == 4072
+
+    assert isinstance(no_change.description, RnaNoChange)
+    assert no_change.description.is_no_change is True
+    assert no_change.description.is_produced is False
+    assert no_change.description.is_predicted is False
+    assert no_change.description.certainty is OutcomeCertainty.CERTAIN
+
+    assert isinstance(predicted_no_change.description, RnaNoChange)
+    assert predicted_no_change.description.is_no_change is True
+    assert predicted_no_change.description.is_predicted is True
+    assert predicted_no_change.description.certainty is OutcomeCertainty.PREDICTED
+
+    assert isinstance(not_produced.description, RnaNotProduced)
+    assert not_produced.description.is_not_produced is True
+    assert not_produced.description.is_no_change is False
+    assert not_produced.description.is_predicted is False
+
+    assert isinstance(predicted_not_produced.description, RnaNotProduced)
+    assert predicted_not_produced.description.is_not_produced is True
+    assert predicted_not_produced.description.is_predicted is True
+
+    assert isinstance(uncertain_splicing.description, RnaUncertainSplicing)
+    assert uncertain_splicing.description.is_uncertain_splicing is True
+    assert uncertain_splicing.description.is_produced is False
+
+    assert isinstance(unknown.description, RnaUnknown)
+    assert unknown.description.is_unknown is True
+    assert unknown.description.is_indeterminate is False
+
+    assert isinstance(indeterminate.description, RnaIndeterminate)
+    assert indeterminate.description.is_indeterminate is True
+    assert indeterminate.description.is_unknown is False
+
+
 def test_parses_nucleotide_allele_variants():
     cis = parse_hgvs("NC_000001.11:g.[123G>A;345del]")
     trans = parse_hgvs("NM_004006.3:r.[123c>a];[345del]")
@@ -482,6 +589,48 @@ def test_reports_nucleotide_allele_helper_views():
         == 345
     )
     assert mixed.description.unphased[0].location.start.coordinate == 789
+
+
+def test_reports_derived_and_alternative_allele_forms():
+    derived = parse_hgvs("NP_003997.1:p.[Ser68Arg,Asn594del]")
+    alternative = parse_hgvs("NP_003997.1:p.[Ser68Arg]^[Asn594del]")
+    regular = parse_hgvs("NP_003997.1:p.[Ser68Arg];[Ser68=]")
+    mixed = parse_hgvs("NC_000001.11:g.[123G>A];[345del](;)789dup")
+
+    assert isinstance(derived.description, DerivedAlleleForm)
+    assert derived.description.is_derived is True
+    assert derived.description.is_single is False
+    assert derived.description.is_alternative is False
+    assert len(derived.description.outcomes) == 2
+    assert derived.description.outcomes[0].edit.to == "Arg"
+    assert isinstance(derived.description.outcomes[1].edit, ProteinDeletion)
+
+    assert isinstance(alternative.description, AlternativeAlleleForm)
+    assert alternative.description.is_alternative is True
+    assert alternative.description.is_single is False
+    assert alternative.description.is_derived is False
+    assert len(alternative.description.alternatives) == 2
+    assert (
+        alternative.description.alternatives[
+            0
+        ].allele_one.variants[0].edit.to
+        == "Arg"
+    )
+    assert isinstance(
+        alternative.description.alternatives[1].allele_one.variants[0].edit,
+        ProteinDeletion,
+    )
+
+    assert isinstance(regular.description, AlleleVariant)
+    assert regular.description.is_single is True
+    assert regular.description.is_derived is False
+    assert regular.description.is_alternative is False
+    assert regular.description.has_second_allele is True
+    assert regular.description.has_unphased_variants is False
+
+    assert isinstance(mixed.description, AlleleVariant)
+    assert mixed.description.has_second_allele is True
+    assert mixed.description.has_unphased_variants is True
 
 
 def test_rejects_malformed_nucleotide_allele_variants():
@@ -697,6 +846,72 @@ def test_parses_protein_deletion_duplication_insertion_and_delins_variants():
     assert delins.description.edit.sequence == ("Trp", "Val")
 
 
+def test_parses_protein_insertion_content_forms():
+    known = parse_hgvs("NP_003997.1:p.Lys2_Gly3insGlnSerLys")
+    unknown_single = parse_hgvs("NP_003997.1:p.Ser332_Ser333insXaa")
+    unknown_count = parse_hgvs("NP_003997.1:p.Arg78_Gly79insXaa[23]")
+    terminating = parse_hgvs("NP_003997.1:p.Gln746_Lys747ins*63")
+
+    edit = known.description.edit
+    assert isinstance(edit, KnownProteinInsertion)
+    assert edit.is_insertion is True
+    assert edit.is_deletion is False
+    assert edit.location.start.residue == "Lys"
+    assert edit.location.end is not None
+    assert edit.location.end.residue == "Gly"
+    assert edit.sequence == ("Gln", "Ser", "Lys")
+
+    edit = unknown_single.description.edit
+    assert isinstance(edit, UnknownProteinInsertion)
+    assert edit.is_insertion is True
+    assert edit.count == 1
+    assert edit.location.start.residue == "Ser"
+    assert edit.location.end is not None
+    assert edit.location.end.residue == "Ser"
+
+    edit = unknown_count.description.edit
+    assert isinstance(edit, UnknownProteinInsertion)
+    assert edit.is_insertion is True
+    assert edit.count == 23
+
+    edit = terminating.description.edit
+    assert isinstance(edit, TerminatingProteinInsertion)
+    assert edit.is_insertion is True
+    assert edit.ordinal == 63
+    assert edit.location.start.residue == "Gln"
+    assert edit.location.end is not None
+    assert edit.location.end.residue == "Lys"
+
+
+def test_parses_protein_uncertain_consequence_forms():
+    substitution = parse_hgvs("NP_003997.1:p.(Gly719Ala^Ser)")
+    frameshift = parse_hgvs(
+        "NP_003997.1:p.(Gly23GlufsTer7^Gly23CysfsTer26)"
+    )
+
+    assert isinstance(substitution.description, ProteinProduced)
+    assert substitution.description.is_produced is True
+    assert substitution.description.has_alternatives is False
+    assert substitution.description.is_predicted is True
+    assert substitution.description.certainty is OutcomeCertainty.PREDICTED
+    assert isinstance(substitution.description.edit, ProteinSubstitution)
+    assert substitution.description.edit.has_alternatives is True
+    assert substitution.description.edit.to == ("Ala", "Ser")
+
+    assert isinstance(frameshift.description, ProteinProducedAlternatives)
+    assert frameshift.description.is_produced is True
+    assert frameshift.description.is_no_change is False
+    assert frameshift.description.is_unknown is False
+    assert frameshift.description.has_alternatives is True
+    assert frameshift.description.is_predicted is True
+    assert frameshift.description.certainty is OutcomeCertainty.PREDICTED
+    assert len(frameshift.description.edits) == 2
+    assert all(edit.is_frameshift for edit in frameshift.description.edits)
+    assert frameshift.description.edits[0].location.start.residue == "Gly"
+    assert frameshift.description.edits[0].to_residue == "Glu"
+    assert frameshift.description.edits[1].to_residue == "Cys"
+
+
 def test_parses_protein_repeat_variants():
     repeat = parse_hgvs("NP_0123456.1:p.Arg65_Ser67[12]")
 
@@ -749,6 +964,85 @@ def test_parses_protein_frameshift_variants():
     assert predicted.description.is_predicted is True
     assert predicted.description.edit.to_residue is None
     assert isinstance(predicted.description.edit.stop, OmittedProteinFrameshiftStop)
+
+
+def test_reports_protein_frameshift_stop_helper_views():
+    omitted = parse_hgvs("NP_0123456.1:p.Arg97fs")
+    known = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23")
+    unknown = parse_hgvs("NP_0123456.1:p.Ile327Argfs*?")
+
+    stop = omitted.description.edit.stop
+    assert isinstance(stop, OmittedProteinFrameshiftStop)
+    assert stop.is_omitted is True
+    assert stop.is_known is False
+    assert stop.is_unknown is False
+
+    stop = known.description.edit.stop
+    assert isinstance(stop, KnownProteinFrameshiftStop)
+    assert stop.is_known is True
+    assert stop.is_omitted is False
+    assert stop.is_unknown is False
+    assert stop.ordinal == 23
+
+    stop = unknown.description.edit.stop
+    assert isinstance(stop, UnknownProteinFrameshiftStop)
+    assert stop.is_unknown is True
+    assert stop.is_omitted is False
+    assert stop.is_known is False
+
+
+def test_reports_protein_edit_and_outcome_helper_views():
+    substitution = parse_hgvs("NP_003997.1:p.Trp24Ter")
+    deletion = parse_hgvs("NP_003997.2:p.Lys23_Val25del")
+    duplication = parse_hgvs("NP_003997.2:p.Val7dup")
+    repeat = parse_hgvs("NP_0123456.1:p.Arg65_Ser67[12]")
+    extension = parse_hgvs("NP_003997.2:p.Met1ext-5")
+    frameshift = parse_hgvs("NP_0123456.1:p.Arg97fs")
+    insertion = parse_hgvs("NP_003997.1:p.Lys2_Gly3insGlnSerLys")
+    delins = parse_hgvs("NP_003997.1:p.Cys28delinsTrpVal")
+    no_change = parse_hgvs("NP_003997.1:p.(Cys188=)")
+    not_produced = parse_hgvs("LRG_199p1:p.0")
+    unknown = parse_hgvs("NP_003997.1:p.?")
+
+    edit = substitution.description.edit
+    assert edit.is_substitution is True
+    assert edit.is_deletion is False
+    assert edit.is_duplication is False
+    assert edit.is_repeat is False
+    assert edit.is_extension is False
+    assert edit.is_frameshift is False
+    assert edit.is_insertion is False
+    assert edit.is_deletion_insertion is False
+    assert edit.has_alternatives is False
+
+    assert deletion.description.edit.is_deletion is True
+    assert deletion.description.edit.is_substitution is False
+    assert duplication.description.edit.is_duplication is True
+    assert repeat.description.edit.is_repeat is True
+    assert extension.description.edit.is_extension is True
+    assert frameshift.description.edit.is_frameshift is True
+    assert frameshift.description.edit.has_alternative_residues is False
+    assert insertion.description.edit.is_insertion is True
+    assert delins.description.edit.is_deletion_insertion is True
+
+    assert substitution.description.is_produced is True
+    assert substitution.description.is_no_change is False
+    assert substitution.description.is_not_produced is False
+    assert substitution.description.is_unknown is False
+
+    assert isinstance(no_change.description, ProteinNoChange)
+    assert no_change.description.is_no_change is True
+    assert no_change.description.is_predicted is False
+    assert no_change.description.certainty is OutcomeCertainty.CERTAIN
+
+    assert isinstance(not_produced.description, ProteinNotProduced)
+    assert not_produced.description.is_not_produced is True
+    assert not_produced.description.is_produced is False
+    assert not_produced.description.is_predicted is False
+
+    assert isinstance(unknown.description, ProteinUnknown)
+    assert unknown.description.is_unknown is True
+    assert unknown.description.is_produced is False
 
 
 def test_parses_protein_extension_variants():
@@ -863,6 +1157,22 @@ def test_reports_intronic_and_utr_coordinate_properties_from_parsed_variants():
     assert three_prime_utr.is_cds_end_anchored is True
     assert three_prime_utr.is_five_prime_utr is False
     assert three_prime_utr.is_three_prime_utr is True
+
+
+def test_rejects_malformed_nucleotide_coordinate_model_states():
+    known = NucleotideCoordinate(NucleotideAnchor.ABSOLUTE, 123, 0)
+    unknown = NucleotideCoordinate(None, None, None)
+
+    assert known.is_known is True
+    assert known.is_unknown is False
+    assert unknown.is_unknown is True
+    assert unknown.is_known is False
+
+    with pytest.raises(ValueError):
+        NucleotideCoordinate(NucleotideAnchor.ABSOLUTE, 123, None)
+
+    with pytest.raises(ValueError):
+        NucleotideCoordinate(None, 123, 0)
 
 
 def test_parses_utr_and_upstream_intronic_coordinates():
