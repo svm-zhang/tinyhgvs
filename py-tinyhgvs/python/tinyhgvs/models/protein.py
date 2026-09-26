@@ -11,7 +11,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TypeAlias
 
-from .shared import Location, OutcomeCertainty, Repeat
+from .repeat import Repeat
+from .shared import Location, OutcomeCertainty
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,25 +40,6 @@ class ProteinCoordinate:
 
 
 _ResidueChange: TypeAlias = str | tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class ProteinSequence:
-    """Ordered amino-acid sequence used by insertions and deletion-insertions.
-
-    Attributes:
-        residues: Ordered tuple of amino-acid symbols.
-
-    Examples:
-        A protein insertion adds three amino acids in order.
-        >>> from tinyhgvs import parse_hgvs
-        >>> variant = parse_hgvs("p.Lys2_Gly3insGlnSerLys")
-        >>> variant_edit = variant.description.effect.edit
-        >>> variant_edit.sequence.residues
-        ('Gln', 'Ser', 'Lys')
-    """
-
-    residues: tuple[str, ...]
 
 
 class ProteinExtensionTerminal(str, Enum):
@@ -356,6 +338,9 @@ class ProteinNoChange(ProteinOutcome):
 
 
 __all__ = [
+    "KnownProteinFrameshiftStop",
+    "KnownProteinInsertion",
+    "OmittedProteinFrameshiftStop",
     "ProteinCoordinate",
     "ProteinEdit",
     "ProteinExtension",
@@ -363,7 +348,6 @@ __all__ = [
     "ProteinFrameshift",
     "ProteinFrameshiftStop",
     "ProteinRepeat",
-    "ProteinSequence",
     "ProteinSubstitution",
     "ProteinDeletion",
     "ProteinInsertion",
@@ -375,4 +359,7 @@ __all__ = [
     "ProteinProducedAlternatives",
     "ProteinNotProduced",
     "ProteinUnknown",
+    "TerminatingProteinInsertion",
+    "UnknownProteinFrameshiftStop",
+    "UnknownProteinInsertion",
 ]

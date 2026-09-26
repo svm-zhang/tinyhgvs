@@ -201,44 +201,6 @@ class AlleleVariant(AlleleForm[_T]):
     phase: AllelePhase | None
     unphased: tuple[_T, ...]
 
-    # FIXME: check if this still works with the new model
-    def __iter__(self) -> Iterator[Allele[_T]]:
-        """Iterate over alleles in description order.
-
-        Yields:
-            (Allele[VariantT]): Alleles in description order: ``allele_one``,
-                then ``allele_two`` when present, followed by any entries in
-                ``alleles_unphased``.
-
-        Notes:
-            Iteration preserves the structural order of the HGVS allele-variant
-            description. It does not infer or reorder alleles by phase.
-
-        Examples:
-            >>> from tinyhgvs import parse_hgvs
-            >>> desc = parse_hgvs("NM_004006.2:c.[2376G>C];[3103del]").description
-            >>> len(tuple(desc))
-            2
-
-            >>> desc = parse_hgvs(
-            ...     "NM_004006.2:c.[296T>G;476T>C];[476T>C](;)1083A>C"
-            ... ).description
-            >>> len(tuple(desc))
-            3
-
-            >>> desc = parse_hgvs("NP_003997.1:p.[Ser68Arg];[Ser68=]").description
-            >>> len(tuple(desc))
-            2
-
-            >>> desc = parse_hgvs("p.[Ser68Arg];[Asn594del](;)0").description
-            >>> len(tuple(desc))
-            3
-        """
-        yield self.allele_one
-        if self.allele_two is not None:
-            yield self.allele_two
-        yield from self.unphased
-
     @property
     def is_single(self) -> bool:
         return True
@@ -333,66 +295,6 @@ class AlleleVariant(AlleleForm[_T]):
         if self.phase is AllelePhase.TRANS and self.allele_two is not None:
             return (self.allele_one, self.allele_two)
         return None
-
-    # FIXME: check if this still works with the new model
-    @property
-    def unphased_alleles(self) -> tuple[Allele[_T], ...]:
-        """Return alleles with uncertain relation to the allele state
-        established by ``allele_one`` and ``allele_two``.
-
-        Returns:
-            (tuple[Allele[VariantT], ...]): Alleles written after the
-                established allele state whose relation to that state is
-                uncertain. Empty when not present.
-
-        Notes:
-            This property exposes the additional alleles stored in
-            ``alleles_unphased``. It does not include ``allele_one`` or
-            ``allele_two``.
-
-        Examples:
-            Uncertain phase between two primary alleles does not create an
-            unphased tail:
-
-            >>> from tinyhgvs import parse_hgvs
-            >>> desc = parse_hgvs("NC_000001.11:g.123G>A(;)345del").description
-            >>> len(desc.unphased_alleles)
-            0
-
-            One additional unphased allele to the established state:
-
-            >>> desc = parse_hgvs(
-            ...     "NM_004006.2:c.[296T>G];[476T>C](;)1083A>C"
-            ... ).description
-            >>> len(desc.unphased_alleles)
-            1
-            >>> len(desc.unphased_alleles[0].variants)
-            1
-
-            Multiple additions of unphased alleles to the established state:
-
-            >>> desc = parse_hgvs(
-            ...     "NM_004006.2:c.[296T>G];[476T>C](;)1083A>C(;)1406del"
-            ... ).description
-            >>> len(desc.unphased_alleles)
-            2
-
-            One additional unphased protein allele to the established state:
-
-            >>> desc = parse_hgvs("p.[Ser68Arg];[Asn594del](;)0").description
-            >>> len(desc.unphased_alleles)
-            1
-            >>> desc.unphased_alleles[0].variants[0].effect.kind
-            'no_protein_produced'
-
-            No additional unphased protein alleles:
-
-            >>> desc = parse_hgvs("NP_003997.1:p.(Ser73Arg)(;)(Asn103del)").description
-            >>> len(desc.unphased_alleles)
-            0
-        """
-        return self.unphased
-
 
 @dataclass(frozen=True, slots=True)
 class DerivedAlleleForm(AlleleForm[_T]):

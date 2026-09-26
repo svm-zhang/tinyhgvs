@@ -20,10 +20,7 @@ class CoordinateSystem(str, Enum):
 
     Attributes:
         GENOMIC: Genomic DNA coordinates written as ``g.``.
-        CIRCULAR_GENOMIC: Circular genomic DNA coordinates written as ``o.``.
-        MITOCHONDRIAL: Mitochondrial DNA coordinates written as ``m.``.
         CODING_DNA: Coding DNA coordinates written as ``c.``.
-        NON_CODING_DNA: Non-coding DNA coordinates written as ``n.``.
         RNA: RNA coordinates written as ``r.``.
         PROTEIN: Protein coordinates written as ``p.``.
 
@@ -46,10 +43,7 @@ class CoordinateSystem(str, Enum):
     """
 
     GENOMIC = "g"
-    CIRCULAR_GENOMIC = "o"
-    MITOCHONDRIAL = "m"
     CODING_DNA = "c"
-    NON_CODING_DNA = "n"
     RNA = "r"
     PROTEIN = "p"
 

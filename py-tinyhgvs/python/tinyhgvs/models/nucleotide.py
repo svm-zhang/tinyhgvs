@@ -12,15 +12,12 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TypeAlias
 
+from .repeat import Repeat
 from .shared import (
-    Allele,
-    AllelePhase,
-    AlleleVariant,
     CoordinateSystem,
     KnownLocation,
     Location,
     ReferenceSpec,
-    Repeat,
 )
 
 
@@ -63,6 +60,24 @@ class NucleotideCoordinate:
     coordinate: int | None
     offset: int | None
 
+    def __post_init__(self) -> None:
+        fields = (self.anchor, self.coordinate, self.offset)
+
+        if all(field is None for field in fields):
+            return
+
+        if all(field is not None for field in fields):
+            return
+
+        # Reject malformed coordinate states that cannot represent valid HGVS
+        # location pieces. Supported states are fully known coordinates like
+        # 123 or 456 in (123_456), or fully unknown coordinates like ? in
+        # (?_?) and (123_?). Mixed internal states with only some of anchor,
+        # coordinate, and offset present cannot represent one valid boundary.
+        raise ValueError(
+            "NucleotideCoordinate must be either fully known or fully unknown"
+        )
+
     @property
     def is_known(self) -> bool:
         return self.coordinate is not None
@@ -76,16 +91,24 @@ class NucleotideCoordinate:
         return self.offset not in (None, 0)
 
     @property
+    def is_cds_start_anchored(self) -> bool:
+        return self.anchor is NucleotideAnchor.RELATIVE_CDS_START
+
+    @property
+    def is_cds_end_anchored(self) -> bool:
+        return self.anchor is NucleotideAnchor.RELATIVE_CDS_END
+
+    @property
     def is_five_prime_utr(self) -> bool:
         return (
-            self.anchor is NucleotideAnchor.RELATIVE_CDS_START
+            self.is_cds_start_anchored
             and self.coordinate is not None
             and self.coordinate < 0
         )
 
     @property
     def is_three_prime_utr(self) -> bool:
-        return self.anchor is NucleotideAnchor.RELATIVE_CDS_END
+        return self.is_cds_end_anchored
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,9 +191,6 @@ NucleotideSequenceItem: TypeAlias = LiteralSequence | Repeat | CopiedSequence
 
 
 __all__ = [
-    "Allele",
-    "AllelePhase",
-    "AlleleVariant",
     "CopiedSequence",
     "NucleotideDeletionInsertion",
     "NucleotideAnchor",

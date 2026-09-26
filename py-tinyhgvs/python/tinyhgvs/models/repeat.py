@@ -44,16 +44,21 @@ class Repeat:
         return isinstance(self.unit, KnownRepeatUnit)
 
     @property
-    def is_copy_known(self) -> bool:
+    def is_quantity_known(self) -> bool:
         return isinstance(self.quantity, KnownQuantity)
 
     @property
-    def is_copy_unknown(self) -> bool:
+    def is_quantity_uncertain(self) -> bool:
+        return isinstance(self.quantity, UncertainQuantity)
+
+    @property
+    def is_quantity_unknown(self) -> bool:
         return isinstance(self.quantity, UnknownQuantity)
 
 
 __all__ = [
     "KnownQuantity",
+    "Quantity",
     "UncertainQuantity",
     "UnknownQuantity",
     "Repeat",
