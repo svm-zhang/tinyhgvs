@@ -600,10 +600,15 @@ class ProteinNoChange(ProteinOutcome):
         >>> variant = parse_hgvs("NP_003997.1:p.Cys188=")
         >>> isinstance(variant.description, ProteinNoChange)
         True
+        >>> variant.description.location.start.residue
+        'Cys'
+        >>> variant.description.location.start.ordinal
+        188
         >>> variant.description.is_no_change
         True
     """
 
+    location: Location[ProteinCoordinate]
     certainty: OutcomeCertainty
 
     @property

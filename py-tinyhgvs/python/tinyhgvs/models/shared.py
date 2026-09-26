@@ -184,7 +184,7 @@ class UncertainLocation(Generic[_PositionT]):
         >>> variant = parse_hgvs("NC_000023.10:g.(33038277_33038278)C>T")
         >>> location = variant.description.location
         >>> location.is_interval
-        False
+        True
         >>> location.start.start.coordinate
         33038277
         >>> location.start.end.coordinate
@@ -220,11 +220,11 @@ class UncertainLocation(Generic[_PositionT]):
 
     @property
     def is_position(self) -> bool:
-        return self.end is None
+        return self.start.end is None and self.end is None
 
     @property
     def is_interval(self) -> bool:
-        return self.end is not None
+        return self.start.end is not None or self.end is not None
 
 
 Location: TypeAlias = KnownLocation[_PositionT] | UncertainLocation[_PositionT]

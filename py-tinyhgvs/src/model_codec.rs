@@ -588,9 +588,10 @@ impl<'py> PyModelCodec<'py> {
             ProteinOutcome::Produced { edit, certainty } => match edit {
                 ProteinEditForm::Single(edit) => match &edit.kind {
                     ProteinEditKind::NoChange(certainty) => {
+                        let location = self.protein_location(&edit.location)?;
                         let certainty = self.outcome_certainty(certainty)?;
 
-                        self.class("ProteinNoChange")?.call1((certainty,))
+                        self.class("ProteinNoChange")?.call1((location, certainty))
                     }
 
                     _ => {

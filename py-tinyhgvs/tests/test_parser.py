@@ -8,20 +8,38 @@ from tinyhgvs import (
     AllelePhase,
     AlleleVariant,
     CoordinateSystem,
-    CopiedSequenceItem,
-    LiteralSequenceItem,
-    Location,
+    CopiedSequence,
+    KnownLocation,
+    KnownProteinFrameshiftStop,
+    KnownProteinInsertion,
+    KnownRepeatUnit,
+    LiteralSequence,
+    NucleotideDeletion,
+    NucleotideDeletionInsertion,
     NucleotideAnchor,
-    NucleotideCoordinateKind,
-    NucleotideDeletionInsertionEdit,
-    NucleotideInsertionEdit,
-    NucleotideRepeatEdit,
-    NucleotideSequenceOmittedEdit,
+    NucleotideDuplication,
+    NucleotideInsertion,
+    NucleotideInversion,
+    NucleotideNoChange,
+    NucleotideRepeat,
+    OmittedProteinFrameshiftStop,
     ParseHgvsErrorKind,
-    ProteinEditEffect,
     ProteinExtensionTerminal,
-    ProteinFrameshiftStopKind,
-    ProteinSequenceOmittedEdit,
+    ProteinDeletion,
+    ProteinDeletionInsertion,
+    ProteinDuplication,
+    ProteinExtension,
+    ProteinFrameshift,
+    ProteinNoChange,
+    ProteinNotProduced,
+    ProteinProduced,
+    ProteinRepeat,
+    ProteinSubstitution,
+    ProteinUnknown,
+    Repeat,
+    UncertainLocation,
+    UnknownProteinFrameshiftStop,
+    UnknownRepeatUnit,
     TinyHGVSError,
     parse_hgvs,
 )
@@ -32,7 +50,7 @@ def test_public_package_exports_version_and_core_api():
     assert "parse_hgvs" in tinyhgvs_package.__all__
     assert "TinyHGVSError" in tinyhgvs_package.__all__
     assert "Location" in tinyhgvs_package.__all__
-    assert "NucleotideCoordinateKind" in tinyhgvs_package.__all__
+    assert "NucleotideCoordinate" in tinyhgvs_package.__all__
 
 
 def test_public_package_falls_back_to_unknown_version_when_metadata_is_missing(
@@ -62,12 +80,11 @@ def test_parses_nucleotide_substitution_variants():
     assert variant.reference.primary.id == "NG_012232.1"
     assert variant.reference.context is not None
     assert variant.reference.context.id == "NM_004006.2"
-    assert variant.description.location.start.kind is NucleotideCoordinateKind.KNOWN
+    assert variant.description.location.start.is_known is True
     assert variant.description.location.start.coordinate == 93
     assert variant.description.location.start.offset == 1
-    assert variant.description.edit.reference == "G"
-    assert variant.description.edit.alternate == "T"
-    assert variant.description.edit.kind == "substitution"
+    assert variant.description.reference == "G"
+    assert variant.description.alternate == "T"
 
     trimmed = parse_hgvs("  NG_012232.1(NM_004006.2):c.93+1G>T  ")
     assert trimmed.description == variant.description
@@ -115,11 +132,9 @@ def test_parses_nucleotide_no_change_and_deletion_variants():
     no_change = parse_hgvs("NM_004006.2:c.123=")
     deletion = parse_hgvs("NM_004006.2:c.5697del")
 
-    assert (
-        no_change.description.edit is NucleotideSequenceOmittedEdit.NO_CHANGE
-    )
+    assert isinstance(no_change.description, NucleotideNoChange)
     assert deletion.description.location.start.coordinate == 5697
-    assert deletion.description.edit is NucleotideSequenceOmittedEdit.DELETION
+    assert isinstance(deletion.description, NucleotideDeletion)
 
     with pytest.raises(TinyHGVSError) as exc_info:
         parse_hgvs("NM_004006.2:c.5697delA")
@@ -132,128 +147,108 @@ def test_parses_nucleotide_duplication_and_inversion_variants():
     duplication = parse_hgvs("NC_000001.11:g.1234_2345dup")
     inversion = parse_hgvs("NC_000023.10:g.32361330_32361333inv")
 
+    assert isinstance(duplication.description, NucleotideDuplication)
     assert duplication.description.location.start.coordinate == 1234
     assert duplication.description.location.end is not None
     assert duplication.description.location.end.coordinate == 2345
-    assert (
-        duplication.description.edit
-        is NucleotideSequenceOmittedEdit.DUPLICATION
-    )
 
+    assert isinstance(inversion.description, NucleotideInversion)
     assert inversion.description.location.start.coordinate == 32361330
     assert inversion.description.location.end is not None
     assert inversion.description.location.end.coordinate == 32361333
-    assert (
-        inversion.description.edit is NucleotideSequenceOmittedEdit.INVERSION
-    )
 
 
 def test_reports_known_nucleotide_location_helper_views():
     single = parse_hgvs("NM_004006.2:c.5697del")
     location = single.description.location
 
-    assert location.is_uncertain is False
-    assert location.is_pos is True
+    assert isinstance(location, KnownLocation)
+    assert location.is_position is True
     assert location.is_interval is False
-    assert location.start.kind is NucleotideCoordinateKind.KNOWN
+    assert location.start.is_known is True
     assert location.start.coordinate == 5697
     assert location.end is None
-    assert location.l_interval is None
-    assert location.r_interval is None
 
     interval = parse_hgvs("NM_004006.2:c.93_94del")
     location = interval.description.location
 
-    assert location.is_uncertain is False
-    assert location.is_pos is False
+    assert isinstance(location, KnownLocation)
+    assert location.is_position is False
     assert location.is_interval is True
-    assert location.start.kind is NucleotideCoordinateKind.KNOWN
+    assert location.start.is_known is True
     assert location.start.coordinate == 93
     assert location.end is not None
-    assert location.end.kind is NucleotideCoordinateKind.KNOWN
+    assert location.end.is_known is True
     assert location.end.coordinate == 94
-    assert location.l_interval is None
-    assert location.r_interval is None
 
 
 def test_parses_uncertain_nucleotide_locations():
     unknown_range = parse_hgvs("NC_000023.10:g.?_?del")
-    assert isinstance(unknown_range.description.location, Location)
-    assert unknown_range.description.location.is_uncertain is False
+    assert isinstance(unknown_range.description.location, KnownLocation)
     assert unknown_range.description.location.is_interval is True
-    assert unknown_range.description.location.is_pos is False
-    assert unknown_range.description.location.start.kind is NucleotideCoordinateKind.UNKNOWN
+    assert unknown_range.description.location.is_position is False
     assert unknown_range.description.location.start.is_unknown is True
     assert unknown_range.description.location.start.is_known is False
     assert unknown_range.description.location.start.anchor is None
     assert unknown_range.description.location.start.coordinate is None
     assert unknown_range.description.location.start.offset is None
     assert unknown_range.description.location.end is not None
-    assert unknown_range.description.location.end.kind is NucleotideCoordinateKind.UNKNOWN
+    assert unknown_range.description.location.end.is_unknown is True
     assert unknown_range.description.location.end.anchor is None
     assert unknown_range.description.location.end.coordinate is None
     assert unknown_range.description.location.end.offset is None
-    assert unknown_range.description.location.l_interval is None
-    assert unknown_range.description.location.r_interval is None
 
     single_region = parse_hgvs("NC_000023.10:g.(33038277_33038278)C>T")
     location = single_region.description.location
-    assert location.is_uncertain is True
+    assert isinstance(location, UncertainLocation)
     assert location.is_interval is True
-    assert location.is_pos is False
-    assert location.start is None
+    assert location.is_position is False
+    assert location.start.start.is_known is True
+    assert location.start.start.coordinate == 33038277
+    assert location.start.end is not None
+    assert location.start.end.coordinate == 33038278
     assert location.end is None
-    assert location.l_interval is not None
-    assert location.l_interval.start.kind is NucleotideCoordinateKind.KNOWN
-    assert location.l_interval.start.coordinate == 33038277
-    assert location.l_interval.end is not None
-    assert location.l_interval.end.coordinate == 33038278
-    assert location.r_interval is None
 
     mixed_unknown = parse_hgvs("NC_000023.10:g.(?_32238146)_(32984039_?)del")
     location = mixed_unknown.description.location
-    assert location.is_uncertain is True
-    assert location.l_interval is not None
-    assert location.l_interval.start.kind is NucleotideCoordinateKind.UNKNOWN
-    assert location.l_interval.start.anchor is None
-    assert location.l_interval.start.coordinate is None
-    assert location.l_interval.start.offset is None
-    assert location.l_interval.end is not None
-    assert location.l_interval.end.kind is NucleotideCoordinateKind.KNOWN
-    assert location.l_interval.end.coordinate == 32238146
-    assert location.r_interval is not None
-    assert location.r_interval.start.kind is NucleotideCoordinateKind.KNOWN
-    assert location.r_interval.start.coordinate == 32984039
-    assert location.r_interval.end is not None
-    assert location.r_interval.end.kind is NucleotideCoordinateKind.UNKNOWN
-    assert location.r_interval.end.anchor is None
-    assert location.r_interval.end.coordinate is None
-    assert location.r_interval.end.offset is None
+    assert isinstance(location, UncertainLocation)
+    assert location.start.start.is_unknown is True
+    assert location.start.start.anchor is None
+    assert location.start.start.coordinate is None
+    assert location.start.start.offset is None
+    assert location.start.end is not None
+    assert location.start.end.is_known is True
+    assert location.start.end.coordinate == 32238146
+    assert location.end is not None
+    assert location.end.start.is_known is True
+    assert location.end.start.coordinate == 32984039
+    assert location.end.end is not None
+    assert location.end.end.is_unknown is True
+    assert location.end.end.anchor is None
+    assert location.end.end.coordinate is None
+    assert location.end.end.offset is None
 
     uncertain_range = parse_hgvs("NM_004006.2:r.(71_72)_(90_91)del")
-    location = uncertain_range.description.location
-    assert location.is_uncertain is True
-    assert location.l_interval is not None
-    assert location.l_interval.start.coordinate == 71
-    assert location.l_interval.end is not None
-    assert location.l_interval.end.coordinate == 72
-    assert location.r_interval is not None
-    assert location.r_interval.start.coordinate == 90
-    assert location.r_interval.end is not None
-    assert location.r_interval.end.coordinate == 91
+    location = uncertain_range.description.edit.location
+    assert isinstance(location, UncertainLocation)
+    assert location.start.start.coordinate == 71
+    assert location.start.end is not None
+    assert location.start.end.coordinate == 72
+    assert location.end is not None
+    assert location.end.start.coordinate == 90
+    assert location.end.end is not None
+    assert location.end.end.coordinate == 91
 
     rna_insertion = parse_hgvs("NM_004006.2:r.(222_226)insg")
-    location = rna_insertion.description.location
-    assert location.is_uncertain is True
-    assert location.l_interval is not None
-    assert location.l_interval.start.coordinate == 222
-    assert location.l_interval.end is not None
-    assert location.l_interval.end.coordinate == 226
-    assert isinstance(rna_insertion.description.edit, NucleotideInsertionEdit)
-    assert isinstance(
-        rna_insertion.description.edit.items[0], LiteralSequenceItem
-    )
-    assert rna_insertion.description.edit.items[0].value == "g"
+    edit = rna_insertion.description.edit
+    location = edit.location
+    assert isinstance(location, UncertainLocation)
+    assert location.start.start.coordinate == 222
+    assert location.start.end is not None
+    assert location.start.end.coordinate == 226
+    assert isinstance(edit, NucleotideInsertion)
+    assert isinstance(edit.sequence[0], LiteralSequence)
+    assert edit.sequence[0].value == "g"
 
 
 def test_rejects_malformed_uncertain_nucleotide_locations():
@@ -276,27 +271,27 @@ def test_parses_nucleotide_insertion_sequence_items():
         "NC_000002.11:g.47643464_47643465ins[NC_000022.10:g.35788169_35788352]"
     )
 
-    current_edit = current_reference.description.edit
-    assert isinstance(current_edit, NucleotideInsertionEdit)
-    assert len(current_edit.items) == 3
-    assert isinstance(current_edit.items[0], LiteralSequenceItem)
-    assert getattr(current_edit.items[0], "value", None) == "T"
-    assert isinstance(current_edit.items[1], CopiedSequenceItem)
-    assert current_edit.items[1].is_from_same_reference is True
-    assert getattr(current_edit.items[2], "value", None) == "AGGG"
+    current_edit = current_reference.description
+    assert isinstance(current_edit, NucleotideInsertion)
+    assert len(current_edit.sequence) == 3
+    assert isinstance(current_edit.sequence[0], LiteralSequence)
+    assert getattr(current_edit.sequence[0], "value", None) == "T"
+    assert isinstance(current_edit.sequence[1], CopiedSequence)
+    assert current_edit.sequence[1].is_from_same_reference is True
+    assert getattr(current_edit.sequence[2], "value", None) == "AGGG"
 
-    remote_edit = remote_reference.description.edit
-    assert isinstance(remote_edit, NucleotideInsertionEdit)
-    assert len(remote_edit.items) == 1
+    remote_edit = remote_reference.description
+    assert isinstance(remote_edit, NucleotideInsertion)
+    assert len(remote_edit.sequence) == 1
 
-    remote_item = remote_edit.items[0]
-    assert isinstance(remote_item, CopiedSequenceItem)
-    assert remote_item.source_reference is not None
-    assert remote_item.source_reference.primary.id == "NC_000022.10"
-    assert remote_item.source_coordinate_system is CoordinateSystem.GENOMIC
-    assert remote_item.source_location.start.coordinate == 35788169
-    assert remote_item.source_location.end is not None
-    assert remote_item.source_location.end.coordinate == 35788352
+    remote_item = remote_edit.sequence[0]
+    assert isinstance(remote_item, CopiedSequence)
+    assert remote_item.reference is not None
+    assert remote_item.reference.primary.id == "NC_000022.10"
+    assert remote_item.coordinate_system is CoordinateSystem.GENOMIC
+    assert remote_item.location.start.coordinate == 35788169
+    assert remote_item.location.end is not None
+    assert remote_item.location.end.coordinate == 35788352
     assert remote_item.is_inverted is False
     assert remote_item.is_from_same_reference is False
 
@@ -307,15 +302,16 @@ def test_parses_nucleotide_delins_sequence_forms():
     )
     repeat = parse_hgvs("NM_004006.2:c.812_829delinsN[12]")
 
-    local_edit = local_segment.description.edit
-    assert isinstance(local_edit, NucleotideDeletionInsertionEdit)
-    assert isinstance(local_edit.items[0], CopiedSequenceItem)
-    assert local_edit.items[0].is_from_same_reference is True
+    local_edit = local_segment.description
+    assert isinstance(local_edit, NucleotideDeletionInsertion)
+    assert isinstance(local_edit.sequence[0], CopiedSequence)
+    assert local_edit.sequence[0].is_from_same_reference is True
 
-    repeat_edit = repeat.description.edit
-    assert isinstance(repeat_edit, NucleotideDeletionInsertionEdit)
-    assert repeat_edit.items[0].unit == "N"
-    assert repeat_edit.items[0].count == 12
+    repeat_edit = repeat.description
+    assert isinstance(repeat_edit, NucleotideDeletionInsertion)
+    assert isinstance(repeat_edit.sequence[0], Repeat)
+    assert isinstance(repeat_edit.sequence[0].unit, UnknownRepeatUnit)
+    assert repeat_edit.sequence[0].quantity.count == 12
 
 
 def test_parses_nucleotide_repeat_variants():
@@ -323,68 +319,61 @@ def test_parses_nucleotide_repeat_variants():
     dna_mixed = parse_hgvs("NC_000014.8:g.123_191CAG[19]CAA[4]")
     rna_position_only = parse_hgvs("NM_004006.3:r.-124_-123[14]")
     rna_sequence_given = parse_hgvs("NM_004006.3:r.-110gcu[6]")
-    rna_composite = parse_hgvs("NM_004006.3:r.456_465[4]466_489[9]490_499[3]")
+    rna_composite = parse_hgvs("NM_004006.3:r.456_499us[4]cag[9]gccag[3]")
 
-    dna_edit = dna_repeat.description.edit
-    assert isinstance(dna_edit, NucleotideRepeatEdit)
+    dna_edit = dna_repeat.description
+    assert isinstance(dna_edit, NucleotideRepeat)
     assert dna_repeat.description.location.start.coordinate == 123
-    assert len(dna_edit.blocks) == 1
-    assert dna_edit.blocks[0].count == 23
-    assert dna_edit.blocks[0].unit == "CAG"
-    assert dna_edit.blocks[0].location is None
+    assert len(dna_edit.sequence) == 1
+    assert dna_edit.sequence[0].quantity.count == 23
+    assert isinstance(dna_edit.sequence[0].unit, KnownRepeatUnit)
+    assert dna_edit.sequence[0].unit.value == "CAG"
 
-    mixed_edit = dna_mixed.description.edit
-    assert isinstance(mixed_edit, NucleotideRepeatEdit)
+    mixed_edit = dna_mixed.description
+    assert isinstance(mixed_edit, NucleotideRepeat)
     assert dna_mixed.description.location.end is not None
     assert dna_mixed.description.location.end.coordinate == 191
-    assert len(mixed_edit.blocks) == 2
-    assert mixed_edit.blocks[0].count == 19
-    assert mixed_edit.blocks[0].unit == "CAG"
-    assert mixed_edit.blocks[0].location is None
-    assert mixed_edit.blocks[1].count == 4
-    assert mixed_edit.blocks[1].unit == "CAA"
-    assert mixed_edit.blocks[1].location is None
+    assert len(mixed_edit.sequence) == 2
+    assert mixed_edit.sequence[0].quantity.count == 19
+    assert isinstance(mixed_edit.sequence[0].unit, KnownRepeatUnit)
+    assert mixed_edit.sequence[0].unit.value == "CAG"
+    assert mixed_edit.sequence[1].quantity.count == 4
+    assert isinstance(mixed_edit.sequence[1].unit, KnownRepeatUnit)
+    assert mixed_edit.sequence[1].unit.value == "CAA"
 
     position_only_edit = rna_position_only.description.edit
-    assert isinstance(position_only_edit, NucleotideRepeatEdit)
-    assert rna_position_only.description.location.start.coordinate == -124
-    assert rna_position_only.description.location.end is not None
-    assert rna_position_only.description.location.end.coordinate == -123
-    assert len(position_only_edit.blocks) == 1
-    assert position_only_edit.blocks[0].count == 14
-    assert position_only_edit.blocks[0].unit is None
-    assert position_only_edit.blocks[0].location is None
+    assert isinstance(position_only_edit, NucleotideRepeat)
+    assert position_only_edit.location.start.coordinate == -124
+    assert position_only_edit.location.end is not None
+    assert position_only_edit.location.end.coordinate == -123
+    assert len(position_only_edit.sequence) == 1
+    assert position_only_edit.sequence[0].quantity.count == 14
+    assert position_only_edit.sequence[0].unit is None
 
     sequence_given_edit = rna_sequence_given.description.edit
-    assert isinstance(sequence_given_edit, NucleotideRepeatEdit)
-    assert rna_sequence_given.description.location.start.coordinate == -110
-    assert rna_sequence_given.description.location.end is None
-    assert len(sequence_given_edit.blocks) == 1
-    assert sequence_given_edit.blocks[0].count == 6
-    assert sequence_given_edit.blocks[0].unit == "gcu"
-    assert sequence_given_edit.blocks[0].location is None
+    assert isinstance(sequence_given_edit, NucleotideRepeat)
+    assert sequence_given_edit.location.start.coordinate == -110
+    assert sequence_given_edit.location.end is None
+    assert len(sequence_given_edit.sequence) == 1
+    assert sequence_given_edit.sequence[0].quantity.count == 6
+    assert isinstance(sequence_given_edit.sequence[0].unit, KnownRepeatUnit)
+    assert sequence_given_edit.sequence[0].unit.value == "gcu"
 
     composite_edit = rna_composite.description.edit
-    assert isinstance(composite_edit, NucleotideRepeatEdit)
-    assert rna_composite.description.location.start.coordinate == 456
-    assert rna_composite.description.location.end is not None
-    assert rna_composite.description.location.end.coordinate == 499
-    assert len(composite_edit.blocks) == 3
-    assert composite_edit.blocks[0].count == 4
-    assert composite_edit.blocks[0].unit is None
-    assert composite_edit.blocks[0].location is None
-    assert composite_edit.blocks[1].count == 9
-    assert composite_edit.blocks[1].unit is None
-    assert composite_edit.blocks[1].location is not None
-    assert composite_edit.blocks[1].location.start.coordinate == 466
-    assert composite_edit.blocks[1].location.end is not None
-    assert composite_edit.blocks[1].location.end.coordinate == 489
-    assert composite_edit.blocks[2].count == 3
-    assert composite_edit.blocks[2].unit is None
-    assert composite_edit.blocks[2].location is not None
-    assert composite_edit.blocks[2].location.start.coordinate == 490
-    assert composite_edit.blocks[2].location.end is not None
-    assert composite_edit.blocks[2].location.end.coordinate == 499
+    assert isinstance(composite_edit, NucleotideRepeat)
+    assert composite_edit.location.start.coordinate == 456
+    assert composite_edit.location.end is not None
+    assert composite_edit.location.end.coordinate == 499
+    assert len(composite_edit.sequence) == 3
+    assert composite_edit.sequence[0].quantity.count == 4
+    assert isinstance(composite_edit.sequence[0].unit, KnownRepeatUnit)
+    assert composite_edit.sequence[0].unit.value == "us"
+    assert composite_edit.sequence[1].quantity.count == 9
+    assert isinstance(composite_edit.sequence[1].unit, KnownRepeatUnit)
+    assert composite_edit.sequence[1].unit.value == "cag"
+    assert composite_edit.sequence[2].quantity.count == 3
+    assert isinstance(composite_edit.sequence[2].unit, KnownRepeatUnit)
+    assert composite_edit.sequence[2].unit.value == "gccag"
 
 
 def test_parses_nucleotide_allele_variants():
@@ -392,32 +381,28 @@ def test_parses_nucleotide_allele_variants():
     trans = parse_hgvs("NM_004006.3:r.[123c>a];[345del]")
     uncertain = parse_hgvs("NC_000001.11:g.123G>A(;)345del")
     unchanged = parse_hgvs("NM_004006.2:c.[2376G>C];[2376=]")
-    mixed = parse_hgvs("NM_004006.2:c.[296T>G;476T>C];[476T>C](;)1083A>C")
+    mixed = parse_hgvs("NC_000001.11:g.[123G>A];[345del](;)789dup")
 
     assert isinstance(cis.description, AlleleVariant)
     assert len(cis.description.allele_one.variants) == 2
     assert cis.description.allele_two is None
     assert cis.description.phase is None
-    assert cis.description.alleles_unphased == ()
-    assert len(tuple(cis.description)) == 1
-    assert cis.description.allele_one.variants[0].edit.reference == "G"
-    assert cis.description.allele_one.variants[0].edit.alternate == "A"
+    assert cis.description.unphased == ()
+    assert cis.description.allele_one.variants[0].reference == "G"
+    assert cis.description.allele_one.variants[0].alternate == "A"
     assert (
         cis.description.allele_one.variants[1].location.start.coordinate == 345
     )
-    assert (
-        cis.description.allele_one.variants[1].edit
-        is NucleotideSequenceOmittedEdit.DELETION
-    )
+    assert isinstance(cis.description.allele_one.variants[1], NucleotideDeletion)
 
     assert isinstance(trans.description, AlleleVariant)
     assert len(trans.description.allele_one.variants) == 1
     assert trans.description.phase is AllelePhase.TRANS
     assert trans.description.allele_two is not None
     assert len(trans.description.allele_two.variants) == 1
-    assert trans.description.alleles_unphased == ()
+    assert trans.description.unphased == ()
     assert (
-        trans.description.allele_two.variants[0].location.start.coordinate
+        trans.description.allele_two.variants[0].edit.location.start.coordinate
         == 345
     )
 
@@ -429,11 +414,8 @@ def test_parses_nucleotide_allele_variants():
         uncertain.description.allele_two.variants[0].location.start.coordinate
         == 345
     )
-    assert uncertain.description.alleles_unphased == ()
-    assert (
-        uncertain.description.allele_two.variants[0].edit
-        is NucleotideSequenceOmittedEdit.DELETION
-    )
+    assert uncertain.description.unphased == ()
+    assert isinstance(uncertain.description.allele_two.variants[0], NucleotideDeletion)
 
     assert isinstance(unchanged.description, AlleleVariant)
     assert len(unchanged.description.allele_one.variants) == 1
@@ -443,36 +425,28 @@ def test_parses_nucleotide_allele_variants():
         unchanged.description.allele_two.variants[0].location.start.coordinate
         == 2376
     )
-    assert (
-        unchanged.description.allele_two.variants[0].edit
-        is NucleotideSequenceOmittedEdit.NO_CHANGE
-    )
+    assert isinstance(unchanged.description.allele_two.variants[0], NucleotideNoChange)
 
     assert isinstance(mixed.description, AlleleVariant)
-    assert len(mixed.description.allele_one.variants) == 2
+    assert len(mixed.description.allele_one.variants) == 1
     assert mixed.description.phase is AllelePhase.TRANS
     assert mixed.description.allele_two is not None
-    assert len(mixed.description.alleles_unphased) == 1
+    assert len(mixed.description.unphased) == 1
     assert (
         mixed.description.allele_two.variants[0].location.start.coordinate
-        == 476
+        == 345
     )
-    assert (
-        mixed.description.alleles_unphased[0]
-        .variants[0]
-        .location.start.coordinate
-        == 1083
-    )
+    assert mixed.description.unphased[0].location.start.coordinate == 789
 
 
 def test_reports_nucleotide_allele_helper_views():
     cis = parse_hgvs("NC_000001.11:g.[123G>A;345del]")
     trans = parse_hgvs("NM_004006.3:r.[123c>a];[345del]")
     uncertain = parse_hgvs("NC_000001.11:g.123G>A(;)345del")
-    mixed = parse_hgvs("NM_004006.2:c.[296T>G];[476T>C](;)1083G>C(;)1406del")
+    mixed = parse_hgvs("NC_000001.11:g.[123G>A];[345del](;)789dup")
 
     assert cis.description.phased_alleles is None
-    assert cis.description.unphased_alleles == ()
+    assert cis.description.unphased == ()
     assert len(cis.description.allele_one.variants) == 2
     assert cis.description.allele_two is None
     assert len(tuple(cis.description.allele_one)) == 2
@@ -481,17 +455,16 @@ def test_reports_nucleotide_allele_helper_views():
     assert trans_pair is not None
     assert len(trans_pair[0].variants) == 1
     assert len(trans_pair[1].variants) == 1
-    assert trans.description.unphased_alleles == ()
+    assert trans.description.unphased == ()
     assert len(trans.description.allele_one.variants) == 1
     assert trans.description.allele_two is not None
     assert (
-        trans.description.allele_two.variants[0].location.start.coordinate
+        trans.description.allele_two.variants[0].edit.location.start.coordinate
         == 345
     )
-    assert len(tuple(trans.description)) == 2
 
     assert uncertain.description.phased_alleles is None
-    assert uncertain.description.unphased_alleles == ()
+    assert uncertain.description.unphased == ()
     assert len(uncertain.description.allele_one.variants) == 1
     assert uncertain.description.allele_two is not None
     assert (
@@ -501,25 +474,14 @@ def test_reports_nucleotide_allele_helper_views():
 
     mixed_pair = mixed.description.phased_alleles
     assert mixed_pair is not None
-    assert len(mixed.description.unphased_alleles) == 2
+    assert len(mixed.description.unphased) == 1
     assert len(mixed.description.allele_one.variants) == 1
     assert mixed.description.allele_two is not None
     assert (
         mixed.description.allele_two.variants[0].location.start.coordinate
-        == 476
+        == 345
     )
-    assert (
-        mixed.description.unphased_alleles[0]
-        .variants[0]
-        .location.start.coordinate
-        == 1083
-    )
-    assert (
-        mixed.description.unphased_alleles[1]
-        .variants[0]
-        .location.start.coordinate
-        == 1406
-    )
+    assert mixed.description.unphased[0].location.start.coordinate == 789
 
 
 def test_rejects_malformed_nucleotide_allele_variants():
@@ -559,48 +521,41 @@ def test_parses_protein_allele_variants():
     assert isinstance(cis.description, AlleleVariant)
     assert len(cis.description.allele_one.variants) == 2
     assert cis.description.allele_two is None
-    assert len(tuple(cis.description)) == 1
     assert cis.description.phased_alleles is None
-    assert cis.description.unphased_alleles == ()
+    assert cis.description.unphased == ()
     assert cis.description.allele_one.variants[0].is_predicted is False
-    assert isinstance(
-        cis.description.allele_one.variants[0].effect, ProteinEditEffect
-    )
+    assert isinstance(cis.description.allele_one.variants[0], ProteinProduced)
     assert (
-        cis.description.allele_one.variants[0].effect.location.start.residue
+        cis.description.allele_one.variants[0].edit.location.start.residue
         == "Ser"
     )
-    assert cis.description.allele_one.variants[0].effect.edit.to == "Arg"
+    assert isinstance(cis.description.allele_one.variants[0].edit, ProteinSubstitution)
+    assert cis.description.allele_one.variants[0].edit.to == "Arg"
 
     assert isinstance(trans.description, AlleleVariant)
     assert trans.description.phase is AllelePhase.TRANS
     assert trans.description.allele_two is not None
     assert trans.description.phased_alleles is not None
+    assert isinstance(trans.description.allele_two.variants[0], ProteinNoChange)
     assert (
-        trans.description.allele_two.variants[0].effect.location.start.residue
+        trans.description.allele_two.variants[0].location.start.residue
         == "Ser"
     )
-    assert trans.description.allele_two.variants[0].effect.location.end is None
-    assert (
-        trans.description.allele_two.variants[0].effect.edit
-        is ProteinSequenceOmittedEdit.NO_CHANGE
-    )
+    assert trans.description.allele_two.variants[0].location.start.ordinal == 68
+    assert trans.description.allele_two.variants[0].location.end is None
 
     assert isinstance(uncertain.description, AlleleVariant)
     assert uncertain.description.phase is AllelePhase.UNCERTAIN
     assert uncertain.description.allele_two is not None
     assert uncertain.description.phased_alleles is None
-    assert uncertain.description.unphased_alleles == ()
+    assert uncertain.description.unphased == ()
     assert uncertain.description.allele_one.variants[0].is_predicted is True
     assert uncertain.description.allele_two.variants[0].is_predicted is True
 
     assert isinstance(absent.description, AlleleVariant)
     assert absent.description.phase is AllelePhase.TRANS
     assert absent.description.allele_two is not None
-    assert (
-        absent.description.allele_two.variants[0].effect.kind
-        == "no_protein_produced"
-    )
+    assert isinstance(absent.description.allele_two.variants[0], ProteinNotProduced)
 
     assert isinstance(mixed.description, AlleleVariant)
     assert len(mixed.description.allele_one.variants) == 2
@@ -617,48 +572,37 @@ def test_parses_protein_allele_variants():
     assert isinstance(range_no_change.description, AlleleVariant)
     assert range_no_change.description.allele_two is not None
     second_range = range_no_change.description.allele_two.variants[0]
-    assert isinstance(second_range.effect, ProteinEditEffect)
-    assert second_range.effect.location.start.residue == "Ser"
-    assert second_range.effect.location.end is not None
-    assert second_range.effect.location.end.residue == "Arg"
-    assert second_range.effect.edit is ProteinSequenceOmittedEdit.NO_CHANGE
+    assert isinstance(second_range, ProteinNoChange)
+    assert second_range.location.start.residue == "Ser"
+    assert second_range.location.start.ordinal == 68
+    assert second_range.location.end is not None
+    assert second_range.location.end.residue == "Arg"
+    assert second_range.location.end.ordinal == 70
 
 
 def test_reports_protein_allele_helper_views():
     single = parse_hgvs("p.[Ser73Arg]")
     trans = parse_hgvs("NP_003997.1:p.[Ser68Arg];[Ser68=]")
     uncertain = parse_hgvs("NP_003997.1:p.(Ser73Arg)(;)(Asn103del)")
-    mixed = parse_hgvs("p.[Ser68Arg];[Asn594del](;)0")
 
     assert single.description.phased_alleles is None
-    assert single.description.unphased_alleles == ()
-    assert len(tuple(single.description)) == 1
+    assert single.description.unphased == ()
 
     trans_pair = trans.description.phased_alleles
     assert trans_pair is not None
     assert len(trans_pair[0].variants) == 1
     assert len(trans_pair[1].variants) == 1
-    assert trans.description.unphased_alleles == ()
-    assert len(tuple(trans.description)) == 2
+    assert trans.description.unphased == ()
 
     assert uncertain.description.phased_alleles is None
-    assert uncertain.description.unphased_alleles == ()
+    assert uncertain.description.unphased == ()
     assert uncertain.description.allele_two is not None
     assert (
         uncertain.description.allele_two.variants[
             0
-        ].effect.location.start.residue
+        ].edit.location.start.residue
         == "Asn"
     )
-
-    mixed_pair = mixed.description.phased_alleles
-    assert mixed_pair is not None
-    assert len(mixed.description.unphased_alleles) == 1
-    assert (
-        mixed.description.unphased_alleles[0].variants[0].effect.kind
-        == "no_protein_produced"
-    )
-    assert len(tuple(mixed.description)) == 3
 
 
 def test_rejects_malformed_protein_allele_variants():
@@ -683,58 +627,50 @@ def test_parses_protein_substitution_and_no_change_variants():
     substitution = parse_hgvs("NP_003997.1:p.Trp24Ter")
     no_change = parse_hgvs("NP_003997.1:p.Cys188=")
 
+    assert isinstance(substitution.description, ProteinProduced)
     assert substitution.description.is_predicted is False
-    assert isinstance(substitution.description.effect, ProteinEditEffect)
-    assert substitution.description.effect.location.start.residue == "Trp"
-    assert substitution.description.effect.location.start.ordinal == 24
-    assert substitution.description.effect.edit.to == "Ter"
-    assert substitution.description.effect.edit.kind == "substitution"
+    assert isinstance(substitution.description.edit, ProteinSubstitution)
+    assert substitution.description.edit.location.start.residue == "Trp"
+    assert substitution.description.edit.location.start.ordinal == 24
+    assert substitution.description.edit.to == "Ter"
 
-    assert isinstance(no_change.description.effect, ProteinEditEffect)
-    assert (
-        no_change.description.effect.edit
-        is ProteinSequenceOmittedEdit.NO_CHANGE
-    )
+    assert isinstance(no_change.description, ProteinNoChange)
+    assert no_change.description.location.start.residue == "Cys"
+    assert no_change.description.location.start.ordinal == 188
+    assert no_change.description.location.end is None
 
 
 def test_parses_uncertain_protein_locations():
     variant = parse_hgvs("NP_003997.1:p.(Ala123_Pro131)Ter")
 
-    assert isinstance(variant.description.effect, ProteinEditEffect)
-    location = variant.description.effect.location
-    assert isinstance(location, Location)
-    assert location.is_uncertain is True
+    assert isinstance(variant.description, ProteinProduced)
+    assert isinstance(variant.description.edit, ProteinSubstitution)
+    location = variant.description.edit.location
+    assert isinstance(location, UncertainLocation)
     assert location.is_interval is True
-    assert location.is_pos is False
-    assert location.start is None
+    assert location.is_position is False
+    assert location.start.start.residue == "Ala"
+    assert location.start.start.ordinal == 123
+    assert location.start.end is not None
+    assert location.start.end.residue == "Pro"
+    assert location.start.end.ordinal == 131
     assert location.end is None
-    assert location.l_interval is not None
-    assert location.l_interval.start.residue == "Ala"
-    assert location.l_interval.start.ordinal == 123
-    assert location.l_interval.end is not None
-    assert location.l_interval.end.residue == "Pro"
-    assert location.l_interval.end.ordinal == 131
-    assert location.r_interval is None
-    assert variant.description.effect.edit.to == "Ter"
+    assert variant.description.edit.to == "Ter"
 
 
 def test_parses_protein_unknown_and_predicted_effects():
     unknown = parse_hgvs("NP_003997.1:p.?")
-    predicted = parse_hgvs("LRG_199p1:p.(Met1?)")
+    predicted = parse_hgvs("NP_003997.1:p.(Trp24Ter)")
     absent = parse_hgvs("LRG_199p1:p.0")
 
-    assert unknown.description.effect.kind == "unknown"
-    assert unknown.description.is_predicted is False
+    assert isinstance(unknown.description, ProteinUnknown)
 
-    assert isinstance(predicted.description.effect, ProteinEditEffect)
+    assert isinstance(predicted.description, ProteinProduced)
     assert predicted.description.is_predicted is True
-    assert predicted.description.effect.location.start.residue == "Met"
-    assert predicted.description.effect.location.start.ordinal == 1
-    assert (
-        predicted.description.effect.edit is ProteinSequenceOmittedEdit.UNKNOWN
-    )
+    assert predicted.description.edit.location.start.residue == "Trp"
+    assert predicted.description.edit.location.start.ordinal == 24
 
-    assert absent.description.effect.kind == "no_protein_produced"
+    assert isinstance(absent.description, ProteinNotProduced)
 
 
 def test_parses_protein_deletion_duplication_insertion_and_delins_variants():
@@ -743,44 +679,34 @@ def test_parses_protein_deletion_duplication_insertion_and_delins_variants():
     insertion = parse_hgvs("p.Lys2_Gly3insGlnSerLys")
     delins = parse_hgvs("p.Cys28delinsTrpVal")
 
-    assert isinstance(deletion.description.effect, ProteinEditEffect)
-    assert deletion.description.effect.location.start.residue == "Lys"
-    assert deletion.description.effect.location.end is not None
-    assert deletion.description.effect.location.end.residue == "Val"
-    assert (
-        deletion.description.effect.edit is ProteinSequenceOmittedEdit.DELETION
-    )
+    assert isinstance(deletion.description.edit, ProteinDeletion)
+    assert deletion.description.edit.location.start.residue == "Lys"
+    assert deletion.description.edit.location.end is not None
+    assert deletion.description.edit.location.end.residue == "Val"
 
-    assert isinstance(duplication.description.effect, ProteinEditEffect)
-    assert (
-        duplication.description.effect.edit
-        is ProteinSequenceOmittedEdit.DUPLICATION
-    )
+    assert isinstance(duplication.description.edit, ProteinDuplication)
 
-    assert isinstance(insertion.description.effect, ProteinEditEffect)
-    assert insertion.description.effect.edit.kind == "insertion"
-    assert insertion.description.effect.edit.sequence.residues == (
+    assert isinstance(insertion.description.edit, KnownProteinInsertion)
+    assert insertion.description.edit.sequence == (
         "Gln",
         "Ser",
         "Lys",
     )
 
-    assert isinstance(delins.description.effect, ProteinEditEffect)
-    assert delins.description.effect.edit.kind == "deletion_insertion"
-    assert delins.description.effect.edit.sequence.residues == ("Trp", "Val")
+    assert isinstance(delins.description.edit, ProteinDeletionInsertion)
+    assert delins.description.edit.sequence == ("Trp", "Val")
 
 
 def test_parses_protein_repeat_variants():
     repeat = parse_hgvs("NP_0123456.1:p.Arg65_Ser67[12]")
 
-    assert isinstance(repeat.description.effect, ProteinEditEffect)
-    assert repeat.description.effect.location.start.residue == "Arg"
-    assert repeat.description.effect.location.start.ordinal == 65
-    assert repeat.description.effect.location.end is not None
-    assert repeat.description.effect.location.end.residue == "Ser"
-    assert repeat.description.effect.location.end.ordinal == 67
-    assert repeat.description.effect.edit.kind == "repeat"
-    assert repeat.description.effect.edit.count == 12
+    assert isinstance(repeat.description.edit, ProteinRepeat)
+    assert repeat.description.edit.location.start.residue == "Arg"
+    assert repeat.description.edit.location.start.ordinal == 65
+    assert repeat.description.edit.location.end is not None
+    assert repeat.description.edit.location.end.residue == "Ser"
+    assert repeat.description.edit.location.end.ordinal == 67
+    assert repeat.description.edit.repeat.quantity.count == 12
 
 
 def test_parses_protein_frameshift_variants():
@@ -791,64 +717,38 @@ def test_parses_protein_frameshift_variants():
     unknown_stop_ter = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer?")
     predicted = parse_hgvs("p.(Arg97fs)")
 
-    assert isinstance(short.description.effect, ProteinEditEffect)
-    assert short.description.effect.location.start.residue == "Arg"
-    assert short.description.effect.location.start.ordinal == 97
-    assert short.description.effect.edit.kind == "frameshift"
-    assert short.description.effect.edit.to_residue is None
-    assert short.description.effect.edit.stop.ordinal is None
-    assert (
-        short.description.effect.edit.stop.kind
-        is ProteinFrameshiftStopKind.OMITTED
+    assert isinstance(short.description.edit, ProteinFrameshift)
+    assert short.description.edit.location.start.residue == "Arg"
+    assert short.description.edit.location.start.ordinal == 97
+    assert short.description.edit.to_residue is None
+    assert isinstance(short.description.edit.stop, OmittedProteinFrameshiftStop)
+
+    assert isinstance(long.description.edit, ProteinFrameshift)
+    assert long.description.edit.to_residue == "Pro"
+    assert isinstance(long.description.edit.stop, KnownProteinFrameshiftStop)
+    assert long.description.edit.stop.ordinal == 23
+
+    assert isinstance(symbolic_stop.description.edit, ProteinFrameshift)
+    assert symbolic_stop.description.edit.to_residue == "Pro"
+    assert isinstance(symbolic_stop.description.edit.stop, KnownProteinFrameshiftStop)
+    assert symbolic_stop.description.edit.stop.ordinal == 23
+
+    assert isinstance(unknown_stop.description.edit, ProteinFrameshift)
+    assert unknown_stop.description.edit.location.start.residue == "Ile"
+    assert unknown_stop.description.edit.location.start.ordinal == 327
+    assert unknown_stop.description.edit.to_residue == "Arg"
+    assert isinstance(unknown_stop.description.edit.stop, UnknownProteinFrameshiftStop)
+
+    assert isinstance(unknown_stop_ter.description.edit, ProteinFrameshift)
+    assert unknown_stop_ter.description.edit.to_residue == "Pro"
+    assert isinstance(
+        unknown_stop_ter.description.edit.stop, UnknownProteinFrameshiftStop
     )
 
-    assert isinstance(long.description.effect, ProteinEditEffect)
-    assert long.description.effect.edit.kind == "frameshift"
-    assert long.description.effect.edit.to_residue == "Pro"
-    assert long.description.effect.edit.stop.ordinal == 23
-    assert (
-        long.description.effect.edit.stop.kind
-        is ProteinFrameshiftStopKind.KNOWN
-    )
-
-    assert isinstance(symbolic_stop.description.effect, ProteinEditEffect)
-    assert symbolic_stop.description.effect.edit.kind == "frameshift"
-    assert symbolic_stop.description.effect.edit.to_residue == "Pro"
-    assert symbolic_stop.description.effect.edit.stop.ordinal == 23
-    assert (
-        symbolic_stop.description.effect.edit.stop.kind
-        is ProteinFrameshiftStopKind.KNOWN
-    )
-
-    assert isinstance(unknown_stop.description.effect, ProteinEditEffect)
-    assert unknown_stop.description.effect.location.start.residue == "Ile"
-    assert unknown_stop.description.effect.location.start.ordinal == 327
-    assert unknown_stop.description.effect.edit.kind == "frameshift"
-    assert unknown_stop.description.effect.edit.to_residue == "Arg"
-    assert unknown_stop.description.effect.edit.stop.ordinal is None
-    assert (
-        unknown_stop.description.effect.edit.stop.kind
-        is ProteinFrameshiftStopKind.UNKNOWN
-    )
-
-    assert isinstance(unknown_stop_ter.description.effect, ProteinEditEffect)
-    assert unknown_stop_ter.description.effect.edit.kind == "frameshift"
-    assert unknown_stop_ter.description.effect.edit.to_residue == "Pro"
-    assert unknown_stop_ter.description.effect.edit.stop.ordinal is None
-    assert (
-        unknown_stop_ter.description.effect.edit.stop.kind
-        is ProteinFrameshiftStopKind.UNKNOWN
-    )
-
-    assert isinstance(predicted.description.effect, ProteinEditEffect)
+    assert isinstance(predicted.description.edit, ProteinFrameshift)
     assert predicted.description.is_predicted is True
-    assert predicted.description.effect.edit.kind == "frameshift"
-    assert predicted.description.effect.edit.to_residue is None
-    assert predicted.description.effect.edit.stop.ordinal is None
-    assert (
-        predicted.description.effect.edit.stop.kind
-        is ProteinFrameshiftStopKind.OMITTED
-    )
+    assert predicted.description.edit.to_residue is None
+    assert isinstance(predicted.description.edit.stop, OmittedProteinFrameshiftStop)
 
 
 def test_parses_protein_extension_variants():
@@ -859,80 +759,64 @@ def test_parses_protein_extension_variants():
     unknown_stop = parse_hgvs("p.Ter327ArgextTer?")
     unknown_stop_symbolic = parse_hgvs("p.*327Argext*?")
 
-    assert isinstance(n_terminal.description.effect, ProteinEditEffect)
-    assert n_terminal.description.effect.location.start.residue == "Met"
-    assert n_terminal.description.effect.location.start.ordinal == 1
-    assert n_terminal.description.effect.edit.kind == "extension"
-    assert (
-        n_terminal.description.effect.edit.to_terminal
-        is ProteinExtensionTerminal.N
-    )
-    assert n_terminal.description.effect.edit.to_residue is None
-    assert n_terminal.description.effect.edit.terminal_ordinal == -5
+    assert isinstance(n_terminal.description.edit, ProteinExtension)
+    assert n_terminal.description.edit.location.start.residue == "Met"
+    assert n_terminal.description.edit.location.start.ordinal == 1
+    assert n_terminal.description.edit.to_terminal is ProteinExtensionTerminal.N
+    assert n_terminal.description.edit.to_residue is None
+    assert n_terminal.description.edit.terminal_ordinal == -5
 
-    assert isinstance(
-        predicted_n_terminal.description.effect, ProteinEditEffect
-    )
+    assert isinstance(predicted_n_terminal.description.edit, ProteinExtension)
     assert predicted_n_terminal.description.is_predicted is True
     assert (
-        predicted_n_terminal.description.effect.edit.to_terminal
+        predicted_n_terminal.description.edit.to_terminal
         is ProteinExtensionTerminal.N
     )
-    assert predicted_n_terminal.description.effect.edit.terminal_ordinal == -8
+    assert predicted_n_terminal.description.edit.terminal_ordinal == -8
 
-    assert isinstance(c_terminal.description.effect, ProteinEditEffect)
-    assert c_terminal.description.effect.location.start.residue == "Ter"
-    assert c_terminal.description.effect.location.start.ordinal == 110
-    assert c_terminal.description.effect.edit.kind == "extension"
+    assert isinstance(c_terminal.description.edit, ProteinExtension)
+    assert c_terminal.description.edit.location.start.residue == "Ter"
+    assert c_terminal.description.edit.location.start.ordinal == 110
+    assert c_terminal.description.edit.to_terminal is ProteinExtensionTerminal.C
+    assert c_terminal.description.edit.to_residue == "Gln"
+    assert c_terminal.description.edit.terminal_ordinal == 17
+
+    assert isinstance(c_terminal_symbolic.description.edit, ProteinExtension)
     assert (
-        c_terminal.description.effect.edit.to_terminal
+        c_terminal_symbolic.description.edit.location.start.residue == "Ter"
+    )
+    assert c_terminal_symbolic.description.edit.location.start.ordinal == 110
+    assert (
+        c_terminal_symbolic.description.edit.to_terminal
         is ProteinExtensionTerminal.C
     )
-    assert c_terminal.description.effect.edit.to_residue == "Gln"
-    assert c_terminal.description.effect.edit.terminal_ordinal == 17
+    assert c_terminal_symbolic.description.edit.to_residue == "Gln"
+    assert c_terminal_symbolic.description.edit.terminal_ordinal == 17
 
-    assert isinstance(
-        c_terminal_symbolic.description.effect, ProteinEditEffect
-    )
+    assert isinstance(unknown_stop.description.edit, ProteinExtension)
+    assert unknown_stop.description.edit.location.start.residue == "Ter"
+    assert unknown_stop.description.edit.location.start.ordinal == 327
     assert (
-        c_terminal_symbolic.description.effect.location.start.residue == "Ter"
-    )
-    assert c_terminal_symbolic.description.effect.location.start.ordinal == 110
-    assert (
-        c_terminal_symbolic.description.effect.edit.to_terminal
+        unknown_stop.description.edit.to_terminal
         is ProteinExtensionTerminal.C
     )
-    assert c_terminal_symbolic.description.effect.edit.to_residue == "Gln"
-    assert c_terminal_symbolic.description.effect.edit.terminal_ordinal == 17
+    assert unknown_stop.description.edit.to_residue == "Arg"
+    assert unknown_stop.description.edit.terminal_ordinal is None
 
-    assert isinstance(unknown_stop.description.effect, ProteinEditEffect)
-    assert unknown_stop.description.effect.location.start.residue == "Ter"
-    assert unknown_stop.description.effect.location.start.ordinal == 327
+    assert isinstance(unknown_stop_symbolic.description.edit, ProteinExtension)
     assert (
-        unknown_stop.description.effect.edit.to_terminal
-        is ProteinExtensionTerminal.C
-    )
-    assert unknown_stop.description.effect.edit.to_residue == "Arg"
-    assert unknown_stop.description.effect.edit.terminal_ordinal is None
-
-    assert isinstance(
-        unknown_stop_symbolic.description.effect, ProteinEditEffect
-    )
-    assert (
-        unknown_stop_symbolic.description.effect.location.start.residue
+        unknown_stop_symbolic.description.edit.location.start.residue
         == "Ter"
     )
     assert (
-        unknown_stop_symbolic.description.effect.location.start.ordinal == 327
+        unknown_stop_symbolic.description.edit.location.start.ordinal == 327
     )
     assert (
-        unknown_stop_symbolic.description.effect.edit.to_terminal
+        unknown_stop_symbolic.description.edit.to_terminal
         is ProteinExtensionTerminal.C
     )
-    assert unknown_stop_symbolic.description.effect.edit.to_residue == "Arg"
-    assert (
-        unknown_stop_symbolic.description.effect.edit.terminal_ordinal is None
-    )
+    assert unknown_stop_symbolic.description.edit.to_residue == "Arg"
+    assert unknown_stop_symbolic.description.edit.terminal_ordinal is None
 
 
 def test_reports_intronic_and_utr_coordinate_properties_from_parsed_variants():
@@ -1067,47 +951,9 @@ def test_rejects_malformed_protein_extension_variants(example: str):
     assert exc_info.value.kind is ParseHgvsErrorKind.INVALID_SYNTAX
 
 
-# def test_parses_uncertain_range_example_previously_deferred():
-#     variant = parse_hgvs(
-#         "NC_000023.11:g.(31060227_31100351)_(33274278_33417151)dup"
-#     )
-#
-#     location = variant.description.location
-#     assert location.is_uncertain is True
-#     assert location.l_interval is not None
-#     assert location.l_interval.start.coordinate == 31060227
-#     assert location.l_interval.end is not None
-#     assert location.l_interval.end.coordinate == 31100351
-#     assert location.r_interval is not None
-#     assert location.r_interval.start.coordinate == 33274278
-#     assert location.r_interval.end is not None
-#     assert location.r_interval.end.coordinate == 33417151
-#     assert (
-#         variant.description.edit is NucleotideSequenceOmittedEdit.DUPLICATION
-#     )
-
-
 @pytest.mark.parametrize(
     ("example", "code", "kind", "fragment"),
     [
-        (
-            "NM_004006.2:c.[2376G>C];[?]",
-            "unsupported.allele_unknown_variant",
-            ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
-            "[?]",
-        ),
-        (
-            "NM_004006.2:c.[2376G>C](;)(1083A>C)",
-            "unsupported.allele_uncertain_variant_state",
-            ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
-            "(;)(...)",
-        ),
-        (
-            "r.-124_-123[14];[18]",
-            "unsupported.allele",
-            ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
-            "];[",
-        ),
         (
             "NC_000023.11:g.pter_qtersup",
             "unsupported.telomeric_position",
@@ -1121,58 +967,10 @@ def test_rejects_malformed_protein_extension_variants(example: str):
             "|gom",
         ),
         (
-            "NM_004006.3:r.spl",
-            "unsupported.rna_special_state",
-            ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
-            "r.spl",
-        ),
-        (
-            "r.-128_-126[(600_800)]",
-            "unsupported.uncertain_size",
-            ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
-            "[(...)]",
-        ),
-        (
-            "NC_000023.11(NM_004006.2):r.[897u>g,832_960del]",
-            "unsupported.rna_splicing_outcome",
-            ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
-            "r.[...]",
-        ),
-        (
             "NM_002354.2:r.-358_555::NM_000251.2:r.212_*279",
             "unsupported.rna_adjoined_transcript",
             ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
             "::",
-        ),
-        (
-            "NP_003997.1:p.[Lys31Asn,Val25_Lys31del]",
-            "unsupported.one_allele_multi_protein",
-            ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
-            ",",
-        ),
-        (
-            "NP_003997.2:p.[(Asn158Asp)(;)(Asn158Ile)]^[(Asn158Val)]",
-            "unsupported.alternate_allele_state",
-            ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
-            "^",
-        ),
-        (
-            "p.(Gln18)[(70_80)]",
-            "unsupported.protein_uncertain_consequence",
-            ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
-            "[(...)]",
-        ),
-        (
-            "p.Arg78_Gly79insXaa[23]",
-            "unsupported.protein_insertion_payload",
-            ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
-            "Xaa[...]",
-        ),
-        (
-            "p.(Gly719Ala^Ser)",
-            "unsupported.protein_uncertain_consequence",
-            ParseHgvsErrorKind.UNSUPPORTED_SYNTAX,
-            "^",
         ),
         (
             "not-hgvs",

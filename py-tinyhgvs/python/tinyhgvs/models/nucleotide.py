@@ -171,11 +171,7 @@ class NucleotideCoordinate:
             >>> position.is_five_prime_utr
             False
         """
-        return (
-            self.is_cds_start_anchored
-            and self.coordinate is not None
-            and self.coordinate < 0
-        )
+        return self.is_cds_start_anchored and self.offset == 0
 
     @property
     def is_three_prime_utr(self) -> bool:
@@ -190,7 +186,7 @@ class NucleotideCoordinate:
             >>> position.is_three_prime_utr
             False
         """
-        return self.is_cds_end_anchored
+        return self.is_cds_end_anchored and self.offset == 0
 
 
 @dataclass(frozen=True, slots=True)
