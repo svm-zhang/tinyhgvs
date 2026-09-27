@@ -5,15 +5,46 @@
 
 :root {
   --md-code-font: "DejaVu Sans Mono";
+  --tinyhgvs-desktop-grid-width: 72rem;
+  --tinyhgvs-primary-sidebar-width: 13rem;
+  --tinyhgvs-secondary-sidebar-width: 15rem;
 }
 
 .md-nav__link {
   white-space: normal;
 }
 
+.md-sidebar--secondary .md-nav__link {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media screen and (min-width: 76.25em) {
-  .md-sidebar {
-    width: 18rem;
+  .md-grid {
+    max-width: var(--tinyhgvs-desktop-grid-width);
+  }
+
+  .md-sidebar--primary {
+    width: var(--tinyhgvs-primary-sidebar-width);
+  }
+
+  .md-sidebar--secondary {
+    width: var(--tinyhgvs-secondary-sidebar-width);
+  }
+}
+
+@media screen and (min-width: 100em) {
+  :root {
+    --tinyhgvs-desktop-grid-width: 78rem;
+    --tinyhgvs-secondary-sidebar-width: 16rem;
+  }
+}
+
+@media screen and (min-width: 125em) {
+  :root {
+    --tinyhgvs-desktop-grid-width: 84rem;
+    --tinyhgvs-secondary-sidebar-width: 17rem;
   }
 }
 
