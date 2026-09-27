@@ -74,6 +74,14 @@ def parse_hgvs(input: str) -> HgvsVariant:
         >>> protein.description.edit.location.start.residue
         'Trp'
 
+        A predicted protein no-change outcome:
+
+        >>> no_change = parse_hgvs("NP_003997.1:p.(Cys188=)")
+        >>> no_change.description.is_no_change
+        True
+        >>> no_change.description.is_predicted
+        True
+
         A protein frameshift variant (long-format):
 
         >>> frameshift = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23")

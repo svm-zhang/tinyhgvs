@@ -1,18 +1,40 @@
 //! Protein coordinates, edits, and edit-specific model details.
 
-use super::{Location, OutcomeCertainty, RepeatEdit};
+use super::{Location, RepeatEdit};
 
 /// A protein edit applied at a protein location.
+///
+/// # Examples
+///
+/// ```rust
+/// use tinyhgvs::{
+///     ProteinEditForm, ProteinEditKind, ProteinOutcome, VariantDescription, parse_hgvs,
+/// };
+///
+/// # fn main() -> Result<(), tinyhgvs::ParseHgvsError> {
+/// let variant = parse_hgvs("NP_003997.1:p.Lys2_Gly3insGlnSerLys")?;
+///
+/// let VariantDescription::Protein(ProteinOutcome::Produced {
+///     edit: ProteinEditForm::Single(edit),
+///     ..
+/// }) = variant.description else {
+///     panic!("expected a produced protein outcome");
+/// };
+///
+/// assert_eq!(edit.location.start().unwrap().residue, "Lys");
+/// assert!(matches!(edit.kind, ProteinEditKind::Insertion { .. }));
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProteinEdit {
     pub location: Location<ProteinCoordinate>,
     pub kind: ProteinEditKind,
 }
 
+/// Protein edit operation applied at a protein location.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProteinEditKind {
-    // p.=, p.(=)
-    NoChange(OutcomeCertainty),
     // p.Trp24Ter
     Substitution {
         to: ResidueChange,
@@ -40,6 +62,7 @@ pub enum ProteinEditKind {
     },
 }
 
+/// Residue written as one known residue or multiple alternative residues.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResidueChange {
     // p.Trp24Ter, p.Arg97ProfsTer23
@@ -48,6 +71,35 @@ pub enum ResidueChange {
     Alternative(Vec<String>),
 }
 
+/// Inserted protein sequence content.
+///
+/// # Examples
+///
+/// ```rust
+/// use tinyhgvs::{
+///     ProteinEditForm, ProteinEditKind, ProteinInsertionSequence, ProteinOutcome,
+///     VariantDescription, parse_hgvs,
+/// };
+///
+/// # fn main() -> Result<(), tinyhgvs::ParseHgvsError> {
+/// let variant = parse_hgvs("NP_003997.1:p.Arg78_Gly79insXaa[23]")?;
+///
+/// let VariantDescription::Protein(ProteinOutcome::Produced {
+///     edit: ProteinEditForm::Single(edit),
+///     ..
+/// }) = variant.description else {
+///     panic!("expected a produced protein outcome");
+/// };
+///
+/// assert!(matches!(
+///     edit.kind,
+///     ProteinEditKind::Insertion {
+///         sequence: ProteinInsertionSequence::Unknown { count: 23 }
+///     }
+/// ));
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProteinInsertionSequence {
     // p.Val582_Asn583insAla
@@ -58,6 +110,7 @@ pub enum ProteinInsertionSequence {
     Terminating { ordinal: usize },
 }
 
+/// One produced protein edit, or alternative produced protein edits.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProteinEditForm {
     // p.Trp24Ter
@@ -193,11 +246,15 @@ pub struct ProteinFrameshiftStop {
 }
 
 /// Ordered protein insertion or replacement sequence.
+///
+/// This model is used by known protein insertion content and protein
+/// deletion-insertion replacement content.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProteinSequence {
     pub residues: Vec<String>,
 }
 
+/// Protein position written as residue symbol plus ordinal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProteinCoordinate {
     pub residue: String,

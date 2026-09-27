@@ -660,6 +660,7 @@ def test_parses_protein_allele_variants():
     absent = parse_hgvs("p.[Ser86Arg];[0]")
     mixed = parse_hgvs("p.[Phe233Leu;(Cys690Trp)]")
     whole_predicted = parse_hgvs("NP_003997.1:p.[(Ser68Arg;Asn594del)]")
+    predicted_with_no_change = parse_hgvs("NP_003997.1:p.[(Ser68Arg;Ser68=)]")
     range_no_change = parse_hgvs("p.[Ser68_Arg70dup];[Ser68_Arg70=]")
 
     assert isinstance(single.description, AlleleVariant)
@@ -718,6 +719,18 @@ def test_parses_protein_allele_variants():
         for variant in whole_predicted.description.allele_one.variants
     )
 
+    assert isinstance(predicted_with_no_change.description, AlleleVariant)
+    assert len(predicted_with_no_change.description.allele_one.variants) == 2
+    assert all(
+        variant.is_predicted
+        for variant in predicted_with_no_change.description.allele_one.variants
+    )
+    second_predicted = predicted_with_no_change.description.allele_one.variants[1]
+    assert isinstance(second_predicted, ProteinNoChange)
+    assert second_predicted.location.start.residue == "Ser"
+    assert second_predicted.location.start.ordinal == 68
+    assert second_predicted.certainty is OutcomeCertainty.PREDICTED
+
     assert isinstance(range_no_change.description, AlleleVariant)
     assert range_no_change.description.allele_two is not None
     second_range = range_no_change.description.allele_two.variants[0]
@@ -758,6 +771,10 @@ def test_rejects_malformed_protein_allele_variants():
     cases = [
         "p.([Ser68Arg;Asn594del])",
         "p.([Ser68Arg];[Ser68Arg])",
+        "p.[=]",
+        "p.[(=)]",
+        "p.[Ser68Arg;=]",
+        "p.[(Ser68Arg;=)]",
         "p.[Ser68Arg];[=]",
         "p.[Ser73Arg];[]",
         "p.[Ser68Arg](;)Asn594del",
@@ -775,6 +792,8 @@ def test_rejects_malformed_protein_allele_variants():
 def test_parses_protein_substitution_and_no_change_variants():
     substitution = parse_hgvs("NP_003997.1:p.Trp24Ter")
     no_change = parse_hgvs("NP_003997.1:p.Cys188=")
+    predicted_no_change = parse_hgvs("NP_003997.1:p.(Cys188=)")
+    predicted_whole_no_change = parse_hgvs("NP_003997.1:p.(=)")
 
     assert isinstance(substitution.description, ProteinProduced)
     assert substitution.description.is_predicted is False
@@ -787,6 +806,36 @@ def test_parses_protein_substitution_and_no_change_variants():
     assert no_change.description.location.start.residue == "Cys"
     assert no_change.description.location.start.ordinal == 188
     assert no_change.description.location.end is None
+    assert no_change.description.certainty is OutcomeCertainty.CERTAIN
+    assert no_change.description.is_predicted is False
+
+    assert isinstance(predicted_no_change.description, ProteinNoChange)
+    assert predicted_no_change.description.location.start.residue == "Cys"
+    assert predicted_no_change.description.location.start.ordinal == 188
+    assert predicted_no_change.description.location.end is None
+    assert predicted_no_change.description.certainty is OutcomeCertainty.PREDICTED
+    assert predicted_no_change.description.is_predicted is True
+
+    assert isinstance(predicted_whole_no_change.description, ProteinNoChange)
+    assert predicted_whole_no_change.description.location is None
+    assert (
+        predicted_whole_no_change.description.certainty
+        is OutcomeCertainty.PREDICTED
+    )
+    assert predicted_whole_no_change.description.is_predicted is True
+
+
+def test_rejects_malformed_protein_no_change_variants():
+    cases = [
+        "NP_003997.1:p.Cys188(=)",
+        "NP_003997.1:p.(Cys188(=))",
+    ]
+
+    for input_value in cases:
+        with pytest.raises(TinyHGVSError) as exc_info:
+            parse_hgvs(input_value)
+
+        assert exc_info.value.code == "invalid.syntax"
 
 
 def test_parses_uncertain_protein_locations():
@@ -1032,8 +1081,8 @@ def test_reports_protein_edit_and_outcome_helper_views():
 
     assert isinstance(no_change.description, ProteinNoChange)
     assert no_change.description.is_no_change is True
-    assert no_change.description.is_predicted is False
-    assert no_change.description.certainty is OutcomeCertainty.CERTAIN
+    assert no_change.description.is_predicted is True
+    assert no_change.description.certainty is OutcomeCertainty.PREDICTED
 
     assert isinstance(not_produced.description, ProteinNotProduced)
     assert not_produced.description.is_not_produced is True

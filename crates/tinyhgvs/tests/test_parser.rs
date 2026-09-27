@@ -366,6 +366,20 @@ fn rejects_unsupported_mixed_protein_allele_forms() {
 }
 
 #[test]
+fn rejects_malformed_protein_no_change_forms() {
+    for input in [
+        "NP_003997.1:p.Cys188(=)",
+        "NP_003997.1:p.(Cys188(=))",
+        "NP_003997.1:p.[=]",
+        "NP_003997.1:p.[(=)]",
+        "NP_003997.1:p.[Ser68Arg;=]",
+        "NP_003997.1:p.[(Ser68Arg;=)]",
+    ] {
+        assert!(parse_hgvs(input).is_err(), "{input} should be rejected");
+    }
+}
+
+#[test]
 fn parses_uncertain_allele_state() {
     let dna = parse_variant("NC_000001.11:g.123G>A(;)345del").into_genomic_allele();
     let rna = parse_variant("NM_004006.3:r.76a>u(;)(103del)").into_rna_allele();
@@ -423,6 +437,43 @@ fn parses_protein_substitution_and_prediction() {
 
     let (_, certainty) = predicted.produced_edit();
     assert_eq!(*certainty, OutcomeCertainty::Predicted);
+}
+
+#[test]
+fn parses_protein_no_change_outcomes() {
+    let certain_site = parse_variant("NP_003997.1:p.Cys188=").into_protein_outcome();
+    let predicted_site = parse_variant("NP_003997.1:p.(Cys188=)").into_protein_outcome();
+    let predicted_whole = parse_variant("NP_003997.1:p.(=)").into_protein_outcome();
+
+    let ProteinOutcome::NoChange {
+        location: Some(location),
+        certainty,
+    } = certain_site
+    else {
+        panic!("expected site-specific protein no-change");
+    };
+    assert_eq!(certainty, OutcomeCertainty::Certain);
+    assert_eq!(location.known_start().residue, "Cys");
+    assert_eq!(location.known_start().ordinal, 188);
+
+    let ProteinOutcome::NoChange {
+        location: Some(location),
+        certainty,
+    } = predicted_site
+    else {
+        panic!("expected predicted site-specific protein no-change");
+    };
+    assert_eq!(certainty, OutcomeCertainty::Predicted);
+    assert_eq!(location.known_start().residue, "Cys");
+    assert_eq!(location.known_start().ordinal, 188);
+
+    assert!(matches!(
+        predicted_whole,
+        ProteinOutcome::NoChange {
+            location: None,
+            certainty: OutcomeCertainty::Predicted,
+        }
+    ));
 }
 
 #[test]
@@ -503,13 +554,34 @@ fn parses_protein_edit_families() {
 #[test]
 fn parses_protein_alleles() {
     let allele = parse_variant("NP_003997.1:p.[Ser68Arg];[Ser68=]").into_protein_allele();
+    let predicted = parse_variant("NP_003997.1:p.[(Ser68Arg;Ser68=)]").into_protein_allele();
 
     assert_eq!(allele.phase, Some(AllelePhase::Trans));
     let second = &allele.allele_two.expect("expected second allele").variants[0];
-    assert!(matches!(
-        second.produced_edit().0.kind,
-        ProteinEditKind::NoChange(OutcomeCertainty::Certain)
-    ));
+    let ProteinOutcome::NoChange {
+        location: Some(location),
+        certainty,
+    } = second
+    else {
+        panic!("expected site-specific protein no-change");
+    };
+    assert_eq!(*certainty, OutcomeCertainty::Certain);
+    assert_eq!(location.known_start().residue, "Ser");
+    assert_eq!(location.known_start().ordinal, 68);
+
+    assert_eq!(predicted.allele_one.variants.len(), 2);
+    assert!(predicted.allele_one.variants.iter().all(|variant| {
+        matches!(
+            variant,
+            ProteinOutcome::Produced {
+                certainty: OutcomeCertainty::Predicted,
+                ..
+            } | ProteinOutcome::NoChange {
+                certainty: OutcomeCertainty::Predicted,
+                ..
+            }
+        )
+    }));
 }
 
 #[test]

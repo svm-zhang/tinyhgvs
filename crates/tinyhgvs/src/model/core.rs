@@ -1,6 +1,8 @@
 //! Core public model types shared across coordinate systems.
 
-use super::{AlleleForm, NucleotideEdit, ProteinEdit, ProteinEditForm};
+use super::{
+    AlleleForm, Location, NucleotideEdit, ProteinCoordinate, ProteinEdit, ProteinEditForm,
+};
 
 /// A parsed HGVS variant.
 ///
@@ -212,12 +214,49 @@ pub enum OutcomeCertainty {
     Predicted,
 }
 
+/// Protein description outcome.
+///
+/// # Examples
+///
+/// A site-specific no-change outcome keeps the protein location on the
+/// outcome itself:
+///
+/// ```rust
+/// use tinyhgvs::{
+///     OutcomeCertainty, ProteinOutcome, VariantDescription, parse_hgvs,
+/// };
+///
+/// # fn main() -> Result<(), tinyhgvs::ParseHgvsError> {
+/// let variant = parse_hgvs("NP_003997.1:p.(Cys188=)")?;
+///
+/// let VariantDescription::Protein(ProteinOutcome::NoChange {
+///     location: Some(location),
+///     certainty,
+/// }) = variant.description else {
+///     panic!("expected protein no-change");
+/// };
+///
+/// assert_eq!(certainty, OutcomeCertainty::Predicted);
+/// assert_eq!(location.start().unwrap().residue, "Cys");
+/// assert_eq!(location.start().unwrap().ordinal, 188);
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProteinOutcome {
+    // p.?
     Unknown,
 
+    // p.0, p.0?
     NoneProduced(OutcomeCertainty),
 
+    // p.=, p.(=), p.(Cys188=), p.Cys188=
+    NoChange {
+        location: Option<Location<ProteinCoordinate>>,
+        certainty: OutcomeCertainty,
+    },
+
+    // p.Trp24Ter, p.(Trp24Ter), p.(Gly23GlufsTer7^Gly23CysfsTer26)
     Produced {
         edit: ProteinEditForm,
         certainty: OutcomeCertainty,

@@ -464,7 +464,18 @@ class TerminatingProteinInsertion(ProteinInsertion):
 
 
 class ProteinOutcome:
-    """Base class for protein outcomes."""
+    """Base class for protein outcomes.
+
+    Protein outcomes cover produced edits, no-change outcomes, not-produced
+    outcomes, and unknown outcomes.
+
+    Examples:
+        >>> from tinyhgvs import ProteinNoChange, ProteinProduced, parse_hgvs
+        >>> isinstance(parse_hgvs("NP_003997.1:p.Trp24Ter").description, ProteinProduced)
+        True
+        >>> isinstance(parse_hgvs("NP_003997.1:p.Cys188=").description, ProteinNoChange)
+        True
+    """
 
     @property
     def is_produced(self) -> bool:
@@ -596,6 +607,7 @@ class ProteinNoChange(ProteinOutcome):
     """Protein outcome with no amino-acid change.
 
     Examples:
+        A site-specific no-change outcome:
         >>> from tinyhgvs import ProteinNoChange, parse_hgvs
         >>> variant = parse_hgvs("NP_003997.1:p.Cys188=")
         >>> isinstance(variant.description, ProteinNoChange)
@@ -606,9 +618,23 @@ class ProteinNoChange(ProteinOutcome):
         188
         >>> variant.description.is_no_change
         True
+
+        A parenthesized site-specific no-change outcome is predicted:
+        >>> predicted = parse_hgvs("NP_003997.1:p.(Cys188=)")
+        >>> predicted.description.is_predicted
+        True
+        >>> predicted.description.location.start.ordinal
+        188
+
+        Whole-protein no-change has no site-specific location:
+        >>> whole = parse_hgvs("NP_003997.1:p.(=)")
+        >>> whole.description.location is None
+        True
+        >>> whole.description.is_predicted
+        True
     """
 
-    location: Location[ProteinCoordinate]
+    location: Location[ProteinCoordinate] | None
     certainty: OutcomeCertainty
 
     @property

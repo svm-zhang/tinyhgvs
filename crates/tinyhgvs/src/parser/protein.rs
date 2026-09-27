@@ -5,7 +5,7 @@ use nom::bytes::complete::tag;
 use nom::character::complete::{char, digit1};
 use nom::combinator::{map, map_res, opt, value};
 use nom::multi::{many0, many1, separated_list1};
-use nom::sequence::{delimited, pair, preceded, separated_pair};
+use nom::sequence::{delimited, pair, preceded, separated_pair, terminated};
 use nom::Parser;
 
 use super::core::{parse_i32, parse_quantity, range_with};
@@ -50,10 +50,23 @@ fn protein_residue_change(input: &str) -> ParseResult<'_, ResidueChange> {
     .parse(input)
 }
 
+fn protein_outcome(input: &str) -> ParseResult<'_, ProteinOutcome> {
+    alt((
+        // ?, 0, 0?
+        special_protein_outcome,
+        // =, Cys188=, (=), (Cys188=)
+        protein_no_change_outcome,
+        // Trp24Ter, (Trp24Ter)
+        protein_produced_outcome,
+    ))
+    .parse(input)
+}
+
 /// Parses a produced protein outcome.
 ///
-/// Examples: `Trp24Ter`, `(Trp24Ter)`
-fn protein_outcome(input: &str) -> ParseResult<'_, ProteinOutcome> {
+/// Examples: `Trp24Ter`, `(Trp24Ter)`,
+/// `(Gly23GlufsTer7^Gly23CysfsTer26)`
+fn protein_produced_outcome(input: &str) -> ParseResult<'_, ProteinOutcome> {
     alt((
         // (Ser68Arg)
         map(delimited(char('('), protein_edit_form, char(')')), |edit| {
@@ -66,6 +79,52 @@ fn protein_outcome(input: &str) -> ParseResult<'_, ProteinOutcome> {
         map(protein_edit_form, |edit| ProteinOutcome::Produced {
             edit,
             certainty: OutcomeCertainty::Certain,
+        }),
+    ))
+    .parse(input)
+}
+
+/// Parses protein no-change outcomes.
+///
+/// Whole-protein no-change (`=` and `(=)`) is accepted at the top level.
+/// Site-specific no-change (`Cys188=` and `(Cys188=)`) carries a protein
+/// location on the outcome.
+fn protein_no_change_outcome(input: &str) -> ParseResult<'_, ProteinOutcome> {
+    alt((
+        // (=), (Cys188=)
+        delimited(
+            char('('),
+            alt((
+                value(
+                    ProteinOutcome::NoChange {
+                        location: None,
+                        certainty: OutcomeCertainty::Predicted,
+                    },
+                    char('='),
+                ),
+                map(terminated(protein_location, char('=')), |location| {
+                    ProteinOutcome::NoChange {
+                        location: Some(location),
+                        certainty: OutcomeCertainty::Predicted,
+                    }
+                }),
+            )),
+            char(')'),
+        ),
+        // =
+        value(
+            ProteinOutcome::NoChange {
+                location: None,
+                certainty: OutcomeCertainty::Certain,
+            },
+            char('='),
+        ),
+        // Cys188=
+        map(terminated(protein_location, char('=')), |location| {
+            ProteinOutcome::NoChange {
+                location: Some(location),
+                certainty: OutcomeCertainty::Certain,
+            }
         }),
     ))
     .parse(input)
@@ -92,31 +151,60 @@ fn special_protein_outcome(input: &str) -> ParseResult<'_, ProteinOutcome> {
     .parse(input)
 }
 
+/// Parses one non-parenthesized protein variant inside an allele component.
+///
+/// Examples: `Ser68Arg`, `Ser68=`
+fn one_protein_variant_on_allele(input: &str) -> ParseResult<'_, ProteinOutcome> {
+    alt((
+        // Ser68=
+        map(terminated(protein_location, char('=')), |location| {
+            ProteinOutcome::NoChange {
+                location: Some(location),
+                certainty: OutcomeCertainty::Certain,
+            }
+        }),
+        protein_produced_outcome,
+    ))
+    .parse(input)
+}
+
+/// Parses one variant from a parenthesized protein allele component.
+///
+/// Examples: `Ser68Arg`, `Ser68=`
+fn one_predicted_protein_variant_on_allele(input: &str) -> ParseResult<'_, ProteinOutcome> {
+    alt((
+        // Ser68=
+        map(terminated(protein_location, char('=')), |location| {
+            ProteinOutcome::NoChange {
+                location: Some(location),
+                certainty: OutcomeCertainty::Predicted,
+            }
+        }),
+        // Ser68Arg, Asn594del, ...
+        map(protein_edit_form, |edit| ProteinOutcome::Produced {
+            edit,
+            certainty: OutcomeCertainty::Predicted,
+        }),
+    ))
+    .parse(input)
+}
+
 /// Parses one or more protein outcomes written on the same allele.
 ///
 /// Examples: `Ser68Arg;Asn594del`, `(Ser68Arg;Asn594del)`
 fn protein_variants_on_allele(input: &str) -> ParseResult<'_, Vec<ProteinOutcome>> {
     alt((
         // (Ser68Arg;Asn594del)
-        map(
-            delimited(
-                char('('),
-                separated_list1(char(';'), protein_edit_form),
-                char(')'),
-            ),
-            |edits| {
-                edits
-                    .into_iter()
-                    .map(|edit| ProteinOutcome::Produced {
-                        edit,
-                        certainty: OutcomeCertainty::Predicted,
-                    })
-                    .collect()
-            },
+        // (Ser68Arg;Ser68=)
+        delimited(
+            char('('),
+            separated_list1(char(';'), one_predicted_protein_variant_on_allele),
+            char(')'),
         ),
         // Ser68Arg;Asn594del
         // Phe233Leu;(Cys690Trp)
-        separated_list1(char(';'), protein_outcome),
+        // Ser68Arg;Ser68=
+        separated_list1(char(';'), one_protein_variant_on_allele),
     ))
     .parse(input)
 }
@@ -182,7 +270,11 @@ fn protein_trans_allele(input: &str) -> ParseResult<'_, AlleleVariant<ProteinOut
 /// Example: `Ser68Arg(;)Asn594del`
 fn protein_uncertain_allele(input: &str) -> ParseResult<'_, AlleleVariant<ProteinOutcome>> {
     map(
-        separated_pair(protein_outcome, tag("(;)"), protein_outcome),
+        separated_pair(
+            protein_produced_outcome,
+            tag("(;)"),
+            protein_produced_outcome,
+        ),
         |(a1, a2)| AlleleVariant {
             allele_one: Allele::from_variants(vec![a1]),
             allele_two: Some(Allele::from_variants(vec![a2])),
@@ -217,10 +309,10 @@ fn protein_derived_allele_form(input: &str) -> ParseResult<'_, DerivedAllele<Pro
     // [Lys31Asn,Val25_Lys31del,Ser68Arg]
     let (input, _) = char('[')(input)?;
 
-    let (input, first) = protein_outcome(input)?;
+    let (input, first) = protein_produced_outcome(input)?;
     let (input, _) = char(',')(input)?;
-    let (input, second) = protein_outcome(input)?;
-    let (input, rest) = many0(preceded(char(','), protein_outcome)).parse(input)?;
+    let (input, second) = protein_produced_outcome(input)?;
+    let (input, rest) = many0(preceded(char(','), protein_produced_outcome)).parse(input)?;
 
     let (input, _) = char(']')(input)?;
 
@@ -279,8 +371,6 @@ pub(super) fn protein_description(input: &str) -> ParseResult<'_, VariantDescrip
         map(protein_allele, |variant| {
             VariantDescription::ProteinAllele(AlleleForm::Single(variant))
         }),
-        // p.?, p.0, p.0?
-        map(special_protein_outcome, VariantDescription::Protein),
         // p.Trp24Ter, p.(Trp24Ter)
         map(protein_outcome, VariantDescription::Protein),
     ))
@@ -358,19 +448,10 @@ fn resolve_protein_effect_location(
 
 /// Parses various protein edit families: duplication, deletion, etc.
 ///
-/// Examples: `Ter`, `del`, `dup`, `insAla`, `fs`, `GlnextTer17`
+/// Examples: `Ter`, `del`, `dup`, `insAla`, `insXaa[23]`, `fs`,
+/// `GlnextTer17`
 fn protein_edit_kind(input: &str) -> ParseResult<'_, ProteinEditKind> {
     alt((
-        // (=)
-        value(
-            ProteinEditKind::NoChange(OutcomeCertainty::Predicted),
-            tag("(=)"),
-        ),
-        // =
-        value(
-            ProteinEditKind::NoChange(OutcomeCertainty::Certain),
-            char('='),
-        ),
         // delinsGly
         map(preceded(tag("delins"), protein_sequence), |sequence| {
             ProteinEditKind::DeletionInsertion { sequence }
@@ -385,7 +466,7 @@ fn protein_edit_kind(input: &str) -> ParseResult<'_, ProteinEditKind> {
         protein_extension_edit,
         // fs, ProfsTer23
         protein_frameshift_edit,
-        // insX, insXaa[n], ins*n
+        // insX, insXaa, insXaa[n], ins*n
         map(
             preceded(tag("ins"), protein_insertion_sequence),
             |sequence| ProteinEditKind::Insertion { sequence },
@@ -398,6 +479,9 @@ fn protein_edit_kind(input: &str) -> ParseResult<'_, ProteinEditKind> {
     .parse(input)
 }
 
+/// Parses alternative protein edit consequences.
+///
+/// Example: `Gly23GlufsTer7^Gly23CysfsTer26`
 fn protein_alternative_edit_form(input: &str) -> ParseResult<'_, ProteinEditForm> {
     let (input, first) = protein_edit(input)?;
     let (input, _) = char('^')(input)?;
@@ -413,6 +497,10 @@ fn protein_alternative_edit_form(input: &str) -> ParseResult<'_, ProteinEditForm
     Ok((input, ProteinEditForm::Alternative(edits)))
 }
 
+/// Parses one protein edit form.
+///
+/// Examples: `Gly719Ala^Ser`, `Gly23GlufsTer7^Gly23CysfsTer26`,
+/// `Trp24Ter`
 fn protein_edit_form(input: &str) -> ParseResult<'_, ProteinEditForm> {
     alt((
         // A^B
@@ -647,6 +735,9 @@ fn protein_frameshift_stop(input: &str) -> ParseResult<'_, ProteinFrameshiftStop
     .parse(input)
 }
 
+/// Parses protein insertion content after `ins`.
+///
+/// Examples: `GlnSerLys`, `Xaa`, `Xaa[23]`, `*63`, `Ter63`
 fn protein_insertion_sequence(input: &str) -> ParseResult<'_, ProteinInsertionSequence> {
     alt((
         // Xaa, Xaa[n]
@@ -719,7 +810,7 @@ mod tests {
 
     #[test]
     fn parses_unknown_protein_insertion_sequence() {
-        let (_, outcome) = all_consuming(protein_outcome)
+        let (_, outcome) = all_consuming(protein_produced_outcome)
             .parse("Arg78_Gly79insXaa[23]")
             .unwrap();
 
@@ -741,7 +832,7 @@ mod tests {
 
     #[test]
     fn parses_bare_unknown_protein_insertion_sequence() {
-        let (_, outcome) = all_consuming(protein_outcome)
+        let (_, outcome) = all_consuming(protein_produced_outcome)
             .parse("(Ser332_Ser333insXaa)")
             .unwrap();
 
@@ -763,7 +854,7 @@ mod tests {
 
     #[test]
     fn parses_terminating_protein_insertion_sequence() {
-        let (_, outcome) = all_consuming(protein_outcome)
+        let (_, outcome) = all_consuming(protein_produced_outcome)
             .parse("Gln746_Lys747ins*63")
             .unwrap();
 
@@ -785,7 +876,7 @@ mod tests {
 
     #[test]
     fn parses_predicted_unknown_protein_insertion() {
-        let (_, outcome) = all_consuming(protein_outcome)
+        let (_, outcome) = all_consuming(protein_produced_outcome)
             .parse("(Val582_Asn583insXaa[5])")
             .unwrap();
 
@@ -807,7 +898,7 @@ mod tests {
 
     #[test]
     fn parses_protein_substitution_with_alternative_residues() {
-        let (_, outcome) = all_consuming(protein_outcome)
+        let (_, outcome) = all_consuming(protein_produced_outcome)
             .parse("(Gly719Ala^Ser)")
             .unwrap();
 
@@ -831,7 +922,7 @@ mod tests {
 
     #[test]
     fn parses_multiple_protein_substitution_alternatives() {
-        let (_, outcome) = all_consuming(protein_outcome)
+        let (_, outcome) = all_consuming(protein_produced_outcome)
             .parse("(Gly56Ala^Ser^Cys)")
             .unwrap();
 
@@ -855,7 +946,7 @@ mod tests {
 
     #[test]
     fn parses_frameshift_with_alternative_residues() {
-        let (_, outcome) = all_consuming(protein_outcome)
+        let (_, outcome) = all_consuming(protein_produced_outcome)
             .parse("Gly719(Ala^Ser)fsTer23")
             .unwrap();
 
@@ -881,17 +972,17 @@ mod tests {
 
     #[test]
     fn rejects_frameshift_with_terminating_residue_change() {
-        assert!(all_consuming(protein_outcome)
+        assert!(all_consuming(protein_produced_outcome)
             .parse("Arg97TerfsTer23")
             .is_err());
-        assert!(all_consuming(protein_outcome)
+        assert!(all_consuming(protein_produced_outcome)
             .parse("Gly719(Ala^Ter)fsTer23")
             .is_err());
     }
 
     #[test]
     fn parses_alternative_protein_edits() {
-        let (_, outcome) = all_consuming(protein_outcome)
+        let (_, outcome) = all_consuming(protein_produced_outcome)
             .parse("(Gly23GlufsTer7^Gly23CysfsTer26)")
             .unwrap();
 

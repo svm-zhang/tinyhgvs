@@ -522,10 +522,6 @@ impl<'py> PyModelCodec<'py> {
                 self.class("ProteinDeletionInsertion")?
                     .call1((location, sequence))
             }
-
-            ProteinEditKind::NoChange(_) => {
-                unreachable!("protein no-change edits must be handled by protein_outcome")
-            }
         }
     }
 
@@ -585,36 +581,43 @@ impl<'py> PyModelCodec<'py> {
                 self.class("ProteinNotProduced")?.call1((certainty,))
             }
 
-            ProteinOutcome::Produced { edit, certainty } => match edit {
-                ProteinEditForm::Single(edit) => match &edit.kind {
-                    ProteinEditKind::NoChange(certainty) => {
-                        let location = self.protein_location(&edit.location)?;
-                        let certainty = self.outcome_certainty(certainty)?;
+            ProteinOutcome::NoChange {
+                location,
+                certainty,
+            } => {
+                let location = location
+                    .as_ref()
+                    .map(|location| self.protein_location(location))
+                    .transpose()?;
 
-                        self.class("ProteinNoChange")?.call1((location, certainty))
-                    }
+                let certainty = self.outcome_certainty(certainty)?;
 
-                    _ => {
+                self.class("ProteinNoChange")?.call1((location, certainty))
+            }
+
+            ProteinOutcome::Produced { edit, certainty } => {
+                let certainty = self.outcome_certainty(certainty)?;
+
+                match edit {
+                    ProteinEditForm::Single(edit) => {
                         let edit = self.protein_edit(edit)?;
-                        let certainty = self.outcome_certainty(certainty)?;
 
                         self.class("ProteinProduced")?.call1((edit, certainty))
                     }
-                },
 
-                ProteinEditForm::Alternative(edits) => {
-                    let edits = edits
-                        .iter()
-                        .map(|edit| self.protein_edit(edit))
-                        .collect::<PyResult<Vec<_>>>()?;
+                    ProteinEditForm::Alternative(edits) => {
+                        let edits = edits
+                            .iter()
+                            .map(|edit| self.protein_edit(edit))
+                            .collect::<PyResult<Vec<_>>>()?;
 
-                    let edits = PyTuple::new(self.py, edits)?;
-                    let certainty = self.outcome_certainty(certainty)?;
+                        let edits = PyTuple::new(self.py, edits)?;
 
-                    self.class("ProteinProducedAlternatives")?
-                        .call1((edits, certainty))
+                        self.class("ProteinProducedAlternatives")?
+                            .call1((edits, certainty))
+                    }
                 }
-            },
+            }
         }
     }
 
