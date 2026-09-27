@@ -11,8 +11,7 @@ The package is split into:
 - `tinyhgvs.models.repeat` for repeat units and quantities
 - `tinyhgvs.models.protein` for protein coordinates, edits, and outcomes
 
-Type Aliases:
-    Internal description aliases are used for annotations only.
+Internal description aliases in this module are used for annotations only.
 """
 
 from __future__ import annotations
