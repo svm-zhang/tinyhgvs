@@ -2,9 +2,14 @@
 
 The package is split into:
 
-- :mod:`tinyhgvs.models.shared` for shared reference and coordinate models
-- :mod:`tinyhgvs.models.nucleotide` for nucleotide coordinates, edits, and variants
-- :mod:`tinyhgvs.models.protein` for protein coordinates, edits, and outcomes
+- `tinyhgvs.models.core` for reference, coordinate-system, location, and
+  certainty models
+- `tinyhgvs.models.allele` for allele and allele-form models
+- `tinyhgvs.models.cdna` for coding-DNA outcome models
+- `tinyhgvs.models.nucleotide` for nucleotide coordinates, edits, and variants
+- `tinyhgvs.models.rna` for RNA outcome models
+- `tinyhgvs.models.repeat` for repeat units and quantities
+- `tinyhgvs.models.protein` for protein coordinates, edits, and outcomes
 
 Type Aliases:
     Internal description aliases are used for annotations only.
@@ -89,7 +94,7 @@ from .rna import (
     RnaUncertainSplicing,
     RnaUnknown,
 )
-from .shared import (
+from .core import (
     Accession,
     CoordinateSystem,
     KnownLocation,
@@ -117,7 +122,7 @@ This alias is intentionally not exported from the package surface.
 class HgvsVariant:
     """Top-level model describing a parsed HGVS variant.
 
-    This is the root object returned by :func:`tinyhgvs.parse_hgvs`. It ties the
+    This is the root object returned by `tinyhgvs.parse_hgvs`. It ties the
     reference field, coordinate system, and parsed variant description together.
 
     Attributes:

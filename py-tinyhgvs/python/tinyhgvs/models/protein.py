@@ -12,7 +12,7 @@ from enum import Enum
 from typing import TypeAlias
 
 from .repeat import Repeat
-from .shared import Location, OutcomeCertainty
+from .core import Location, OutcomeCertainty
 
 
 @dataclass(frozen=True, slots=True)

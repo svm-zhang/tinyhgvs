@@ -13,7 +13,7 @@ from enum import Enum
 from typing import TypeAlias
 
 from .repeat import Repeat
-from .shared import (
+from .core import (
     CoordinateSystem,
     KnownLocation,
     Location,

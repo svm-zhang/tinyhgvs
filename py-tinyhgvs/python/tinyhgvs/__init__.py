@@ -1,10 +1,10 @@
-"""Public Python API for the :mod:`tinyhgvs` package.
+"""Public Python API for the tinyhgvs package.
 
 The package exports:
 
-- :func:`parse_hgvs` as the main parsing entry point
-- typed dataclasses and enums from :mod:`tinyhgvs.models`
-- :class:`TinyHGVSError` and related error enums from :mod:`tinyhgvs.errors`
+- `parse_hgvs` as the main parsing entry point
+- typed dataclasses and enums from `tinyhgvs.models`
+- `TinyHGVSError` and related error enums from `tinyhgvs.errors`
 """
 
 from importlib.metadata import PackageNotFoundError, version

@@ -1,4 +1,4 @@
-"""Public exception types raised by :mod:`tinyhgvs`."""
+"""Public exception types raised by `tinyhgvs`."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from enum import Enum
 
 
 class ParseHgvsErrorKind(str, Enum):
-    """Broad categories used by :class:`TinyHGVSError`.
+    """Broad categories used by `TinyHGVSError`.
 
     Attributes:
         INVALID_SYNTAX: The input does not match the currently supported HGVS grammar.

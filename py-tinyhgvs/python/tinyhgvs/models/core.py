@@ -1,8 +1,8 @@
-"""Shared Python model types for parsed HGVS variants.
+"""Core Python model types for parsed HGVS variants.
 
-This module groups the model pieces used by both nucleotide and protein
-variants: reference identifiers, coordinate-system labels, generic intervals,
-and allele container types.
+This module groups foundational model pieces used across molecule types:
+reference identifiers, coordinate-system labels, locations, and outcome
+certainty.
 """
 
 from __future__ import annotations, with_statement
@@ -230,8 +230,8 @@ class UncertainLocation(Generic[_PositionT]):
 Location: TypeAlias = KnownLocation[_PositionT] | UncertainLocation[_PositionT]
 """Tagged union for supported location models:
 
-- [`KnownLocation`][tinyhgvs.models.shared.KnownLocation]
-- [`UncertainLocation`][tinyhgvs.models.shared.UncertainLocation]
+- [`KnownLocation`][tinyhgvs.models.core.KnownLocation]
+- [`UncertainLocation`][tinyhgvs.models.core.UncertainLocation]
 """
 
 

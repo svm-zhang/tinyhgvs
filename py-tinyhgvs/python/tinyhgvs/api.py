@@ -1,4 +1,4 @@
-"""Public parsing entry points for :mod:`tinyhgvs`."""
+"""Public parsing entry points for tinyhgvs."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ def parse_hgvs(input: str) -> HgvsVariant:
         input: HGVS expression to parse.
 
     Returns:
-        A fully typed :class:`~tinyhgvs.models.HgvsVariant` instance.
+        A fully typed `tinyhgvs.models.HgvsVariant` instance.
 
     Raises:
         TinyHGVSError: If the input is invalid or belongs to a recognized but

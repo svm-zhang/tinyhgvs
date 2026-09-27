@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from .nucleotide import NucleotideEdit
-from .shared import OutcomeCertainty
+from .core import OutcomeCertainty
 
 
 class RnaOutcome:

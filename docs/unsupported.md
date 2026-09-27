@@ -1,110 +1,108 @@
 # Unsupported Syntax
 
-`tinyhgvs` recognizes a number of HGVS syntax families that are not yet modeled
-for successful parsing in the current release. When one of these families is
-detected, the parser raises a structured error:
+`tinyhgvs` parses supported HGVS syntax into structured Rust and Python models.
+For a small set of recognized HGVS families that are not modeled yet, parsing
+raises a structured unsupported-syntax error instead of a generic syntax error.
 
-- Python: `TinyHGVSError.code`
-- Rust: `ParseHgvsError.code`
+Unsupported diagnostic codes begin with `unsupported.`. The current active
+unsupported families are listed below.
 
-All unsupported diagnostic codes exposed by tinyhgvs begin with the prefix `unsupported.`.
-For readability, the tables below show only the category suffix. Rows already
-marked as supported may use the historical category name rather than a current
-diagnostic code.
+## What Error To Expect
 
-The tables below track syntax families by molecule type. Rows with `-` in the
-`Supported since` column are still unsupported in the current release. Rows
-with a version number are retained to show when a previously cataloged syntax
-family became supported.
+Python:
 
-Each row shows one representative example. Additional examples are grouped in
-the collapsible sections below each table.
+```python
+from tinyhgvs import TinyHGVSError, parse_hgvs
 
-## DNA
+try:
+    parse_hgvs("NC_000023.11:g.pter_qtersup")
+except TinyHGVSError as error:
+    print(error.kind.value)
+    print(error.code)
+    print(error.fragment)
+```
 
-| Diagnostic code category | Biology category | Representative example | Supported since |
-| --- | --- | --- | --- |
-| `allele` | DNA allele | `NC_000001.11:g.[123G>A;345del]` | `0.6.0` |
-| `allele_unknown_variant` | DNA allele with variant unknown | `NC_000001.11:g.[123G>A];[?]` | `-` |
-| `allele_uncertain_variant_state` | DNA allele with uncertain variant state | `NC_000001.11:g.[123G>A](;)(345del)` | `-` |
-| `uncertain_range` | DNA uncertain location | `NC_000023.10:g.(33038277_33038278)C>T` | `0.6.2` |
-| `uncertain_size` | DNA uncertain size | `NC_000003.12:g.(63912602_63912844)insN[(150_180)]` | `-` |
-| `dna_repeat` | DNA repeated sequence | `NC_000014.8:g.123CAG[23]` | `0.2.0` |
-| `telomeric_position` | DNA telomeric coordinate | `NC_000023.11:g.pter_qtersup` | `-` |
-| `epigenetic_edit` | DNA epigenetic edit | `NC_000011.10:g.1999904_1999946|gom` | `-` |
-| `cdna_offset_anchor` | UTR-anchored intron edit | `NM_001385026.1:c.-666+629C>T` | `0.5.0` |
+Expected output:
 
+```text
+unsupported_syntax
+unsupported.telomeric_position
+pter
+```
 
-??? Example "More examples"
+Rust:
 
-    === "uncertain_size"
+```rust
+let error = tinyhgvs::parse_hgvs("NC_000023.11:g.pter_qtersup").unwrap_err();
+assert_eq!(error.code(), "unsupported.telomeric_position");
+assert_eq!(error.fragment(), Some("pter"));
+```
 
-        - `NC_000003.12:g.(63912602_63912844)insN[(150_180)]`
+## `unsupported.telomeric_position`
 
-    === "telomeric_position"
+Telomeric DNA coordinate syntax is recognized but not modeled yet.
 
-        - `NC_000002.12:g.pter_8247756delins[NC_000011.10:g.pter_15825266]`
+Examples:
 
-## RNA
+- `NC_000023.11:g.pter_qtersup`
+- `NC_000002.12:g.pter_8247756delins[NC_000011.10:g.pter_15825266]`
 
-| Diagnostic code category | Biology category | Representative example | Supported since |
-| --- | --- | --- | --- |
-| `allele` | RNA allele | `LRG_199t1:r.[76a>u;103del]` | `0.6.0` |
-| `allele_unknown_variant` | RNA allele with variant unknown | `NM_004006.3:r.[123c>a];[?]` | `-` |
-| `allele_uncertain_variant_state` | RNA allele with uncertain variant state | `NM_004006.3:r.[123c>a](;)(345del)` | `-` |
-| `rna_special_state` | RNA special-state outcome | `NM_004006.3:r.?` | `-` |
-| `uncertain_range` | RNA uncertain location | `NM_004006.2:r.(222_226)insg` | `0.6.2` |
-| `uncertain_size` | RNA uncertain size | `r.-128_-126[(600_800)]` | `-` |
-| `rna_repeat` | RNA repeated sequence | `NM_004006.3:r.-124_-123[14]` | `0.2.0` |
-| `rna_splicing_outcome` | RNA uncertain splicing | `NC_000023.11(NM_004006.2):r.spl` | `-` |
-| `rna_adjoined_transcript` | RNA adjoined transcript | `NM_002354.2:r.-358_555::NM_000251.2:r.212_*279` | `-` |
+Expected error:
 
+```text
+kind: unsupported_syntax
+code: unsupported.telomeric_position
+fragment: pter or qter
+```
 
-??? Example "More examples"
+## `unsupported.epigenetic_edit`
 
-    === "rna_special_state"
+DNA epigenetic edit modifiers are recognized but not modeled yet.
 
-        - `NM_004006.3:r.(1388g>a)`
-        - `NM_004006.3:r.0`
-        - `NM_004006.3:r.spl`
+Example:
 
-    === "uncertain_size"
+- `NC_000011.10:g.1999904_1999946|gom`
 
-        - `r.-128_-126[(600_800)]`
+Expected error:
 
-    === "rna_splicing_outcome"
+```text
+kind: unsupported_syntax
+code: unsupported.epigenetic_edit
+fragment: |gom
+```
 
-        - `NC_000023.11(NM_004006.2):r.[897u>g,832_960del]`
-        - `NC_000023.11(NM_004006.2):r.?`
+## `unsupported.rna_adjoined_transcript`
 
-    === "rna_adjoined_transcript"
+RNA adjoined transcript syntax is recognized but not modeled yet.
 
-        - `NM_152263.2:r.-115_775::aggcucccuugg::NM_002609.3:r.1580_*1924`
+Examples:
 
-## Protein
+- `NM_002354.2:r.-358_555::NM_000251.2:r.212_*279`
+- `NM_152263.2:r.-115_775::aggcucccuugg::NM_002609.3:r.1580_*1924`
 
+Expected error:
 
-| Diagnostic code category | Biology category | Representative example | Supported since |
-| --- | --- | --- | --- |
-| `allele` | Protein allele | `NP_003997.1:p.[Ser68Arg;Asn594del]` | `0.6.1` |
-| `allele_unknown_variant` | Protein allele with variant unknown | `NP_003997.1:p.[(Ser68Arg)];[?]` | `-` |
-| `alternate_allele_state` | Protein allele with alternate allele states | `NP_003997.2:p.[(Asn158Asp)(;)(Asn158Ile)]^[(Asn158Val)]` | `-` |
-| `one_allele_multi_protein` | One protein allele encoding more than one protein | `NP_003997.1:p.[Lys31Asn,Val25_Lys31del]` | `-` |
-| `protein_frameshift` | Protein frameshift | `NP_0123456.1:p.Arg97fs` | `0.3.0` |
-| `protein_extension` | Protein extension | `NP_003997.2:p.Met1ext-5` | `0.4.0` |
-| `protein_repeat` | Protein repeated sequence | `NP_0123456.1:p.Ala2[10]` | `0.2.0` |
-| `uncertain_range` | Protein uncertain location | `p.(Ala123_Pro131)Ter` | `0.6.2` |
-| `protein_insertion_content` | Unknown/truncating protein insertion | `p.Arg78_Gly79insXaa[23]` | `-` |
-| `protein_uncertain_consequence` | Protein uncertain consequence | `p.(Gly719Ala^Ser)` | `-` |
+```text
+kind: unsupported_syntax
+code: unsupported.rna_adjoined_transcript
+fragment: ::
+```
 
+## `unsupported.rna_splicing_outcome`
 
-??? Example "More examples"
+Some higher-level RNA splicing outcome containers remain unsupported. Direct
+RNA outcomes such as `r.?`, `r.(?)`, `r.0`, `r.0?`, and `r.spl` are supported.
+Derived RNA allele forms such as `r.[897u>g,832_960del]` are also supported.
 
-    === "protein_insertion_content"
+Example:
 
-        - `NP_060250.2:p.Gln746_Lys747ins*63`
-        - `NP_003997.1:p.(Val582_Asn583insXaa[5])`
+- `NC_000023.11(NM_004006.2):r.(897u>g,832_960del)`
 
-    === "protein_uncertain_consequence"
+Expected error:
 
-        - `NP_003997.1:p.(Gly56Ala^Ser^Cys)`
+```text
+kind: unsupported_syntax
+code: unsupported.rna_splicing_outcome
+fragment: r.(...)
+```
+
