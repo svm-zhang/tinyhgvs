@@ -1,14 +1,14 @@
 //! Repeat unit, copy-number, and repeat-edit parsers.
 
+use nom::Parser;
 use nom::branch::alt;
 use nom::character::complete::{char, one_of};
 use nom::combinator::{map, value, verify};
 use nom::multi::many1;
 use nom::sequence::{delimited, pair, separated_pair};
-use nom::Parser;
 
-use super::core::{nucleotide_literal, parse_quantity};
 use super::ParseResult;
+use super::core::{nucleotide_literal, parse_quantity};
 
 use crate::model::{
     LiteralSequenceItem, NucleotideEditKind, Quantity, RepeatEdit, RepeatSequenceUnit,

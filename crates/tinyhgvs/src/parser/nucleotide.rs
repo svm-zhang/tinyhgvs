@@ -1,12 +1,12 @@
 //! Genomic description, nucleotide edit, and nucleotide allele parsers.
 
+use nom::Parser;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::character::complete::char;
 use nom::combinator::{map, opt, value};
 use nom::multi::separated_list1;
 use nom::sequence::{delimited, pair, preceded, separated_pair};
-use nom::Parser;
 
 use super::ParseResult;
 use crate::model::{
@@ -270,8 +270,8 @@ fn remote_sequence_segment(input: &str) -> ParseResult<'_, CopiedSequenceItem> {
 
 #[cfg(test)]
 mod tests {
-    use nom::combinator::all_consuming;
     use nom::Parser;
+    use nom::combinator::all_consuming;
 
     use super::*;
     use crate::model::{
@@ -405,12 +405,16 @@ mod tests {
 
     #[test]
     fn rejects_bracketed_genomic_uncertain_phase_forms() {
-        assert!(all_consuming(nucleotide_allele)
-            .parse("[123G>A](;)345del")
-            .is_err());
+        assert!(
+            all_consuming(nucleotide_allele)
+                .parse("[123G>A](;)345del")
+                .is_err()
+        );
 
-        assert!(all_consuming(nucleotide_allele)
-            .parse("[123G>A](;)(345del)")
-            .is_err());
+        assert!(
+            all_consuming(nucleotide_allele)
+                .parse("[123G>A](;)(345del)")
+                .is_err()
+        );
     }
 }

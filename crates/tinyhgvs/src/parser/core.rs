@@ -1,11 +1,11 @@
 //! Shared grammar primitives used by multiple parser families.
 
+use nom::Parser;
 use nom::branch::alt;
 use nom::bytes::complete::take_while1;
 use nom::character::complete::{char, digit1};
 use nom::combinator::{map, map_res, opt, value};
 use nom::sequence::{delimited, pair, separated_pair};
-use nom::Parser;
 
 use super::ParseResult;
 use crate::model::{Accession, CoordinateSystem, Interval, ReferenceSpec};

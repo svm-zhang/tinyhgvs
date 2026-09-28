@@ -1,16 +1,16 @@
 //! Protein outcome, edit, and allele parsers.
 
+use nom::Parser;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::character::complete::{char, digit1};
 use nom::combinator::{map, map_res, opt, value};
 use nom::multi::{many0, many1, separated_list1};
 use nom::sequence::{delimited, pair, preceded, separated_pair, terminated};
-use nom::Parser;
 
+use super::ParseResult;
 use super::core::{parse_i32, parse_quantity, range_with};
 use super::repeat::{known_repeat_copy, uncertain_repeat_copy};
-use super::ParseResult;
 use crate::model::{
     Allele, AlleleForm, AllelePhase, AlleleVariant, DerivedAllele, Interval, Location,
     OutcomeCertainty, ProteinCoordinate, ProteinEdit, ProteinEditForm, ProteinEditKind,
@@ -972,12 +972,16 @@ mod tests {
 
     #[test]
     fn rejects_frameshift_with_terminating_residue_change() {
-        assert!(all_consuming(protein_produced_outcome)
-            .parse("Arg97TerfsTer23")
-            .is_err());
-        assert!(all_consuming(protein_produced_outcome)
-            .parse("Gly719(Ala^Ter)fsTer23")
-            .is_err());
+        assert!(
+            all_consuming(protein_produced_outcome)
+                .parse("Arg97TerfsTer23")
+                .is_err()
+        );
+        assert!(
+            all_consuming(protein_produced_outcome)
+                .parse("Gly719(Ala^Ter)fsTer23")
+                .is_err()
+        );
     }
 
     #[test]

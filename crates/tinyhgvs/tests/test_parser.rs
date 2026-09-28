@@ -1,10 +1,10 @@
 mod utils;
 
 use tinyhgvs::{
-    parse_hgvs, AlleleForm, AllelePhase, AlleleStateCertainty, CoordinateSystem, NucleotideAnchor,
+    AlleleForm, AllelePhase, AlleleStateCertainty, CoordinateSystem, NucleotideAnchor,
     NucleotideEditKind, NucleotideSequenceItem, OutcomeCertainty, ProteinEditForm, ProteinEditKind,
     ProteinExtensionTerminal, ProteinFrameshiftStopKind, ProteinInsertionSequence, ProteinOutcome,
-    ResidueChange, RnaOutcome,
+    ResidueChange, RnaOutcome, parse_hgvs,
 };
 use utils::prelude::*;
 
@@ -313,16 +313,19 @@ fn parses_rna_and_protein_derived_allele_forms() {
     };
 
     assert_eq!(rna.outcomes.len(), 3);
-    assert!(rna
-        .outcomes
-        .iter()
-        .all(|outcome| matches!(outcome, RnaOutcome::Produced { .. })));
+    assert!(
+        rna.outcomes
+            .iter()
+            .all(|outcome| matches!(outcome, RnaOutcome::Produced { .. }))
+    );
 
     assert_eq!(protein.outcomes.len(), 3);
-    assert!(protein
-        .outcomes
-        .iter()
-        .all(|outcome| matches!(outcome, ProteinOutcome::Produced { .. })));
+    assert!(
+        protein
+            .outcomes
+            .iter()
+            .all(|outcome| matches!(outcome, ProteinOutcome::Produced { .. }))
+    );
 }
 
 #[test]

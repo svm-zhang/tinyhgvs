@@ -1,15 +1,15 @@
 //! Coding-DNA description, outcome, and allele parsers.
 
+use nom::Parser;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::character::complete::char;
 use nom::combinator::{map, value};
 use nom::multi::separated_list1;
 use nom::sequence::{delimited, preceded, separated_pair};
-use nom::Parser;
 
-use super::nucleotide::nucleotide_edit;
 use super::ParseResult;
+use super::nucleotide::nucleotide_edit;
 
 use crate::model::{
     Allele, AlleleForm, AllelePhase, AlleleVariant, CodingDnaOutcome, VariantDescription,
@@ -149,8 +149,8 @@ pub(super) fn cdna_description(input: &str) -> ParseResult<'_, VariantDescriptio
 
 #[cfg(test)]
 mod tests {
-    use nom::combinator::all_consuming;
     use nom::Parser;
+    use nom::combinator::all_consuming;
 
     use super::*;
     use crate::model::AlleleStateCertainty;

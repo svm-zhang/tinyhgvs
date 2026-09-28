@@ -1,14 +1,14 @@
 //! Nucleotide location and coordinate parsers.
 
+use nom::Parser;
 use nom::branch::alt;
 use nom::character::complete::char;
 use nom::combinator::verify;
 use nom::combinator::{map, opt, value};
 use nom::sequence::{delimited, pair, preceded};
-use nom::Parser;
 
-use super::core::{parse_i32, parse_position, range_with};
 use super::ParseResult;
+use super::core::{parse_i32, parse_position, range_with};
 use crate::model::{Interval, Location, NucleotideAnchor, NucleotideCoordinate};
 
 /// Parses a nucleotide location as known or uncertain.
@@ -17,7 +17,7 @@ use crate::model::{Interval, Location, NucleotideAnchor, NucleotideCoordinate};
 pub(super) fn nucleotide_location(input: &str) -> ParseResult<'_, Location<NucleotideCoordinate>> {
     // Reject location description such as `(?_?)`, `(?_?)_(?_?)`.
     let is_valid_uncertain_location = |loc: &Interval<Interval<NucleotideCoordinate>>| {
-        !(loc.start.is_fully_unknown() && loc.end.as_ref().map_or(true, Interval::is_fully_unknown))
+        !(loc.start.is_fully_unknown() && loc.end.as_ref().is_none_or(Interval::is_fully_unknown))
     };
     // Reject partially unknown known-location intervals such as `?_87` and
     // `123_?`, while keeping whole-location `?_?`.
@@ -135,8 +135,8 @@ fn nucleotide_coordinate(input: &str) -> ParseResult<'_, NucleotideCoordinate> {
 
 #[cfg(test)]
 mod tests {
-    use nom::combinator::all_consuming;
     use nom::Parser;
+    use nom::combinator::all_consuming;
 
     use super::*;
 

@@ -1,4 +1,4 @@
-use tinyhgvs::{parse_hgvs, ParseHgvsErrorKind};
+use tinyhgvs::{ParseHgvsErrorKind, parse_hgvs};
 
 fn parse_error(example: &str) -> tinyhgvs::ParseHgvsError {
     parse_hgvs(example).unwrap_err()

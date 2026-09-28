@@ -5,15 +5,15 @@ pub mod prelude {
     pub use super::location::*;
     pub use super::repeat::*;
     pub use super::{
-        assert_known_residue_change, assert_nucleotide_substitution, parse_variant, HgvsVariantExt,
-        NucleotideEditKindExt, ProteinOutcomeExt, RnaOutcomeExt,
+        HgvsVariantExt, NucleotideEditKindExt, ProteinOutcomeExt, RnaOutcomeExt,
+        assert_known_residue_change, assert_nucleotide_substitution, parse_variant,
     };
 }
 
 use tinyhgvs::{
-    parse_hgvs, AlleleForm, AlleleVariant, CodingDnaOutcome, GenomicOutcome, HgvsVariant,
-    NucleotideEdit, NucleotideEditKind, NucleotideSequenceItem, OutcomeCertainty, ProteinEdit,
-    ProteinEditForm, ProteinOutcome, RepeatEdit, ResidueChange, RnaOutcome, VariantDescription,
+    AlleleForm, AlleleVariant, CodingDnaOutcome, GenomicOutcome, HgvsVariant, NucleotideEdit,
+    NucleotideEditKind, NucleotideSequenceItem, OutcomeCertainty, ProteinEdit, ProteinEditForm,
+    ProteinOutcome, RepeatEdit, ResidueChange, RnaOutcome, VariantDescription, parse_hgvs,
 };
 
 pub fn parse_variant(example: &str) -> HgvsVariant {

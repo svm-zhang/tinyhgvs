@@ -1,17 +1,17 @@
 //! RNA outcome and RNA allele parsers.
 
+use nom::Parser;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::character::complete::char;
 use nom::combinator::{map, opt, value};
 use nom::multi::{many0, separated_list1};
 use nom::sequence::{delimited, pair, preceded, separated_pair};
-use nom::Parser;
 
+use super::ParseResult;
 use super::location::nucleotide_location;
 use super::nucleotide::nucleotide_edit;
 use super::repeat::{known_repeat_copy, known_repeat_unit, uncertain_repeat_copy};
-use super::ParseResult;
 use crate::model::{
     Allele, AlleleForm, AllelePhase, AlleleVariant, DerivedAllele, NucleotideEdit,
     NucleotideEditKind, OutcomeCertainty, Quantity, RepeatEdit, RnaOutcome, VariantDescription,
@@ -329,8 +329,8 @@ pub(super) fn rna_description(input: &str) -> ParseResult<'_, VariantDescription
 
 #[cfg(test)]
 mod tests {
-    use nom::combinator::all_consuming;
     use nom::Parser;
+    use nom::combinator::all_consuming;
 
     use super::*;
     use crate::model::{AlleleForm, AlleleStateCertainty};
@@ -402,8 +402,10 @@ mod tests {
 
     #[test]
     fn rejects_single_form_as_rna_derived_allele_form() {
-        assert!(all_consuming(rna_derived_allele_form)
-            .parse("[897u>g]")
-            .is_err());
+        assert!(
+            all_consuming(rna_derived_allele_form)
+                .parse("[897u>g]")
+                .is_err()
+        );
     }
 }

@@ -13,7 +13,7 @@ impl Interval<NucleotideCoordinate> {
     fn is_end_bound_unknown(&self) -> bool {
         self.end
             .as_ref()
-            .map_or(false, NucleotideCoordinate::is_unknown)
+            .is_some_and(NucleotideCoordinate::is_unknown)
     }
 
     /// Returns `true` when either bound of the interval is unknown, i.e. `?_B`,
