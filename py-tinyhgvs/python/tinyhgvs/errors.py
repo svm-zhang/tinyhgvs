@@ -1,4 +1,4 @@
-"""Public exception types raised by :mod:`tinyhgvs`."""
+"""Public exception types raised by `tinyhgvs`."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from enum import Enum
 
 
 class ParseHgvsErrorKind(str, Enum):
-    """Broad categories used by :class:`TinyHGVSError`.
+    """Broad categories used by `TinyHGVSError`.
 
     Attributes:
         INVALID_SYNTAX: The input does not match the currently supported HGVS grammar.
@@ -24,7 +24,7 @@ class ParseHgvsErrorKind(str, Enum):
 
         Unsupported syntax that is recognized but not implemented:
         >>> try:
-        ...     parse_hgvs("NM_004006.2:c.[2376G>C];[?]")
+        ...     parse_hgvs("NC_000023.11:g.pter_qtersup")
         ... except TinyHGVSError as error:
         ...     error.kind
         <ParseHgvsErrorKind.UNSUPPORTED_SYNTAX: 'unsupported_syntax'>
@@ -50,14 +50,14 @@ class TinyHGVSError(ValueError):
         parser_version: ``tinyhgvs`` version that produced the error.
 
     Examples:
-        Unsupported allele variant with variant unknown:
+        Unsupported telomeric genomic syntax:
 
         >>> from tinyhgvs import TinyHGVSError, parse_hgvs
         >>> try:
-        ...     parse_hgvs("NM_004006.2:c.[2376G>C];[?]")
+        ...     parse_hgvs("NC_000023.11:g.pter_qtersup")
         ... except TinyHGVSError as error:
         ...     (error.kind.value, error.code, error.fragment)
-        ('unsupported_syntax', 'unsupported.allele_unknown_variant', '[?]')
+        ('unsupported_syntax', 'unsupported.telomeric_position', 'pter')
 
         Invalid syntax:
         >>> try:
@@ -66,12 +66,12 @@ class TinyHGVSError(ValueError):
         ...     (error.kind.value, error.code)
         ('invalid_syntax', 'invalid.syntax')
 
-        Unsupported quantified protein insertion syntax:
+        Unsupported epigenetic genomic syntax:
         >>> try:
-        ...     parse_hgvs("p.Arg78_Gly79insXaa[23]")
+        ...     parse_hgvs("NC_000011.10:g.1999904_1999946|gom")
         ... except TinyHGVSError as error:
         ...     (error.code, error.fragment)
-        ('unsupported.protein_insertion_payload', 'Xaa[...]')
+        ('unsupported.epigenetic_edit', '|gom')
     """
 
     def __init__(

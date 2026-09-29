@@ -43,13 +43,13 @@ print(variant.coordinate_system.value)
 print(variant.description.edit)
 ```
 
-Parse an exact repeat:
+Parse a repeat:
 
 ```python
 from tinyhgvs import parse_hgvs
 
 variant = parse_hgvs("NM_004006.3:r.-124_-123[14]")
-print(variant.description.edit.blocks[0].count)
+print(variant.description.edit.sequence[0].quantity.count)
 ```
 
 Parse a protein frameshift consequence:
@@ -58,8 +58,8 @@ Parse a protein frameshift consequence:
 from tinyhgvs import parse_hgvs
 
 variant = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23")
-print(variant.description.effect.edit.to_residue)
-print(variant.description.effect.edit.stop.ordinal)
+print(variant.description.edit.to_residue)
+print(variant.description.edit.stop.ordinal)
 ```
 
 Inspect an unsupported syntax error:
@@ -68,7 +68,7 @@ Inspect an unsupported syntax error:
 from tinyhgvs import TinyHGVSError, parse_hgvs
 
 try:
-    parse_hgvs("NP_003997.1:p.[Lys31Asn,Val25_Lys31del]")
+    parse_hgvs("NC_000023.11:g.pter_qtersup")
 except TinyHGVSError as error:
     print(error.code)
     print(error.fragment)

@@ -1,4 +1,4 @@
-use tinyhgvs::{parse_hgvs, ParseHgvsErrorKind};
+use tinyhgvs::{ParseHgvsErrorKind, parse_hgvs};
 
 fn parse_error(example: &str) -> tinyhgvs::ParseHgvsError {
     parse_hgvs(example).unwrap_err()
@@ -22,88 +22,11 @@ fn classifies_supported_diagnostic_codes() {
             Some("|gom"),
         ),
         (
-            "NM_004006.3:r.spl",
-            "unsupported.rna_special_state",
-            ParseHgvsErrorKind::UnsupportedSyntax,
-            "RNA consequence states such as r.spl, r.?, and r.0 are not supported yet",
-            Some("r.spl"),
-        ),
-        (
-            "NC_000023.11(NM_004006.2):r.[897u>g,832_960del]",
-            "unsupported.rna_splicing_outcome",
-            ParseHgvsErrorKind::UnsupportedSyntax,
-            "RNA splicing outcome containers are not supported yet",
-            Some("r.[...]"),
-        ),
-        (
             "NM_002354.2:r.-358_555::NM_000251.2:r.212_*279",
             "unsupported.rna_adjoined_transcript",
             ParseHgvsErrorKind::UnsupportedSyntax,
             "RNA adjoined transcript syntax is not supported yet",
             Some("::"),
-        ),
-        (
-            "NM_004006.2:c.[2376G>C];[?]",
-            "unsupported.allele_unknown_variant",
-            ParseHgvsErrorKind::UnsupportedSyntax,
-            "allele variants written as [?] are not supported yet",
-            Some("[?]"),
-        ),
-        (
-            "NM_004006.2:c.2376G>C(;)(2376G>C)",
-            "unsupported.allele_uncertain_variant_state",
-            ParseHgvsErrorKind::UnsupportedSyntax,
-            "uncertain allele variant states are not supported yet",
-            Some("(;)(...)"),
-        ),
-        (
-            "r.-124_-123[14];[18]",
-            "unsupported.allele",
-            ParseHgvsErrorKind::UnsupportedSyntax,
-            "allele syntax is not supported yet",
-            Some("];["),
-        ),
-        (
-            "NP_003997.1:p.[Lys31Asn,Val25_Lys31del]",
-            "unsupported.one_allele_multi_protein",
-            ParseHgvsErrorKind::UnsupportedSyntax,
-            "one protein allele encoding more than one protein is not supported yet",
-            Some(","),
-        ),
-        (
-            "NP_003997.2:p.[(Asn158Asp)(;)(Asn158Ile)]^[(Asn158Val)]",
-            "unsupported.alternate_allele_state",
-            ParseHgvsErrorKind::UnsupportedSyntax,
-            "alternate allele states are not supported yet",
-            Some("^"),
-        ),
-        (
-            "r.-128_-126[(600_800)]",
-            "unsupported.uncertain_size",
-            ParseHgvsErrorKind::UnsupportedSyntax,
-            "uncertain HGVS size syntax is not supported yet",
-            Some("[(...)]"),
-        ),
-        (
-            "p.Arg78_Gly79insXaa[23]",
-            "unsupported.protein_insertion_payload",
-            ParseHgvsErrorKind::UnsupportedSyntax,
-            "quantified or terminal protein insertion payloads are not supported yet",
-            Some("Xaa[...]"),
-        ),
-        (
-            "p.(Gly719Ala^Ser)",
-            "unsupported.protein_uncertain_consequence",
-            ParseHgvsErrorKind::UnsupportedSyntax,
-            "uncertain protein consequence syntax is not supported yet",
-            Some("^"),
-        ),
-        (
-            "p.(Gln18)[(70_80)]",
-            "unsupported.protein_uncertain_consequence",
-            ParseHgvsErrorKind::UnsupportedSyntax,
-            "uncertain protein consequence syntax is not supported yet",
-            Some("[(...)]"),
         ),
     ];
 
@@ -127,22 +50,26 @@ fn classifies_supported_diagnostic_codes() {
 }
 
 #[test]
-fn prioritizes_specific_rna_codes_before_generic_ones() {
-    let splicing = parse_error("NC_000023.11(NM_004006.2):r.spl");
-    let unknown_member = parse_error("NM_004006.2:c.[2376G>C];[?]");
-    let protein_unknown_member = parse_error("NP_003997.1:p.[(Ser68Arg)];[?]");
-    let uncertain_state = parse_error("NM_004006.2:c.2376G>C(;)(2376G>C)");
+fn formerly_unsupported_outcomes_and_alleles_now_parse() {
+    let cases = [
+        "NC_000023.11(NM_004006.2):r.?",
+        "NC_000023.11(NM_004006.2):r.(?)",
+        "NC_000023.11(NM_004006.2):r.spl",
+        "NC_000023.11(NM_004006.2):r.0?",
+        "NC_000023.11(NM_004006.2):r.[897u>g,832_960del]",
+        "NM_004006.2:c.[2376G>C];[?]",
+        "NM_004006.2:c.2376G>C(;)(2376G>C)",
+        "NP_003997.1:p.[(Ser68Arg)];[?]",
+        "NP_003997.1:p.[Lys31Asn,Val25_Lys31del]",
+        "NP_003997.2:p.[(Asn158Asp)(;)(Asn158Ile)]^[(Asn158Val)]",
+        "NP_003997.1:p.Arg78_Gly79insXaa[23]",
+        "NP_003997.1:p.Gln746_Lys747ins*63",
+        "NP_003997.1:p.(Gly719Ala^Ser)",
+    ];
 
-    assert_eq!(splicing.code(), "unsupported.rna_splicing_outcome");
-    assert_eq!(unknown_member.code(), "unsupported.allele_unknown_variant");
-    assert_eq!(
-        protein_unknown_member.code(),
-        "unsupported.allele_unknown_variant"
-    );
-    assert_eq!(
-        uncertain_state.code(),
-        "unsupported.allele_uncertain_variant_state"
-    );
+    for input in cases {
+        parse_hgvs(input).unwrap_or_else(|error| panic!("{input} should parse, got {error}"));
+    }
 }
 
 #[test]
@@ -177,12 +104,11 @@ fn malformed_uncertain_range_now_falls_back_to_generic_invalid_syntax() {
 
 #[test]
 fn displays_machine_code_message_and_version() {
-    let error = parse_error("p.Arg78_Gly79insXaa[23]");
+    let error = parse_error("NC_000023.11:g.pter_qtersup");
     let rendered = error.to_string();
 
-    assert!(rendered.contains("[unsupported.protein_insertion_payload]"));
-    assert!(rendered
-        .contains("quantified or terminal protein insertion payloads are not supported yet"));
-    assert!(rendered.contains("`p.Arg78_Gly79insXaa[23]`"));
+    assert!(rendered.contains("[unsupported.telomeric_position]"));
+    assert!(rendered.contains("telomeric positions such as pter and qter are not supported yet"));
+    assert!(rendered.contains("`NC_000023.11:g.pter_qtersup`"));
     assert!(rendered.contains(env!("CARGO_PKG_VERSION")));
 }

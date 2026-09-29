@@ -5,5 +5,3 @@
       members:
         - VariantDescription
         - HgvsVariant
-
-::: tinyhgvs.models.shared

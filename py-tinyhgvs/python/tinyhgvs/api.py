@@ -1,4 +1,4 @@
-"""Public parsing entry points for :mod:`tinyhgvs`."""
+"""Public parsing entry points for tinyhgvs."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ def parse_hgvs(input: str) -> HgvsVariant:
         input: HGVS expression to parse.
 
     Returns:
-        A fully typed :class:`~tinyhgvs.models.HgvsVariant` instance.
+        A fully typed `tinyhgvs.models.HgvsVariant` instance.
 
     Raises:
         TinyHGVSError: If the input is invalid or belongs to a recognized but
@@ -33,8 +33,10 @@ def parse_hgvs(input: str) -> HgvsVariant:
         357
         >>> variant.description.location.start.offset
         1
-        >>> variant.description.edit
-        NucleotideSubstitutionEdit(reference='G', alternate='A', kind='substitution')
+        >>> variant.description.reference
+        'G'
+        >>> variant.description.alternate
+        'A'
 
         A 5' UTR substitution keeps its signed coordinate:
 
@@ -44,14 +46,14 @@ def parse_hgvs(input: str) -> HgvsVariant:
         >>> utr.description.location.start.is_five_prime_utr
         True
 
-        An exact RNA repeat:
+        An RNA repeat:
 
         >>> repeat = parse_hgvs("NM_004006.3:r.-124_-123[14]")
-        >>> len(repeat.description.edit.blocks)
+        >>> len(repeat.description.edit.sequence)
         1
-        >>> repeat.description.edit.blocks[0].count
+        >>> repeat.description.edit.sequence[0].quantity.count
         14
-        >>> repeat.description.edit.blocks[0].unit is None
+        >>> repeat.description.edit.sequence[0].unit is None
         True
 
         Two alleles *in trans*:
@@ -69,17 +71,39 @@ def parse_hgvs(input: str) -> HgvsVariant:
         >>> protein = parse_hgvs("NP_003997.1:p.(Trp24Ter)")
         >>> protein.description.is_predicted
         True
-        >>> protein.description.effect.location.start.residue
+        >>> protein.description.edit.location.start.residue
         'Trp'
+
+        A predicted protein no-change outcome:
+
+        >>> no_change = parse_hgvs("NP_003997.1:p.(Cys188=)")
+        >>> no_change.description.is_no_change
+        True
+        >>> no_change.description.is_predicted
+        True
 
         A protein frameshift variant (long-format):
 
         >>> frameshift = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23")
-        >>> frameshift_edit = frameshift.description.effect.edit
+        >>> frameshift_edit = frameshift.description.edit
         >>> frameshift_edit.to_residue
         'Pro'
         >>> frameshift_edit.stop.ordinal
         23
+
+        A protein insertion with unknown amino-acid content:
+
+        >>> insertion = parse_hgvs("NP_003997.1:p.Arg78_Gly79insXaa[23]")
+        >>> insertion.description.edit.count
+        23
+
+        Alternative protein consequences:
+
+        >>> alternatives = parse_hgvs("NP_003997.1:p.(Gly23GlufsTer7^Gly23CysfsTer26)")
+        >>> alternatives.description.has_alternatives
+        True
+        >>> len(alternatives.description.edits)
+        2
     """
     from ._tinyhgvs import parse_hgvs as _parse_hgvs
 

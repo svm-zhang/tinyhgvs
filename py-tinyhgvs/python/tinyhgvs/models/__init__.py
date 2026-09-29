@@ -2,12 +2,16 @@
 
 The package is split into:
 
-- :mod:`tinyhgvs.models.shared` for shared reference and coordinate models
-- :mod:`tinyhgvs.models.nucleotide` for nucleotide coordinates, edits, and variants
-- :mod:`tinyhgvs.models.protein` for protein coordinates, effects, and variants
+- `tinyhgvs.models.core` for reference, coordinate-system, location, and
+  certainty models
+- `tinyhgvs.models.allele` for allele and allele-form models
+- `tinyhgvs.models.cdna` for coding-DNA outcome models
+- `tinyhgvs.models.nucleotide` for nucleotide coordinates, edits, and variants
+- `tinyhgvs.models.rna` for RNA outcome models
+- `tinyhgvs.models.repeat` for repeat units and quantities
+- `tinyhgvs.models.protein` for protein coordinates, edits, and outcomes
 
-Type Aliases:
-    VariantDescription: Tagged union for supported top-level variant models.
+Internal description aliases in this module are used for annotations only.
 """
 
 from __future__ import annotations
@@ -15,66 +19,101 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TypeAlias
 
+from .allele import (
+    Allele,
+    AlleleForm,
+    AllelePhase,
+    AlleleStateCertainty,
+    AlleleVariant,
+    AlternativeAlleleForm,
+    DerivedAlleleForm,
+)
+from .cdna import (
+    CodingDnaOutcome,
+    CodingDnaUnknown,
+)
 from .nucleotide import (
-    CopiedSequenceItem,
-    LiteralSequenceItem,
+    CopiedSequence,
+    LiteralSequence,
     NucleotideAnchor,
     NucleotideCoordinate,
-    NucleotideCoordinateKind,
-    NucleotideDeletionInsertionEdit,
+    NucleotideDeletion,
+    NucleotideDeletionInsertion,
+    NucleotideDuplication,
     NucleotideEdit,
-    NucleotideInsertionEdit,
-    NucleotideRepeatBlock,
-    NucleotideRepeatEdit,
+    NucleotideInsertion,
+    NucleotideInversion,
+    NucleotideNoChange,
+    NucleotideRepeat,
     NucleotideSequenceItem,
-    NucleotideSequenceOmittedEdit,
-    NucleotideSubstitutionEdit,
-    NucleotideVariant,
-    RepeatSequenceItem,
+    NucleotideSubstitution,
 )
 from .protein import (
+    KnownProteinFrameshiftStop,
+    KnownProteinInsertion,
+    OmittedProteinFrameshiftStop,
     ProteinCoordinate,
-    ProteinDeletionInsertionEdit,
+    ProteinDeletion,
+    ProteinDeletionInsertion,
+    ProteinDuplication,
     ProteinEdit,
-    ProteinEditEffect,
-    ProteinEffect,
-    ProteinExtensionEdit,
+    ProteinExtension,
     ProteinExtensionTerminal,
-    ProteinFrameshiftEdit,
+    ProteinFrameshift,
     ProteinFrameshiftStop,
-    ProteinFrameshiftStopKind,
-    ProteinInsertionEdit,
-    ProteinNoProteinProducedEffect,
-    ProteinRepeatEdit,
-    ProteinSequence,
-    ProteinSequenceOmittedEdit,
-    ProteinSubstitutionEdit,
-    ProteinUnknownEffect,
-    ProteinVariant,
+    ProteinInsertion,
+    ProteinNoChange,
+    ProteinNotProduced,
+    ProteinOutcome,
+    ProteinProduced,
+    ProteinProducedAlternatives,
+    ProteinRepeat,
+    ProteinSubstitution,
+    ProteinUnknown,
+    TerminatingProteinInsertion,
+    UnknownProteinFrameshiftStop,
+    UnknownProteinInsertion,
 )
-from .shared import (
+from .repeat import (
+    KnownQuantity,
+    KnownRepeatUnit,
+    Quantity,
+    Repeat,
+    RepeatUnit,
+    UncertainQuantity,
+    UnknownQuantity,
+    UnknownRepeatUnit,
+)
+from .rna import (
+    RnaIndeterminate,
+    RnaNoChange,
+    RnaNotProduced,
+    RnaOutcome,
+    RnaProduced,
+    RnaUncertainSplicing,
+    RnaUnknown,
+)
+from .core import (
     Accession,
-    Allele,
-    AllelePhase,
-    AlleleVariant,
     CoordinateSystem,
-    Interval,
+    KnownLocation,
     Location,
+    OutcomeCertainty,
+    PossibleRange,
     ReferenceSpec,
+    UncertainLocation,
 )
 
-VariantDescription: TypeAlias = (
-    NucleotideVariant
-    | AlleleVariant[NucleotideVariant]
-    | ProteinVariant
-    | AlleleVariant[ProteinVariant]
+_VariantDescription: TypeAlias = (
+    NucleotideEdit
+    | RnaOutcome
+    | ProteinOutcome
+    | AlleleForm
+    | CodingDnaUnknown
 )
-"""Tagged union for supported top-level variant models:
+"""Private tagged union for the parsed description stored on `HgvsVariant`.
 
-- [`NucleotideVariant`][tinyhgvs.models.nucleotide.NucleotideVariant]
-- `AlleleVariant[NucleotideVariant]`
-- [`ProteinVariant`][tinyhgvs.models.protein.ProteinVariant]
-- `AlleleVariant[ProteinVariant]`
+This alias is intentionally not exported from the package surface.
 """
 
 
@@ -82,7 +121,7 @@ VariantDescription: TypeAlias = (
 class HgvsVariant:
     """Top-level model describing a parsed HGVS variant.
 
-    This is the root object returned by :func:`tinyhgvs.parse_hgvs`. It ties the
+    This is the root object returned by `tinyhgvs.parse_hgvs`. It ties the
     reference field, coordinate system, and parsed variant description together.
 
     Attributes:
@@ -109,9 +148,10 @@ class HgvsVariant:
         <NucleotideAnchor.ABSOLUTE: 'absolute'>
         >>> variant_location.end is None
         True
-        >>> variant_edit = variant_description.edit
-        >>> variant_edit
-        NucleotideSubstitutionEdit(reference='G', alternate='A', kind='substitution')
+        >>> variant_description.reference
+        'G'
+        >>> variant_description.alternate
+        'A'
 
         A 5' UTR substitution keeps the signed coordinate from the HGVS string:
         >>> utr = parse_hgvs("NM_007373.4:c.-1C>T")
@@ -123,57 +163,87 @@ class HgvsVariant:
         A protein frameshift is still exposed through the same top-level
         variant container:
         >>> protein = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23")
-        >>> protein.description.effect.edit.kind
-        'frameshift'
+        >>> protein.description.edit.is_frameshift
+        True
+        >>> protein.description.edit.to_residue
+        'Pro'
     """
 
     reference: ReferenceSpec | None
     coordinate_system: CoordinateSystem
-    description: VariantDescription
+    description: _VariantDescription
 
 
 __all__ = [
     "Accession",
     "Allele",
+    "AlleleStateCertainty",
     "AllelePhase",
     "AlleleVariant",
-    "CopiedSequenceItem",
+    "AlleleForm",
+    "DerivedAlleleForm",
+    "AlternativeAlleleForm",
+    "CopiedSequence",
     "CoordinateSystem",
     "HgvsVariant",
-    "Interval",
     "Location",
-    "LiteralSequenceItem",
-    "NucleotideDeletionInsertionEdit",
+    "LiteralSequence",
+    "NucleotideDeletionInsertion",
     "NucleotideAnchor",
     "NucleotideCoordinate",
-    "NucleotideCoordinateKind",
     "NucleotideEdit",
-    "NucleotideInsertionEdit",
-    "NucleotideRepeatBlock",
-    "NucleotideRepeatEdit",
+    "NucleotideInsertion",
+    "NucleotideRepeat",
     "NucleotideSequenceItem",
-    "NucleotideSequenceOmittedEdit",
-    "NucleotideSubstitutionEdit",
-    "NucleotideVariant",
+    "NucleotideSubstitution",
+    "NucleotideDeletion",
+    "NucleotideInversion",
+    "NucleotideDuplication",
+    "NucleotideNoChange",
+    "RnaOutcome",
+    "RnaProduced",
+    "RnaNoChange",
+    "RnaNotProduced",
+    "RnaUncertainSplicing",
+    "RnaUnknown",
+    "RnaIndeterminate",
     "ProteinCoordinate",
-    "ProteinDeletionInsertionEdit",
     "ProteinEdit",
-    "ProteinEditEffect",
-    "ProteinEffect",
-    "ProteinExtensionEdit",
+    "ProteinSubstitution",
+    "ProteinDeletion",
+    "ProteinDeletionInsertion",
+    "ProteinInsertion",
+    "ProteinDuplication",
+    "ProteinRepeat",
+    "ProteinFrameshift",
+    "ProteinExtension",
     "ProteinExtensionTerminal",
-    "ProteinFrameshiftEdit",
     "ProteinFrameshiftStop",
-    "ProteinFrameshiftStopKind",
-    "ProteinInsertionEdit",
-    "ProteinNoProteinProducedEffect",
-    "ProteinRepeatEdit",
-    "ProteinSequence",
-    "ProteinSequenceOmittedEdit",
-    "ProteinSubstitutionEdit",
-    "ProteinUnknownEffect",
-    "ProteinVariant",
     "ReferenceSpec",
-    "RepeatSequenceItem",
-    "VariantDescription",
+    "KnownLocation",
+    "KnownQuantity",
+    "KnownRepeatUnit",
+    "KnownProteinInsertion",
+    "OutcomeCertainty",
+    "PossibleRange",
+    "Quantity",
+    "Repeat",
+    "RepeatUnit",
+    "UncertainLocation",
+    "UncertainQuantity",
+    "UnknownRepeatUnit",
+    "OmittedProteinFrameshiftStop",
+    "UnknownProteinFrameshiftStop",
+    "KnownProteinFrameshiftStop",
+    "ProteinNoChange",
+    "ProteinOutcome",
+    "ProteinProduced",
+    "ProteinNotProduced",
+    "ProteinProducedAlternatives",
+    "ProteinUnknown",
+    "TerminatingProteinInsertion",
+    "UnknownQuantity",
+    "UnknownProteinInsertion",
+    "CodingDnaUnknown",
+    "CodingDnaOutcome",
 ]

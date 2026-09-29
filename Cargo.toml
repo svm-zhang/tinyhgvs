@@ -1,14 +1,14 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
   "crates/tinyhgvs",
   "py-tinyhgvs"
 ]
 
 [workspace.package]
-version = "0.6.2"
-edition = "2021"
-rust-version = "1.65"
+version = "0.7.0"
+edition = "2024"
+rust-version = "1.85"
 license = "MIT"
 repository = "https://github.com/svm-zhang/tinyhgvs"
 homepage = "https://github.com/svm-zhang/tinyhgvs"

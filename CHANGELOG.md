@@ -2,6 +2,60 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0]
+
+### Broader HGVS syntax support
+- Expanded allele and outcome parsing across DNA, RNA, and protein descriptions.
+- Added support for richer repeat descriptions, including composite repeat
+  units such as `r.456_499us[4]cag[9]gccag[3]` and unknown copy-number
+  boundaries such as `NC_000003.12:g.63912687AGC[?]`.
+- Added support for derived and alternative allele forms, including comma-based
+  alternatives such as `[A,B]`, multi-outcome alternatives such as `[A,B,C]`,
+  and `^`-joined derived outcomes such as `[A^B]`.
+- Added support for genomic uncertain allele state syntax such as `[?]` and
+  `[(?_?)]`.
+- Added support for protein insertion content and uncertain protein consequence
+  forms, including `p.Ala123_Pro124insGly`, `p.Ala123_Pro124insXaa[3]`,
+  and parenthesized consequence alternatives such as `p.Gly719(Ala^Ter)fsTer23`.
+- Modeled protein no-change as an outcome so whole-protein and site-specific
+  no-change descriptions carry prediction state consistently.
+
+### Rust parser and data model
+- Reworked the Rust data model around outcome-oriented nucleotide, RNA, and
+  protein descriptions.
+- Split the Rust parser and model code into focused modules while keeping the
+  public crate API organized through the top-level re-exports.
+- Removed the stale post-parsing validator path; syntax rejection now stays
+  focused on parser-recognized malformed forms.
+- Refreshed Rust doctests, parser comments, integration tests, and diagnostics
+  for the expanded syntax surface.
+
+### Python model surface
+- Redesigned the Python public model to read more naturally from parsed HGVS
+  objects while preserving the biological structure of variants, outcomes,
+  alleles, repeats, and molecule-specific edits.
+- Split Python model types into focused modules for core, allele, coding-DNA,
+  nucleotide, RNA, repeat, and protein models.
+- Updated the PyO3 bridge to map the refactored Rust model into the redesigned
+  Python surface.
+- Added Python coverage for the expanded parser surface and refreshed public
+  docstrings for the new model shape.
+
+### Documentation and support inventory
+- Refreshed README and documentation examples for the current Python API.
+- Updated the unsupported syntax inventory to focus on the remaining active
+  unsupported families.
+- Improved the API documentation layout for browsing large generated model
+  pages.
+
+### Tooling and compatibility
+- Updated the Rust workspace to Edition 2024 with MSRV `1.85`.
+- Added a stable Rust toolchain file and a separate MSRV CI check.
+- Updated the PyO3 dependency to the patched `0.29` release line.
+- Added Python 3.14 support to package metadata, CI, and release wheel builds.
+- Updated docs tooling dependencies, including the Zensical build toolchain and
+  patched `pymdown-extensions` resolution.
+
 ## [0.6.2]
 
 ### Uncertain location support

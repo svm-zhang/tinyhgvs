@@ -7,6 +7,7 @@ on:
     paths:
       - "Cargo.toml"
       - "Cargo.lock"
+      - "rust-toolchain.toml"
       - "crates/**"
       - "py-tinyhgvs/**"
       - "docs/**"
@@ -19,6 +20,7 @@ on:
     paths:
       - "Cargo.toml"
       - "Cargo.lock"
+      - "rust-toolchain.toml"
       - "crates/**"
       - "py-tinyhgvs/**"
       - "docs/**"
@@ -36,20 +38,44 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v5
 
+      - name: Set up Python for PyO3
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Check formatting
         run: cargo fmt --check
 
-      - name: Run tests
-        run: cargo test
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: Run doctests
-        run: cargo test --doc -p tinyhgvs
+      - name: Run tests
+        run: cargo test --workspace --locked
 
       - name: Verify crate packaging
         run: cargo package -p tinyhgvs --locked
+
+  rust-msrv:
+    name: Rust MSRV check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python for PyO3
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install Rust MSRV toolchain
+        uses: dtolnay/rust-toolchain@1.85.0
+
+      - name: Check workspace
+        run: cargo check --workspace --locked
 
   python:
     name: Python checks (${{ matrix.python-version }})
@@ -57,7 +83,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
     steps:
       - name: Check out repository

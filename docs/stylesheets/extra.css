@@ -1,19 +1,103 @@
 @font-face {
-  font-family: "DejaVu Sans Mono";
-  src: url("../assets/fonts/DejaVuSansMono.ttf") format("truetype");
+  font-display: swap;
+  font-family: "Source Sans 3";
+  font-style: normal;
+  font-weight: 200 900;
+  src: url("../assets/fonts/SourceSans3-Variable.woff2") format("woff2");
+}
+
+@font-face {
+  font-display: swap;
+  font-family: "Source Sans 3";
+  font-style: italic;
+  font-weight: 200 900;
+  src: url("../assets/fonts/SourceSans3-Variable-Italic.woff2") format("woff2");
+}
+
+@font-face {
+  font-display: swap;
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 100 800;
+  src: url("../assets/fonts/JetBrainsMono-Variable.woff2") format("woff2");
+}
+
+@font-face {
+  font-display: swap;
+  font-family: "JetBrains Mono";
+  font-style: italic;
+  font-weight: 100 800;
+  src: url("../assets/fonts/JetBrainsMono-Italic-Variable.woff2")
+    format("woff2");
 }
 
 :root {
-  --md-code-font: "DejaVu Sans Mono";
+  --md-text-font:
+    "Source Sans 3", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --md-code-font:
+    "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --tinyhgvs-desktop-grid-width: 72rem;
+  --tinyhgvs-primary-sidebar-width: 13rem;
+  --tinyhgvs-secondary-sidebar-width: 15rem;
+}
+
+body {
+  -webkit-font-smoothing: auto;
+}
+
+.md-typeset {
+  font-size: 0.86rem;
+  line-height: 1.65;
+}
+
+.md-nav {
+  font-size: 0.82rem;
+}
+
+.md-typeset code {
+  font-size: 0.86em;
+}
+
+.md-typeset pre code {
+  font-size: 0.74rem;
+  line-height: 1.55;
 }
 
 .md-nav__link {
   white-space: normal;
 }
 
+.md-sidebar--secondary .md-nav__link {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media screen and (min-width: 76.25em) {
-  .md-sidebar {
-    width: 18rem;
+  .md-grid {
+    max-width: var(--tinyhgvs-desktop-grid-width);
+  }
+
+  .md-sidebar--primary {
+    width: var(--tinyhgvs-primary-sidebar-width);
+  }
+
+  .md-sidebar--secondary {
+    width: var(--tinyhgvs-secondary-sidebar-width);
+  }
+}
+
+@media screen and (min-width: 100em) {
+  :root {
+    --tinyhgvs-desktop-grid-width: 78rem;
+    --tinyhgvs-secondary-sidebar-width: 16rem;
+  }
+}
+
+@media screen and (min-width: 125em) {
+  :root {
+    --tinyhgvs-desktop-grid-width: 84rem;
+    --tinyhgvs-secondary-sidebar-width: 17rem;
   }
 }
 

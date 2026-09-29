@@ -8,16 +8,14 @@ Type Aliases:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Literal, TypeAlias
+from typing import TypeAlias
 
-from .shared import (
-    Allele,
-    AllelePhase,
-    AlleleVariant,
+from .repeat import Repeat
+from .core import (
     CoordinateSystem,
-    Interval,
+    KnownLocation,
     Location,
     ReferenceSpec,
 )
@@ -54,24 +52,11 @@ class NucleotideAnchor(str, Enum):
     RELATIVE_CDS_END = "relative_cds_end"
 
 
-class NucleotideCoordinateKind(str, Enum):
-    """Known/unknown state for a nucleotide coordinate.
-
-    Attributes:
-        KNOWN: Coordinate has anchor, coordinate, and offset values.
-        UNKNOWN: Coordinate is written as ``?``.
-    """
-
-    KNOWN = "known"
-    UNKNOWN = "unknown"
-
-
 @dataclass(frozen=True, slots=True)
 class NucleotideCoordinate:
-    """Nucleotide coordinate written as a known position or ``?``.
+    """A nucleotide coordinate or the explicit HGVS unknown coordinate ``?``.
 
     Attributes:
-        kind: Whether this coordinate is known or unknown.
         anchor: Reference point used to interpret the coordinate. ``None`` for
             unknown coordinates.
         coordinate: Primary HGVS coordinate as written. ``None`` for unknown
@@ -98,92 +83,79 @@ class NucleotideCoordinate:
         >>> variant.description.location.start.offset
         -2
 
-        5' UTR substitution:
-        >>> variant = parse_hgvs("NM_007373.4:c.-1C>T")
-        >>> variant.description.location.start.anchor
+        5' UTR and 3' UTR coordinates keep their signed coordinate values:
+        >>> five_prime = parse_hgvs("NM_007373.4:c.-1C>T")
+        >>> five_prime.description.location.start.anchor
         <NucleotideAnchor.RELATIVE_CDS_START: 'relative_cds_start'>
-        >>> variant.description.location.start.coordinate
+        >>> five_prime.description.location.start.coordinate
         -1
-        >>> variant.description.location.start.offset
-        0
-
-        3' UTR substitution:
-        >>> variant = parse_hgvs("NM_001272071.2:c.*1C>T")
-        >>> variant.description.location.start.anchor
+        >>> three_prime = parse_hgvs("NM_001272071.2:c.*1C>T")
+        >>> three_prime.description.location.start.anchor
         <NucleotideAnchor.RELATIVE_CDS_END: 'relative_cds_end'>
-        >>> variant.description.location.start.coordinate
+        >>> three_prime.description.location.start.coordinate
         1
-        >>> variant.description.location.start.offset
-        0
 
-        5' UTR intronic substitution:
-        >>> variant = parse_hgvs("NM_001385026.1:c.-106+2T>A")
-        >>> variant.description.location.start.anchor
-        <NucleotideAnchor.RELATIVE_CDS_START: 'relative_cds_start'>
-        >>> variant.description.location.start.coordinate
-        -106
-        >>> variant.description.location.start.offset
-        2
+        Unknown coordinates are used by uncertain location syntax:
+        >>> variant = parse_hgvs("NC_000023.10:g.(?_32238146)_(32984039_?)del")
+        >>> variant.description.location.start.start.is_unknown
+        True
+        >>> variant.description.location.end.end.coordinate is None
+        True
     """
 
-    kind: NucleotideCoordinateKind
-    anchor: NucleotideAnchor | None = None
-    coordinate: int | None = None
-    offset: int | None = None
+    anchor: NucleotideAnchor | None
+    coordinate: int | None
+    offset: int | None
+
+    def __post_init__(self) -> None:
+        fields = (self.anchor, self.coordinate, self.offset)
+
+        if all(field is None for field in fields):
+            return
+
+        if all(field is not None for field in fields):
+            return
+
+        # Reject malformed coordinate states that cannot represent valid HGVS
+        # location pieces. Supported states are fully known coordinates like
+        # 123 or 456 in (123_456), or fully unknown coordinates like ? in
+        # (?_?) and (123_?). Mixed internal states with only some of anchor,
+        # coordinate, and offset present cannot represent one valid boundary.
+        raise ValueError(
+            "NucleotideCoordinate must be either fully known or fully unknown"
+        )
 
     @property
     def is_known(self) -> bool:
         """Return ``True`` when this coordinate has a known value."""
-        return self.kind is NucleotideCoordinateKind.KNOWN
+        return self.coordinate is not None
 
     @property
     def is_unknown(self) -> bool:
         """Return ``True`` when this coordinate is written as ``?``."""
-        return self.kind is NucleotideCoordinateKind.UNKNOWN
+        return self.coordinate is None
 
     @property
     def is_intronic(self) -> bool:
-        """Return ``True`` for intronic variant.
+        """Return ``True`` for intronic coordinates.
 
         Examples:
             >>> from tinyhgvs import parse_hgvs
-            >>> variant = parse_hgvs("NM_004006.2:c.357+1G>A")
-            >>> variant.description.location.start.is_intronic
+            >>> parse_hgvs("NM_004006.2:c.357+1G>A").description.location.start.is_intronic
             True
-            >>> variant = parse_hgvs("NM_001385026.1:c.-106+2T>A")
-            >>> variant.description.location.start.is_intronic
+            >>> parse_hgvs("NM_001385026.1:c.-106+2T>A").description.location.start.is_intronic
             True
         """
-        return self.offset is not None and self.offset != 0
+        return self.offset not in (None, 0)
 
     @property
     def is_cds_start_anchored(self) -> bool:
-        """Return ``True`` if variant's location is relative to the CDS start.
-
-        Examples:
-            >>> from tinyhgvs import parse_hgvs
-            >>> variant = parse_hgvs("NM_007373.4:c.-1C>T")
-            >>> variant.description.location.start.is_cds_start_anchored
-            True
-            >>> variant = parse_hgvs("NM_001385026.1:c.-106+2T>A")
-            >>> variant.description.location.start.is_cds_start_anchored
-            True
-        """
+        """Return ``True`` when the coordinate is relative to the CDS start."""
         return self.anchor is NucleotideAnchor.RELATIVE_CDS_START
 
     @property
     def is_cds_end_anchored(self) -> bool:
-        """Return ``True`` if variant's location is relative to the CDS end.
-
-        Examples:
-            >>> from tinyhgvs import parse_hgvs
-            >>> variant = parse_hgvs("NM_001272071.2:c.*1C>T")
-            >>> variant.description.location.start.is_cds_end_anchored
-            True
-            >>> variant = parse_hgvs("NM_001272071.2:c.*639-1G>A")
-            >>> variant.description.location.start.is_cds_end_anchored
-            True
-        """
+        """Return ``True`` when the coordinate is relative to the CDS end."""
         return self.anchor is NucleotideAnchor.RELATIVE_CDS_END
 
     @property
@@ -195,10 +167,8 @@ class NucleotideCoordinate:
             >>> position = parse_hgvs("NM_007373.4:c.-123C>T").description.location.start
             >>> position.is_five_prime_utr
             True
-            >>> position = parse_hgvs("NM_001385026.1:c.-106+2T>A").description.location.start
+            >>> position = parse_hgvs("NM_004006.2:c.76A>G").description.location.start
             >>> position.is_five_prime_utr
-            False
-            >>> position.is_three_prime_utr
             False
         """
         return self.is_cds_start_anchored and self.offset == 0
@@ -212,78 +182,227 @@ class NucleotideCoordinate:
             >>> position = parse_hgvs("NM_001272071.2:c.*1C>T").description.location.start
             >>> position.is_three_prime_utr
             True
-            >>> position = parse_hgvs("NM_001272071.2:c.*639-1G>A").description.location.start
+            >>> position = parse_hgvs("NM_004006.2:c.76A>G").description.location.start
             >>> position.is_three_prime_utr
-            False
-            >>> position.is_five_prime_utr
             False
         """
         return self.is_cds_end_anchored and self.offset == 0
 
 
 @dataclass(frozen=True, slots=True)
-class CopiedSequenceItem:
-    """Copied nucleotide sequence used in an insertion or deletion-insertion.
-
-    Attributes:
-        source_reference: Source reference when the copied sequence comes from
-            a different accession. ``None`` means the same outer reference.
-        source_coordinate_system: Source coordinate system when it differs from
-            the outer variant. ``None`` means the same outer coordinate system.
-        source_location: Inclusive interval on the source reference.
-        is_inverted: Whether the copied sequence is inserted in reverse
-            orientation.
+class NucleotideNoChange:
+    """Nucleotide no-change edit.
 
     Examples:
-        A stretch of sequence from the same transcript is inserted in reverse
-        orientation:
-        >>> from tinyhgvs import parse_hgvs
-        >>> variant = parse_hgvs("NM_004006.2:c.849_850ins850_900inv")
-        >>> item = variant.description.edit.items[0]
-        >>> item.is_from_same_reference
+        >>> from tinyhgvs import NucleotideNoChange, parse_hgvs
+        >>> variant = parse_hgvs("NM_004006.2:c.2376=")
+        >>> isinstance(variant.description, NucleotideNoChange)
         True
-        >>> item.source_location.start.coordinate
-        850
-        >>> item.source_location.end.coordinate
-        900
-        >>> item.is_inverted
-        True
-
-        A copied sequence can also come from another chromosome:
-        >>> variant = parse_hgvs("NC_000002.11:g.47643464_47643465ins[NC_000022.10:g.35788169_35788352]")
-        >>> item = variant.description.edit.items[0]
-        >>> item.source_reference.primary.id
-        'NC_000022.10'
-        >>> item.source_coordinate_system
-        <CoordinateSystem.GENOMIC: 'g'>
     """
 
-    source_reference: ReferenceSpec | None
-    source_coordinate_system: CoordinateSystem | None
-    source_location: Interval[NucleotideCoordinate]
-    is_inverted: bool
-
-    @property
-    def is_from_same_reference(self) -> bool:
-        return (
-            self.source_reference is None
-            and self.source_coordinate_system is None
-        )
+    location: Location[NucleotideCoordinate]
 
 
 @dataclass(frozen=True, slots=True)
-class LiteralSequenceItem:
-    """Model describing literal-base-type sequence edit component.
-
-    Attributes:
-        value: Nucleotide bases.
+class NucleotideSubstitution:
+    """Nucleotide substitution.
 
     Examples:
-        A literal insertion of three nucleotides:
-        >>> from tinyhgvs import LiteralSequenceItem, parse_hgvs
+        A reference base ``C`` is substituted by ``A``:
+        >>> from tinyhgvs import NucleotideSubstitution, parse_hgvs
+        >>> variant = parse_hgvs("NC_000023.10:g.33038255C>A")
+        >>> isinstance(variant.description, NucleotideSubstitution)
+        True
+        >>> variant.description.reference
+        'C'
+        >>> variant.description.alternate
+        'A'
+    """
+
+    location: Location[NucleotideCoordinate]
+    reference: str
+    alternate: str
+
+
+@dataclass(frozen=True, slots=True)
+class NucleotideDeletion:
+    """Nucleotide deletion.
+
+    Examples:
+        >>> from tinyhgvs import NucleotideDeletion, parse_hgvs
+        >>> variant = parse_hgvs("NM_004006.2:c.5697del")
+        >>> isinstance(variant.description, NucleotideDeletion)
+        True
+        >>> variant.description.location.start.coordinate
+        5697
+    """
+
+    location: Location[NucleotideCoordinate]
+
+
+@dataclass(frozen=True, slots=True)
+class NucleotideDuplication:
+    """Nucleotide duplication.
+
+    Examples:
+        >>> from tinyhgvs import NucleotideDuplication, parse_hgvs
+        >>> variant = parse_hgvs("NC_000001.11:g.1234_2345dup")
+        >>> isinstance(variant.description, NucleotideDuplication)
+        True
+        >>> variant.description.location.end.coordinate
+        2345
+    """
+
+    location: Location[NucleotideCoordinate]
+
+
+@dataclass(frozen=True, slots=True)
+class NucleotideInversion:
+    """Nucleotide inversion.
+
+    Examples:
+        >>> from tinyhgvs import NucleotideInversion, parse_hgvs
+        >>> variant = parse_hgvs("NC_000023.10:g.32361330_32361333inv")
+        >>> isinstance(variant.description, NucleotideInversion)
+        True
+    """
+
+    location: Location[NucleotideCoordinate]
+
+
+@dataclass(frozen=True, slots=True)
+class NucleotideRepeat:
+    """Top-level nucleotide repeat edit.
+
+    Examples:
+        A DNA repeat variant with a literal repeat unit:
+        >>> from tinyhgvs import NucleotideRepeat, parse_hgvs
+        >>> variant = parse_hgvs("NC_000014.8:g.123CAG[23]")
+        >>> isinstance(variant.description, NucleotideRepeat)
+        True
+        >>> repeat = variant.description.sequence[0]
+        >>> repeat.unit.value
+        'CAG'
+        >>> repeat.quantity.count
+        23
+
+        A RNA repeat variant can be composed of consecutive repeat blocks:
+        >>> variant = parse_hgvs("NM_004006.3:r.456_499us[4]cag[9]gccag[3]")
+        >>> len(variant.description.edit.sequence)
+        3
+        >>> variant.description.edit.sequence[2].quantity.count
+        3
+    """
+
+    location: Location[NucleotideCoordinate]
+    sequence: tuple[Repeat, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class NucleotideInsertion:
+    """Nucleotide insertion.
+
+    Examples:
+        Literal nucleotide insertion:
+        >>> from tinyhgvs import LiteralSequence, NucleotideInsertion, parse_hgvs
         >>> variant = parse_hgvs("NC_000023.10:g.32862923_32862924insCCT")
-        >>> item = variant.description.edit.items[0]
-        >>> isinstance(item, LiteralSequenceItem)
+        >>> isinstance(variant.description, NucleotideInsertion)
+        True
+        >>> item = variant.description.sequence[0]
+        >>> isinstance(item, LiteralSequence)
+        True
+        >>> item.value
+        'CCT'
+
+        A composite insertion can mix literal and copied sequence:
+        >>> variant = parse_hgvs("LRG_199t1:c.419_420ins[T;450_470;AGGG]")
+        >>> len(variant.description.sequence)
+        3
+        >>> variant.description.sequence[0].value
+        'T'
+        >>> variant.description.sequence[1].is_from_same_reference
+        True
+        >>> variant.description.sequence[2].value
+        'AGGG'
+
+        Insertion of repeated unspecified bases uses the shared repeat model:
+        >>> from tinyhgvs import UnknownRepeatUnit
+        >>> variant = parse_hgvs("NC_000023.10:g.32717298_32717299insN[100]")
+        >>> repeat = variant.description.sequence[0]
+        >>> isinstance(repeat.unit, UnknownRepeatUnit)
+        True
+        >>> repeat.quantity.count
+        100
+    """
+
+    location: Location[NucleotideCoordinate]
+    sequence: tuple[NucleotideSequenceItem, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class NucleotideDeletionInsertion:
+    """Nucleotide deletion-insertion.
+
+    Examples:
+        A deleted interval is replaced by one literal sequence component:
+        >>> from tinyhgvs import NucleotideDeletionInsertion, parse_hgvs
+        >>> variant = parse_hgvs("LRG_199t1:c.850_901delinsTTCCTCGATGCCTG")
+        >>> isinstance(variant.description, NucleotideDeletionInsertion)
+        True
+        >>> variant.description.sequence[0].value
+        'TTCCTCGATGCCTG'
+
+        Replacement sequence can be copied from the same reference:
+        >>> variant = parse_hgvs("NC_000022.10:g.42522624_42522669delins42536337_42536382")
+        >>> variant.description.sequence[0].location.start.coordinate
+        42536337
+
+        Replacement sequence can be a repeat item:
+        >>> from tinyhgvs import UnknownRepeatUnit
+        >>> variant = parse_hgvs("NM_004006.2:c.812_829delinsN[12]")
+        >>> repeat = variant.description.sequence[0]
+        >>> isinstance(repeat.unit, UnknownRepeatUnit)
+        True
+        >>> repeat.quantity.count
+        12
+    """
+
+    location: Location[NucleotideCoordinate]
+    sequence: tuple[NucleotideSequenceItem, ...]
+
+
+NucleotideEdit: TypeAlias = (
+    NucleotideNoChange
+    | NucleotideSubstitution
+    | NucleotideDeletion
+    | NucleotideDuplication
+    | NucleotideRepeat
+    | NucleotideInsertion
+    | NucleotideInversion
+    | NucleotideDeletionInsertion
+)
+"""Tagged union for supported nucleotide edit models:
+
+- [`NucleotideNoChange`][tinyhgvs.models.nucleotide.NucleotideNoChange]
+- [`NucleotideSubstitution`][tinyhgvs.models.nucleotide.NucleotideSubstitution]
+- [`NucleotideDeletion`][tinyhgvs.models.nucleotide.NucleotideDeletion]
+- [`NucleotideDuplication`][tinyhgvs.models.nucleotide.NucleotideDuplication]
+- [`NucleotideRepeat`][tinyhgvs.models.nucleotide.NucleotideRepeat]
+- [`NucleotideInsertion`][tinyhgvs.models.nucleotide.NucleotideInsertion]
+- [`NucleotideInversion`][tinyhgvs.models.nucleotide.NucleotideInversion]
+- [`NucleotideDeletionInsertion`][tinyhgvs.models.nucleotide.NucleotideDeletionInsertion]
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class LiteralSequence:
+    """Literal-base sequence component.
+
+    Examples:
+        >>> from tinyhgvs import LiteralSequence, parse_hgvs
+        >>> variant = parse_hgvs("NC_000023.10:g.32862923_32862924insCCT")
+        >>> item = variant.description.sequence[0]
+        >>> isinstance(item, LiteralSequence)
         True
         >>> item.value
         'CCT'
@@ -293,308 +412,77 @@ class LiteralSequenceItem:
 
 
 @dataclass(frozen=True, slots=True)
-class RepeatSequenceItem:
-    """Model describing repeat-type sequence edit component.
+class CopiedSequence:
+    """Copied nucleotide sequence used in an insertion or deletion-insertion.
 
     Attributes:
-        unit: Repeat unit of nucleotide bases.
-        count: Number of units being repeated.
+        reference: Source reference when the copied sequence comes from a
+            different accession. ``None`` means the same outer reference.
+        coordinate_system: Source coordinate system when it differs from the
+            outer variant. ``None`` means the same outer coordinate system.
+        location: Location on the source reference.
+        is_inverted: Whether the copied sequence is inserted in reverse
+            orientation.
 
     Examples:
-        The insertion contains 100 copies of ``N``:
-        >>> from tinyhgvs import RepeatSequenceItem, parse_hgvs
-        >>> variant = parse_hgvs("NC_000023.10:g.32717298_32717299insN[100]")
-        >>> item = variant.description.edit.items[0]
-        >>> isinstance(item, RepeatSequenceItem)
+        A stretch of sequence from the same transcript is inserted in reverse
+        orientation:
+        >>> from tinyhgvs import CopiedSequence, parse_hgvs
+        >>> variant = parse_hgvs("NM_004006.2:c.849_850ins850_900inv")
+        >>> item = variant.description.sequence[0]
+        >>> isinstance(item, CopiedSequence)
         True
-        >>> item.unit
-        'N'
-        >>> item.count
-        100
+        >>> item.is_from_same_reference
+        True
+        >>> item.location.start.coordinate
+        850
+        >>> item.location.end.coordinate
+        900
+        >>> item.is_inverted
+        True
+
+        A copied sequence can also come from another chromosome:
+        >>> variant = parse_hgvs(
+        ...     "NC_000002.11:g.47643464_47643465ins[NC_000022.10:g.35788169_35788352]"
+        ... )
+        >>> item = variant.description.sequence[0]
+        >>> item.reference.primary.id
+        'NC_000022.10'
+        >>> item.coordinate_system
+        <CoordinateSystem.GENOMIC: 'g'>
     """
 
-    unit: str
-    count: int
+    reference: ReferenceSpec | None
+    coordinate_system: CoordinateSystem | None
+    location: KnownLocation[NucleotideCoordinate]
+    is_inverted: bool
+
+    @property
+    def is_from_same_reference(self) -> bool:
+        return self.reference is None and self.coordinate_system is None
 
 
-@dataclass(frozen=True, slots=True)
-class NucleotideRepeatBlock:
-    """One repeat block/unit in a nucleotide repeat description.
+NucleotideSequenceItem: TypeAlias = LiteralSequence | Repeat | CopiedSequence
+"""Tagged union for supported inserted or replacement nucleotide components:
 
-    Attributes:
-        count: Number of repeated units.
-        unit: Literal base(s) repeat unit. None when repeat unit is described
-            in the form of `location[count]`.
-        location: Location per repeat block. None when repeat unit is described
-            in the form of `unit[count]`.
-
-    Examples:
-        A literal 3bp bases repeat with 23 units:
-        >>> from tinyhgvs import parse_hgvs
-        >>> variant = parse_hgvs("NC_000014.8:g.123CAG[23]")
-        >>> block = variant.description.edit.blocks[0]
-        >>> block.unit
-        'CAG'
-        >>> block.count
-        23
-        >>> block.location is None
-        True
-
-        A RNA repeat variant composed of consecutive repeat units, each
-        described in the form `location[count]`, rather than `unit[count]`:
-        a repetitive unit from a location:
-        >>> variant = parse_hgvs("NM_004006.3:r.456_465[4]466_489[9]490_499[3]")
-        >>> block = variant.description.edit.blocks[1]
-        >>> block.unit is None
-        True
-        >>> block.location.start.coordinate
-        466
-        >>> block.location.end.coordinate
-        489
-    """
-
-    count: int
-    unit: str | None = None
-    location: Interval[NucleotideCoordinate] | None = None
-
-
-NucleotideSequenceItem: TypeAlias = (
-    LiteralSequenceItem | RepeatSequenceItem | CopiedSequenceItem
-)
-"""Tagged union for supported inserted or replacement nucleotide components: 
-
-- [`LiteralSequenceItem`][tinyhgvs.models.nucleotide.LiteralSequenceItem]
-- [`RepeatSequenceItem`][tinyhgvs.models.nucleotide.RepeatSequenceItem]
-- [`CopiedSequenceItem`][tinyhgvs.models.nucleotide.CopiedSequenceItem]
+- [`LiteralSequence`][tinyhgvs.models.nucleotide.LiteralSequence]
+- [`Repeat`][tinyhgvs.models.repeat.Repeat]
+- [`CopiedSequence`][tinyhgvs.models.nucleotide.CopiedSequence]
 """
-
-
-class NucleotideSequenceOmittedEdit(str, Enum):
-    """Nucleotide edits whose altered sequence is not written explicitly.
-
-    Attributes:
-        NO_CHANGE: No nucleotide change, written as ``=``.
-        DELETION: Deletion of the reference interval, written as ``del``.
-        DUPLICATION: Duplication of the reference interval, written as ``dup``.
-        INVERSION: Inversion of the reference interval, written as ``inv``.
-
-    Examples:
-        A coding DNA deletion:
-        >>> from tinyhgvs import NucleotideSequenceOmittedEdit, parse_hgvs
-        >>> variant = parse_hgvs("NM_004006.2:c.5697del")
-        >>> variant.description.edit is NucleotideSequenceOmittedEdit.DELETION
-        True
-
-        A genomic duplication:
-        >>> variant = parse_hgvs("NC_000001.11:g.1234_2345dup")
-        >>> variant.description.edit
-        <NucleotideSequenceOmittedEdit.DUPLICATION: 'duplication'>
-    """
-
-    NO_CHANGE = "no_change"
-    DELETION = "deletion"
-    DUPLICATION = "duplication"
-    INVERSION = "inversion"
-
-
-@dataclass(frozen=True, slots=True)
-class NucleotideSubstitutionEdit:
-    """Model describing nucleotide substitution.
-
-    Examples:
-        A reference base ``C`` is substituted by ``A`` at the described
-        location.
-        >>> from tinyhgvs import parse_hgvs
-        >>> variant = parse_hgvs("NC_000023.10:g.33038255C>A")
-        >>> variant_edit = variant.description.edit
-        >>> variant_edit.reference
-        'C'
-        >>> variant_edit.alternate
-        'A'
-        >>> variant_edit.kind
-        'substitution'
-    """
-
-    reference: str
-    alternate: str
-    kind: Literal["substitution"] = field(init=False, default="substitution")
-
-
-@dataclass(frozen=True, slots=True)
-class NucleotideInsertionEdit:
-    """Model describing nucleotide insertion.
-
-    Attributes:
-        items: Inserted sequence items in the order they appear in the HGVS
-            expression.
-        kind: Edit kind.
-
-    Examples:
-        Literal nucleotide insertion:
-        >>> from tinyhgvs import parse_hgvs
-        >>> variant = parse_hgvs("NC_000023.10:g.32862923_32862924insCCT")
-        >>> variant_edit = variant.description.edit
-        >>> variant_edit.items[0].value
-        'CCT'
-
-        A composite insertion can mix literal and copied sequence:
-        >>> variant = parse_hgvs("LRG_199t1:c.419_420ins[T;450_470;AGGG]")
-        >>> variant_edit = variant.description.edit
-        >>> len(variant_edit.items)
-        3
-        >>> variant_edit.items[0].value
-        'T'
-        >>> variant_edit.items[1].is_from_same_reference
-        True
-        >>> variant_edit.items[2].value
-        'AGGG'
-
-        Insertion of unspecified repeated bases:
-        >>> variant = parse_hgvs("NC_000023.10:g.32717298_32717299insN[100]")
-        >>> variant_edit = variant.description.edit
-        >>> variant_edit.items[0].unit
-        'N'
-        >>> variant_edit.items[0].count
-        100
-    """
-
-    items: tuple[NucleotideSequenceItem, ...]
-    kind: Literal["insertion"] = field(init=False, default="insertion")
-
-
-@dataclass(frozen=True, slots=True)
-class NucleotideDeletionInsertionEdit:
-    """Model describing nucleotide deletion-insertion.
-
-    Attributes:
-        items: Replacement sequence items in the order they appear in the HGVS
-            expression.
-        kind: Edit kind.
-
-    Examples:
-        A deleted interval is replaced by one literal sequence component.
-        >>> from tinyhgvs import parse_hgvs
-        >>> variant = parse_hgvs("LRG_199t1:c.850_901delinsTTCCTCGATGCCTG")
-        >>> variant_edit = variant.description.edit
-        >>> variant_edit.items[0].value
-        'TTCCTCGATGCCTG'
-
-        A deleted interval can be replaced by copied sequence from the same
-        reference:
-        >>> variant = parse_hgvs("NC_000022.10:g.42522624_42522669delins42536337_42536382")
-        >>> variant_edit = variant.description.edit
-        >>> variant_edit.items[0].source_location.start.coordinate
-        42536337
-
-        A deleted interval is replaced by repeated unspecified bases.
-        >>> variant = parse_hgvs("NM_004006.2:c.812_829delinsN[12]")
-        >>> variant_edit = variant.description.edit
-        >>> variant_edit.items[0].unit
-        'N'
-        >>> variant_edit.items[0].count
-        12
-    """
-
-    items: tuple[NucleotideSequenceItem, ...]
-    kind: Literal["deletion_insertion"] = field(
-        init=False,
-        default="deletion_insertion",
-    )
-
-
-@dataclass(frozen=True, slots=True)
-class NucleotideRepeatEdit:
-    """Model describing a top-level nucleotide repeat variant.
-
-    Attributes:
-        blocks: Repeat blocks/units written in the HGVS description.
-        kind: Edit kind.
-
-    Examples:
-        A DNA repeat variant with explicit repeat unit:
-        >>> from tinyhgvs import parse_hgvs
-        >>> variant = parse_hgvs("NC_000014.8:g.123CAG[23]")
-        >>> variant_edit = variant.description.edit
-        >>> variant_edit.blocks[0].unit
-        'CAG'
-        >>> variant_edit.blocks[0].count
-        23
-
-        A RNA repeat variant composed of consecutive blocks/units, each
-        represented as a location span:
-        >>> variant = parse_hgvs("NM_004006.3:r.456_465[4]466_489[9]490_499[3]")
-        >>> variant_edit = variant.description.edit
-        >>> len(variant_edit.blocks)
-        3
-        >>> variant_edit.blocks[2].count
-        3
-    """
-
-    blocks: tuple[NucleotideRepeatBlock, ...]
-    kind: Literal["repeat"] = field(init=False, default="repeat")
-
-
-NucleotideEdit: TypeAlias = (
-    NucleotideSequenceOmittedEdit
-    | NucleotideSubstitutionEdit
-    | NucleotideInsertionEdit
-    | NucleotideDeletionInsertionEdit
-    | NucleotideRepeatEdit
-)
-"""Tagged union for supported nucleotide edit models:
-
-- [`NucleotideSequenceOmittedEdit`][tinyhgvs.models.nucleotide.NucleotideSequenceOmittedEdit]
-- [`NucleotideSubstitutionEdit`][tinyhgvs.models.nucleotide.NucleotideSubstitutionEdit]
-- [`NucleotideInsertionEdit`][tinyhgvs.models.nucleotide.NucleotideInsertionEdit]
-- [`NucleotideDeletionInsertionEdit`][tinyhgvs.models.nucleotide.NucleotideDeletionInsertionEdit]
-- [`NucleotideRepeatEdit`][tinyhgvs.models.nucleotide.NucleotideRepeatEdit]
-"""
-
-
-@dataclass(frozen=True, slots=True)
-class NucleotideVariant:
-    """Model describing a nucleotide-level variant.
-
-    Attributes:
-        location: [`Location`][tinyhgvs.models.shared.Location] where the
-            nucleotide edit occurs.
-        edit: Nucleotide edit applied at the location.
-
-    Examples:
-        A splice-site substitution is represented by a nucleotide location and
-        a nucleotide substitution edit.
-        >>> from tinyhgvs import NucleotideSubstitutionEdit, parse_hgvs
-        >>> variant = parse_hgvs("NM_004006.2:c.357+1G>A")
-        >>> isinstance(variant.description.edit, NucleotideSubstitutionEdit)
-        True
-        >>> variant_description = variant.description
-        >>> variant_description.location.start.coordinate
-        357
-        >>> variant_description.location.start.offset
-        1
-    """
-
-    location: Location[NucleotideCoordinate]
-    edit: NucleotideEdit
 
 
 __all__ = [
-    "Allele",
-    "AllelePhase",
-    "AlleleVariant",
-    "CopiedSequenceItem",
-    "NucleotideDeletionInsertionEdit",
+    "CopiedSequence",
+    "NucleotideDeletionInsertion",
     "NucleotideAnchor",
     "NucleotideCoordinate",
-    "NucleotideCoordinateKind",
     "NucleotideEdit",
-    "NucleotideInsertionEdit",
-    "NucleotideRepeatBlock",
-    "NucleotideRepeatEdit",
+    "NucleotideInsertion",
+    "NucleotideDeletion",
+    "NucleotideDuplication",
+    "NucleotideRepeat",
     "NucleotideSequenceItem",
-    "NucleotideSequenceOmittedEdit",
-    "NucleotideSubstitutionEdit",
-    "NucleotideVariant",
-    "LiteralSequenceItem",
-    "RepeatSequenceItem",
+    "NucleotideSubstitution",
+    "NucleotideNoChange",
+    "LiteralSequence",
 ]

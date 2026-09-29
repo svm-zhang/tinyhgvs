@@ -17,13 +17,18 @@ extra_javascript = [
 # Section for navigation configuration
 nav = [
   {"Home" = "index.md"},
-  {"Unsupported Catelog" = "unsupported.md"},
+  {"Unsupported Catalog" = "unsupported.md"},
   {"API reference" = [
     { "Parser" = "api/api.md" },
     { "HGVS Models" = [
       { "Overview" = "api/models.md" },
-      { "Nucleotide Models" = "api/models-nucleotide.md" },
-      { "Protein Models" = "api/models-protein.md" }
+      { "Core" = "api/models-core.md" },
+      { "Allele" = "api/models-allele.md" },
+      { "Coding DNA" = "api/models-cdna.md" },
+      { "Nucleotide" = "api/models-nucleotide.md" },
+      { "RNA" = "api/models-rna.md" },
+      { "Repeat" = "api/models-repeat.md" },
+      { "Protein" = "api/models-protein.md" }
     ]},
     { "Errors" = "api/errors.md" }
   ]}
@@ -50,8 +55,7 @@ features = [
   "navigation.top",
   "navigation.tracking",
   "search.highlight",
-  "toc.follow",
-  "toc.integrate"
+  "toc.follow"
 ]
 
 

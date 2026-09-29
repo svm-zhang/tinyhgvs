@@ -2,16 +2,17 @@
 
 Type Aliases:
     ProteinEdit: Tagged union for supported protein edit models.
-    ProteinEffect: Tagged union for supported protein consequence models.
+    ProteinOutcome: Tagged union for supported protein outcome models.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Literal, TypeAlias
+from typing import TypeAlias
 
-from .shared import Location
+from .repeat import Repeat
+from .core import Location, OutcomeCertainty
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,7 +28,7 @@ class ProteinCoordinate:
         symbol and ordinal together.
         >>> from tinyhgvs import parse_hgvs
         >>> variant = parse_hgvs("NP_003997.1:p.Trp24Ter")
-        >>> position = variant.description.effect.location.start
+        >>> position = variant.description.edit.location.start
         >>> position.residue
         'Trp'
         >>> position.ordinal
@@ -38,145 +39,7 @@ class ProteinCoordinate:
     ordinal: int
 
 
-@dataclass(frozen=True, slots=True)
-class ProteinSequence:
-    """Ordered amino-acid sequence used by insertions and deletion-insertions.
-
-    Attributes:
-        residues: Ordered tuple of amino-acid symbols.
-
-    Examples:
-        A protein insertion adds three amino acids in order.
-        >>> from tinyhgvs import parse_hgvs
-        >>> variant = parse_hgvs("p.Lys2_Gly3insGlnSerLys")
-        >>> variant_edit = variant.description.effect.edit
-        >>> variant_edit.sequence.residues
-        ('Gln', 'Ser', 'Lys')
-    """
-
-    residues: tuple[str, ...]
-
-
-class ProteinSequenceOmittedEdit(str, Enum):
-    """Protein edits whose altered amino-acid sequence is not written explicitly.
-
-    Attributes:
-        UNKNOWN: A protein change is expected, but the consequence is not known.
-        NO_CHANGE: No protein change, written as ``=``.
-        DELETION: Deletion of the stated amino-acid interval.
-        DUPLICATION: Duplication of the stated amino-acid interval.
-
-    Examples:
-        A predicted but unspecified consequence at Met1:
-        >>> from tinyhgvs import ProteinSequenceOmittedEdit, parse_hgvs
-        >>> variant = parse_hgvs("LRG_199p1:p.(Met1?)")
-        >>> variant.description.effect.edit is ProteinSequenceOmittedEdit.UNKNOWN
-        True
-
-        An explicitly unchanged residue:
-        >>> variant = parse_hgvs("NP_003997.1:p.Cys188=")
-        >>> variant.description.effect.edit
-        <ProteinSequenceOmittedEdit.NO_CHANGE: 'no_change'>
-    """
-
-    UNKNOWN = "unknown"
-    NO_CHANGE = "no_change"
-    DELETION = "deletion"
-    DUPLICATION = "duplication"
-
-
-@dataclass(frozen=True, slots=True)
-class ProteinSubstitutionEdit:
-    """Protein substitution to another residue symbol.
-
-    Attributes:
-        to: Amino acid or stop symbol replacing the reference residue.
-        kind: Edit kind.
-
-    Examples:
-        A tryptophan residue is replaced by a termination codon.
-        >>> from tinyhgvs import parse_hgvs
-        >>> variant = parse_hgvs("NP_003997.1:p.Trp24Ter")
-        >>> variant_edit = variant.description.effect.edit
-        >>> variant_edit.to
-        'Ter'
-        >>> variant_edit.kind
-        'substitution'
-    """
-
-    to: str
-    kind: Literal["substitution"] = field(init=False, default="substitution")
-
-
-@dataclass(frozen=True, slots=True)
-class ProteinInsertionEdit:
-    """Model describing protein insertion.
-
-    Attributes:
-        sequence: Inserted amino-acid sequence.
-        kind: Edit kind.
-
-    Examples:
-        Three amino acids are inserted between residues 2 and 3.
-        >>> from tinyhgvs import parse_hgvs
-        >>> variant = parse_hgvs("p.Lys2_Gly3insGlnSerLys")
-        >>> variant_edit = variant.description.effect.edit
-        >>> variant_edit.sequence.residues
-        ('Gln', 'Ser', 'Lys')
-        >>> variant_edit.kind
-        'insertion'
-    """
-
-    sequence: ProteinSequence
-    kind: Literal["insertion"] = field(init=False, default="insertion")
-
-
-@dataclass(frozen=True, slots=True)
-class ProteinDeletionInsertionEdit:
-    """Model describing protein deletion-insertion.
-
-    Attributes:
-        sequence: Replacement amino-acid sequence.
-        kind: Edit kind.
-
-    Examples:
-        One residue is deleted and replaced by two amino acids.
-        >>> from tinyhgvs import parse_hgvs
-        >>> variant = parse_hgvs("p.Cys28delinsTrpVal")
-        >>> variant_edit = variant.description.effect.edit
-        >>> variant_edit.sequence.residues
-        ('Trp', 'Val')
-        >>> variant_edit.kind
-        'deletion_insertion'
-    """
-
-    sequence: ProteinSequence
-    kind: Literal["deletion_insertion"] = field(
-        init=False,
-        default="deletion_insertion",
-    )
-
-
-@dataclass(frozen=True, slots=True)
-class ProteinRepeatEdit:
-    """Model describing a top-level protein repeat variant.
-
-    Attributes:
-        count: Number of repeated amino-acid units.
-        kind: Edit kind.
-
-    Examples:
-        A protein repeat variant with repeat unit coming from an interval:
-        >>> from tinyhgvs import parse_hgvs
-        >>> variant = parse_hgvs("NP_0123456.1:p.Arg65_Ser67[12]")
-        >>> variant.description.effect.edit.count
-        12
-        >>> variant.description.effect.edit.kind
-        'repeat'
-    """
-
-    count: int
-    kind: Literal["repeat"] = field(init=False, default="repeat")
+_ResidueChange: TypeAlias = str | tuple[str, ...]
 
 
 class ProteinExtensionTerminal(str, Enum):
@@ -190,337 +53,622 @@ class ProteinExtensionTerminal(str, Enum):
         N-terminal extension:
         >>> from tinyhgvs import ProteinExtensionTerminal, parse_hgvs
         >>> variant = parse_hgvs("NP_003997.2:p.Met1ext-5")
-        >>> variant.description.effect.edit.to_terminal is ProteinExtensionTerminal.N
+        >>> variant.description.edit.to_terminal is ProteinExtensionTerminal.N
         True
 
         C-terminal extension:
         >>> variant = parse_hgvs("NP_003997.2:p.Ter110GlnextTer17")
-        >>> variant.description.effect.edit.to_terminal is ProteinExtensionTerminal.C
+        >>> variant.description.edit.to_terminal is ProteinExtensionTerminal.C
         True
     """
 
-    N = "n"
-    C = "c"
+    N = "N"
+    C = "C"
+
+
+class ProteinFrameshiftStop:
+    """Base class for protein frameshift stop-codon state."""
+
+    @property
+    def is_omitted(self) -> bool:
+        return False
+
+    @property
+    def is_unknown(self) -> bool:
+        return False
+
+    @property
+    def is_known(self) -> bool:
+        return False
 
 
 @dataclass(frozen=True, slots=True)
-class ProteinExtensionEdit:
-    """Model describing a protein extension consequence.
+class OmittedProteinFrameshiftStop(ProteinFrameshiftStop):
+    """Short-form frameshift where stop codon information is omitted.
 
-    Attributes:
-        to_terminal: Protein terminus toward which an extension variant extends.
-        to_residue: Residue replacing the reference stop codon in a C-terminal
-            extension. None for N-terminal extension.
-        terminal_ordinal: New terminal ordinal. Negative for N-terminal
-            extension, positive for C-terminal extension with known stop, and
-            None when the new stop is unknown.
-        kind: Edit kind.
+    Examples:
+        >>> from tinyhgvs import OmittedProteinFrameshiftStop, parse_hgvs
+        >>> variant = parse_hgvs("NP_0123456.1:p.Arg97fs")
+        >>> stop = variant.description.edit.stop
+        >>> isinstance(stop, OmittedProteinFrameshiftStop)
+        True
+    """
+
+    @property
+    def is_omitted(self) -> bool:
+        return True
+
+
+@dataclass(frozen=True, slots=True)
+class UnknownProteinFrameshiftStop(ProteinFrameshiftStop):
+    """Frameshift where the stop codon is not encountered or not known.
+
+    Examples:
+        >>> from tinyhgvs import UnknownProteinFrameshiftStop, parse_hgvs
+        >>> variant = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer?")
+        >>> stop = variant.description.edit.stop
+        >>> isinstance(stop, UnknownProteinFrameshiftStop)
+        True
+    """
+
+    @property
+    def is_unknown(self) -> bool:
+        return True
+
+
+@dataclass(frozen=True, slots=True)
+class KnownProteinFrameshiftStop(ProteinFrameshiftStop):
+    """Frameshift with a known stop codon ordinal.
+
+    Examples:
+        >>> from tinyhgvs import KnownProteinFrameshiftStop, parse_hgvs
+        >>> variant = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23")
+        >>> stop = variant.description.edit.stop
+        >>> isinstance(stop, KnownProteinFrameshiftStop)
+        True
+        >>> stop.ordinal
+        23
+    """
+
+    ordinal: int
+
+    @property
+    def is_known(self) -> bool:
+        return True
+
+
+class ProteinEdit:
+    """Base class for concrete protein edits."""
+
+    @property
+    def is_substitution(self) -> bool:
+        return False
+
+    @property
+    def is_deletion(self) -> bool:
+        return False
+
+    @property
+    def is_duplication(self) -> bool:
+        return False
+
+    @property
+    def is_repeat(self) -> bool:
+        return False
+
+    @property
+    def is_extension(self) -> bool:
+        return False
+
+    @property
+    def is_frameshift(self) -> bool:
+        return False
+
+    @property
+    def is_insertion(self) -> bool:
+        return False
+
+    @property
+    def is_deletion_insertion(self) -> bool:
+        return False
+
+
+@dataclass(frozen=True, slots=True)
+class ProteinSubstitution(ProteinEdit):
+    """Protein substitution to another residue symbol.
+
+    Examples:
+        A tryptophan residue is replaced by a termination codon:
+        >>> from tinyhgvs import ProteinSubstitution, parse_hgvs
+        >>> variant = parse_hgvs("NP_003997.1:p.Trp24Ter")
+        >>> edit = variant.description.edit
+        >>> isinstance(edit, ProteinSubstitution)
+        True
+        >>> edit.to
+        'Ter'
+
+        Alternative consequences are represented by a tuple of residues:
+        >>> variant = parse_hgvs("NP_003997.1:p.(Gly719Ala^Ser)")
+        >>> edit = variant.description.edit
+        >>> edit.to
+        ('Ala', 'Ser')
+        >>> edit.has_alternatives
+        True
+    """
+
+    location: Location[ProteinCoordinate]
+    to: _ResidueChange
+
+    @property
+    def is_substitution(self) -> bool:
+        return True
+
+    @property
+    def has_alternatives(self) -> bool:
+        return isinstance(self.to, tuple)
+
+
+@dataclass(frozen=True, slots=True)
+class ProteinDeletion(ProteinEdit):
+    """Protein deletion.
+
+    Examples:
+        A deletion spanning residues Lys23 to Val25:
+        >>> from tinyhgvs import ProteinDeletion, parse_hgvs
+        >>> variant = parse_hgvs("NP_003997.2:p.Lys23_Val25del")
+        >>> edit = variant.description.edit
+        >>> isinstance(edit, ProteinDeletion)
+        True
+        >>> edit.location.start.residue
+        'Lys'
+        >>> edit.location.end.residue
+        'Val'
+    """
+
+    location: Location[ProteinCoordinate]
+
+    @property
+    def is_deletion(self) -> bool:
+        return True
+
+
+@dataclass(frozen=True, slots=True)
+class ProteinDuplication(ProteinEdit):
+    """Protein duplication.
+
+    Examples:
+        >>> from tinyhgvs import ProteinDuplication, parse_hgvs
+        >>> variant = parse_hgvs("NP_003997.1:p.Ser68_Arg70dup")
+        >>> isinstance(variant.description.edit, ProteinDuplication)
+        True
+    """
+
+    location: Location[ProteinCoordinate]
+
+    @property
+    def is_duplication(self) -> bool:
+        return True
+
+
+@dataclass(frozen=True, slots=True)
+class ProteinRepeat(ProteinEdit):
+    """Protein repeat edit.
+
+    Examples:
+        >>> from tinyhgvs import ProteinRepeat, parse_hgvs
+        >>> variant = parse_hgvs("NP_0123456.1:p.Arg65_Ser67[12]")
+        >>> edit = variant.description.edit
+        >>> isinstance(edit, ProteinRepeat)
+        True
+        >>> edit.repeat.quantity.count
+        12
+    """
+
+    location: Location[ProteinCoordinate]
+    repeat: Repeat
+
+    @property
+    def is_repeat(self) -> bool:
+        return True
+
+
+@dataclass(frozen=True, slots=True)
+class ProteinFrameshift(ProteinEdit):
+    """Protein frameshift consequence.
+
+    Examples:
+        A short-form protein frameshift variant:
+        >>> from tinyhgvs import OmittedProteinFrameshiftStop, ProteinFrameshift, parse_hgvs
+        >>> short = parse_hgvs("NP_0123456.1:p.Arg97fs")
+        >>> edit = short.description.edit
+        >>> isinstance(edit, ProteinFrameshift)
+        True
+        >>> edit.to_residue is None
+        True
+        >>> isinstance(edit.stop, OmittedProteinFrameshiftStop)
+        True
+
+        A long-form protein frameshift variant:
+        >>> long = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23")
+        >>> edit = long.description.edit
+        >>> edit.to_residue
+        'Pro'
+        >>> edit.stop.ordinal
+        23
+
+        A predicted long-form frameshift can have an unknown stop:
+        >>> predicted = parse_hgvs("NP_0123456.1:p.(Arg97ProfsTer?)")
+        >>> predicted.description.is_predicted
+        True
+        >>> predicted.description.edit.stop.is_unknown
+        True
+    """
+
+    location: Location[ProteinCoordinate]
+    to_residue: _ResidueChange | None
+    stop: ProteinFrameshiftStop
+
+    @property
+    def is_frameshift(self) -> bool:
+        return True
+
+    @property
+    def has_alternative_residues(self) -> bool:
+        return isinstance(self.to_residue, tuple)
+
+
+@dataclass(frozen=True, slots=True)
+class ProteinExtension(ProteinEdit):
+    """Protein extension consequence.
 
     Examples:
         An N-terminal extension:
-        >>> from tinyhgvs import parse_hgvs
+        >>> from tinyhgvs import ProteinExtensionTerminal, parse_hgvs
         >>> variant = parse_hgvs("NP_003997.2:p.Met1ext-5")
-        >>> variant_edit = variant.description.effect.edit
-        >>> variant_edit.to_terminal
-        <ProteinExtensionTerminal.N: 'n'>
-        >>> variant_edit.to_residue is None
+        >>> edit = variant.description.edit
+        >>> edit.to_terminal
+        <ProteinExtensionTerminal.N: 'N'>
+        >>> edit.to_residue is None
         True
-        >>> variant_edit.terminal_ordinal
+        >>> edit.terminal_ordinal
         -5
 
         A C-terminal extension with known new stop:
         >>> variant = parse_hgvs("NP_003997.2:p.Ter110GlnextTer17")
-        >>> variant_edit = variant.description.effect.edit
-        >>> variant_edit.to_terminal
-        <ProteinExtensionTerminal.C: 'c'>
-        >>> variant_edit.to_residue
+        >>> edit = variant.description.edit
+        >>> edit.to_terminal
+        <ProteinExtensionTerminal.C: 'C'>
+        >>> edit.to_residue
         'Gln'
-        >>> variant_edit.terminal_ordinal
+        >>> edit.terminal_ordinal
         17
 
         A C-terminal extension with unknown new stop:
-        >>> variant = parse_hgvs("p.Ter327ArgextTer?")
-        >>> variant.description.effect.edit.terminal_ordinal is None
+        >>> variant = parse_hgvs("NP_003997.2:p.Ter327ArgextTer?")
+        >>> variant.description.edit.terminal_ordinal is None
         True
-    """
-
-    to_terminal: ProteinExtensionTerminal
-    to_residue: str | None
-    terminal_ordinal: int | None
-    kind: Literal["extension"] = field(init=False, default="extension")
-
-
-class ProteinFrameshiftStopKind(str, Enum):
-    """Model describing a stop codon is known (long-form), or omitted (short-form),
-    or unknown (not encountered) due to a frameshift event.
-
-    Attributes:
-        OMITTED: Short-form frameshift where stop codon information is omitted.
-        UNKNOWN: Long-form frameshift with unknown stop codon, such as ``p.Arg97ProfsTer?``.
-        KNOWN: Long-form frameshift with known stop codon, such as ``p.Arg97ProfsTer23``.
-
-    Examples:
-        Protein frameshift variant with unknown stop codon:
-        >>> from tinyhgvs import parse_hgvs
-        >>> unknown = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer?")
-        >>> unknown.description.effect.edit.stop.kind
-        <ProteinFrameshiftStopKind.UNKNOWN: 'unknown'>
-
-        Short-form protein frameshift variant:
-        >>> short = parse_hgvs("NP_0123456.1:p.Arg97fs")
-        >>> short.description.effect.edit.stop.kind
-        <ProteinFrameshiftStopKind.OMITTED: 'omitted'>
-
-    """
-
-    OMITTED = "omitted"
-    UNKNOWN = "unknown"
-    KNOWN = "known"
-
-
-@dataclass(frozen=True, slots=True)
-class ProteinFrameshiftStop:
-    """Model describing stop codon information in a protein frameshift edit.
-
-    Attributes:
-        ordinal: Stop codon ordinal. None when stop codon information is either
-            omitted (short-form) or unknown.
-        kind: Whether the stop is omitted, unknown, or known.
-
-    Examples:
-        Protein frameshift variant with a known stop codon:
-        >>> from tinyhgvs import parse_hgvs
-        >>> long = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23")
-        >>> long_stop = long.description.effect.edit.stop
-        >>> long_stop.ordinal
-        23
-        >>> long_stop.kind
-        <ProteinFrameshiftStopKind.KNOWN: 'known'>
-
-        Short-form frameshift variant leaves the stop ordinal optional:
-        >>> short = parse_hgvs("NP_0123456.1:p.Arg97fs")
-        >>> short_stop = short.description.effect.edit.stop
-        >>> short_stop.ordinal is None
-        True
-        >>> short_stop.kind
-        <ProteinFrameshiftStopKind.OMITTED: 'omitted'>
-
-    """
-
-    ordinal: int | None
-    kind: ProteinFrameshiftStopKind
-
-
-@dataclass(frozen=True, slots=True)
-class ProteinFrameshiftEdit:
-    """Model describing a protein frameshift consequence.
-
-    Attributes:
-        to_residue: First newly encoded residue. None when in short-form.
-        stop: Model describing stop codon information in frameshift variant.
-        kind: Edit kind.
-
-    Examples:
-        A short-form protein frameshift variant:
-        >>> from tinyhgvs import parse_hgvs
-        >>> short = parse_hgvs("NP_0123456.1:p.Arg97fs")
-        >>> short_edit = short.description.effect.edit
-        >>> short_edit.to_residue is None
-        True
-        >>> short_edit.stop.kind
-        <ProteinFrameshiftStopKind.OMITTED: 'omitted'>
-
-        A long-form protein frameshift variants:
-        >>> long = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23")
-        >>> long_edit = long.description.effect.edit
-        >>> long_edit.to_residue
-        'Pro'
-        >>> long_edit.stop.ordinal
-        23
-
-        A predicted long-form protein frameshift variant:
-        >>> predicted = parse_hgvs("p.(Arg97ProfsTer?)")
-        >>> predicted.description.is_predicted
-        True
-        >>> predicted.description.effect.edit.stop.kind
-        <ProteinFrameshiftStopKind.UNKNOWN: 'unknown'>
-    """
-
-    to_residue: str | None
-    stop: ProteinFrameshiftStop
-    kind: Literal["frameshift"] = field(init=False, default="frameshift")
-
-
-ProteinEdit: TypeAlias = (
-    ProteinSequenceOmittedEdit
-    | ProteinSubstitutionEdit
-    | ProteinInsertionEdit
-    | ProteinDeletionInsertionEdit
-    | ProteinRepeatEdit
-    | ProteinExtensionEdit
-    | ProteinFrameshiftEdit
-)
-"""Tagged union for supported protein edit models:
-
-- [`ProteinSequenceOmittedEdit`][tinyhgvs.models.protein.ProteinSequenceOmittedEdit]
-- [`ProteinSubstitutionEdit`][tinyhgvs.models.protein.ProteinSubstitutionEdit]
-- [`ProteinInsertionEdit`][tinyhgvs.models.protein.ProteinInsertionEdit]
-- [`ProteinDeletionInsertionEdit`][tinyhgvs.models.protein.ProteinDeletionInsertionEdit]
-- [`ProteinRepeatEdit`][tinyhgvs.models.protein.ProteinRepeatEdit]
-- [`ProteinExtensionEdit`][tinyhgvs.models.protein.ProteinExtensionEdit]
-- [`ProteinFrameshiftEdit`][tinyhgvs.models.protein.ProteinFrameshiftEdit]
-"""
-
-
-@dataclass(frozen=True, slots=True)
-class ProteinUnknownEffect:
-    """Model describing the protein consequence ``p.?``.
-
-    Attributes:
-        kind: Effect kind.
-
-    Examples:
-        The protein consequence is entirely unknown.
-        >>> from tinyhgvs import parse_hgvs
-        >>> variant = parse_hgvs("NP_003997.1:p.?")
-        >>> variant.description.effect.kind
-        'unknown'
-    """
-
-    kind: Literal["unknown"] = field(init=False, default="unknown")
-
-
-@dataclass(frozen=True, slots=True)
-class ProteinNoProteinProducedEffect:
-    """Model describing the protein consequence ``p.0``.
-
-    Attributes:
-        kind: Effect kind.
-
-    Examples:
-        The variant predicts that no protein product is made.
-        >>> from tinyhgvs import parse_hgvs
-        >>> variant = parse_hgvs("LRG_199p1:p.0")
-        >>> variant.description.effect.kind
-        'no_protein_produced'
-    """
-
-    kind: Literal["no_protein_produced"] = field(
-        init=False,
-        default="no_protein_produced",
-    )
-
-
-@dataclass(frozen=True, slots=True)
-class ProteinEditEffect:
-    """Protein consequence at specified location.
-
-    Attributes:
-        location: [`Location`][tinyhgvs.models.shared.Location] where the edit occurs.
-        edit: Protein edit applied at the location.
-        kind: Effect kind.
-
-    Examples:
-        A deletion spanning residues Lys23 to Val25 is represented by a protein
-        location and a protein deletion edit.
-        >>> from tinyhgvs import ProteinSequenceOmittedEdit, parse_hgvs
-        >>> variant = parse_hgvs("NP_003997.2:p.Lys23_Val25del")
-        >>> effect = variant.description.effect
-        >>> effect.location.start.residue
-        'Lys'
-        >>> effect.location.end.residue
-        'Val'
-        >>> effect.edit is ProteinSequenceOmittedEdit.DELETION
-        True
-
-        A protein frameshift consequence:
-        >>> variant = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23")
-        >>> effect = variant.description.effect
-        >>> effect.location.start.residue
-        'Arg'
-        >>> effect.edit.to_residue
-        'Pro'
-
-        A protein extension consequence:
-        >>> variant = parse_hgvs("NP_003997.2:p.Ter110GlnextTer17")
-        >>> effect = variant.description.effect
-        >>> effect.location.start.residue
-        'Ter'
-        >>> effect.edit.kind
-        'extension'
-        >>> effect.edit.terminal_ordinal
-        17
     """
 
     location: Location[ProteinCoordinate]
-    edit: ProteinEdit
-    kind: Literal["edit"] = field(init=False, default="edit")
+    to_terminal: ProteinExtensionTerminal
+    to_residue: str | None
+    terminal_ordinal: int | None
 
-
-ProteinEffect: TypeAlias = (
-    ProteinUnknownEffect | ProteinNoProteinProducedEffect | ProteinEditEffect
-)
-"""Tagged union for supported protein consequence models:
-
-- [`ProteinUnknownEffect`][tinyhgvs.models.protein.ProteinUnknownEffect]
-- [`ProteinNoProteinProducedEffect`][tinyhgvs.models.protein.ProteinNoProteinProducedEffect]
-- [`ProteinEditEffect`][tinyhgvs.models.protein.ProteinEditEffect]
-"""
+    @property
+    def is_extension(self) -> bool:
+        return True
 
 
 @dataclass(frozen=True, slots=True)
-class ProteinVariant:
-    """Parsed protein-level consequence.
+class ProteinDeletionInsertion(ProteinEdit):
+    """Protein deletion-insertion.
 
-    Attributes:
-        is_predicted: Whether the effect was written in parentheses.
-        effect: Parsed protein consequence model.
+    Examples:
+        One residue is deleted and replaced by two amino acids:
+        >>> from tinyhgvs import ProteinDeletionInsertion, parse_hgvs
+        >>> variant = parse_hgvs("NP_003997.1:p.Cys28delinsTrpVal")
+        >>> edit = variant.description.edit
+        >>> isinstance(edit, ProteinDeletionInsertion)
+        True
+        >>> edit.sequence
+        ('Trp', 'Val')
+    """
+
+    location: Location[ProteinCoordinate]
+    sequence: tuple[str, ...]
+
+    @property
+    def is_deletion_insertion(self) -> bool:
+        return True
+
+
+class ProteinInsertion(ProteinEdit):
+    """Base class for protein insertion edits."""
+
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class KnownProteinInsertion(ProteinInsertion):
+    """Protein insertion with a known amino-acid sequence.
+
+    The public surface stores inserted residues directly as a tuple.
+
+    Examples:
+        Three amino acids are inserted between residues 2 and 3:
+        >>> from tinyhgvs import KnownProteinInsertion, parse_hgvs
+        >>> variant = parse_hgvs("NP_003997.1:p.Lys2_Gly3insGlnSerLys")
+        >>> edit = variant.description.edit
+        >>> isinstance(edit, KnownProteinInsertion)
+        True
+        >>> edit.sequence
+        ('Gln', 'Ser', 'Lys')
+    """
+
+    location: Location[ProteinCoordinate]
+    sequence: tuple[str, ...]
+
+    @property
+    def is_insertion(self) -> bool:
+        return True
+
+
+@dataclass(frozen=True, slots=True)
+class UnknownProteinInsertion(ProteinInsertion):
+    """Protein insertion with unknown amino-acid content.
+
+    Examples:
+        A bare ``insXaa`` represents one unknown inserted amino acid:
+        >>> from tinyhgvs import UnknownProteinInsertion, parse_hgvs
+        >>> variant = parse_hgvs("NP_003997.1:p.Ser332_Ser333insXaa")
+        >>> edit = variant.description.edit
+        >>> isinstance(edit, UnknownProteinInsertion)
+        True
+        >>> edit.count
+        1
+
+        The unknown count can also be written explicitly:
+        >>> variant = parse_hgvs("NP_003997.1:p.Arg78_Gly79insXaa[23]")
+        >>> variant.description.edit.count
+        23
+    """
+
+    location: Location[ProteinCoordinate]
+    count: int
+
+    @property
+    def is_insertion(self) -> bool:
+        return True
+
+
+@dataclass(frozen=True, slots=True)
+class TerminatingProteinInsertion(ProteinInsertion):
+    """Protein insertion containing a terminating residue.
+
+    Examples:
+        >>> from tinyhgvs import TerminatingProteinInsertion, parse_hgvs
+        >>> variant = parse_hgvs("NP_003997.1:p.Gln746_Lys747ins*63")
+        >>> edit = variant.description.edit
+        >>> isinstance(edit, TerminatingProteinInsertion)
+        True
+        >>> edit.ordinal
+        63
+    """
+
+    location: Location[ProteinCoordinate]
+    ordinal: int
+
+    @property
+    def is_insertion(self) -> bool:
+        return True
+
+
+class ProteinOutcome:
+    """Base class for protein outcomes.
+
+    Protein outcomes cover produced edits, no-change outcomes, not-produced
+    outcomes, and unknown outcomes.
+
+    Examples:
+        >>> from tinyhgvs import ProteinNoChange, ProteinProduced, parse_hgvs
+        >>> isinstance(parse_hgvs("NP_003997.1:p.Trp24Ter").description, ProteinProduced)
+        True
+        >>> isinstance(parse_hgvs("NP_003997.1:p.Cys188=").description, ProteinNoChange)
+        True
+    """
+
+    @property
+    def is_produced(self) -> bool:
+        return False
+
+    @property
+    def is_no_change(self) -> bool:
+        return False
+
+    @property
+    def is_not_produced(self) -> bool:
+        return False
+
+    @property
+    def is_unknown(self) -> bool:
+        return False
+
+
+@dataclass(frozen=True, slots=True)
+class ProteinProduced(ProteinOutcome):
+    """Protein outcome where a concrete protein edit is produced.
 
     Examples:
         An observed protein consequence is not predicted:
-        >>> from tinyhgvs import parse_hgvs
-        >>> parse_hgvs("NP_003997.1:p.Trp24Ter").description.is_predicted
+        >>> from tinyhgvs import ProteinProduced, parse_hgvs
+        >>> variant = parse_hgvs("NP_003997.1:p.Trp24Ter")
+        >>> isinstance(variant.description, ProteinProduced)
+        True
+        >>> variant.description.is_predicted
         False
 
         A parenthesized protein consequence is predicted:
-        >>> parse_hgvs("LRG_199p1:p.(Met1?)").description.is_predicted
+        >>> predicted = parse_hgvs("NP_003997.1:p.(Trp24Ter)")
+        >>> predicted.description.is_predicted
         True
-
-        Frameshift consequences:
-        >>> variant = parse_hgvs("NP_0123456.1:p.Arg97ProfsTer23")
-        >>> variant.description.effect.edit.kind
-        'frameshift'
-
-        Extension consequences:
-        >>> variant = parse_hgvs("NP_003997.2:p.Ter110GlnextTer17")
-        >>> variant.description.effect.edit.kind
-        'extension'
+        >>> predicted.description.edit.location.start.residue
+        'Trp'
     """
 
-    is_predicted: bool
-    effect: ProteinEffect
+    edit: ProteinEdit
+    certainty: OutcomeCertainty
+
+    @property
+    def is_produced(self) -> bool:
+        return True
+
+    @property
+    def is_predicted(self) -> bool:
+        return self.certainty is OutcomeCertainty.PREDICTED
+
+    @property
+    def has_alternatives(self) -> bool:
+        return False
 
 
-ProteinPosition = ProteinCoordinate
+@dataclass(frozen=True, slots=True)
+class ProteinProducedAlternatives(ProteinOutcome):
+    """Protein outcome with alternative produced consequences.
+
+    Examples:
+        >>> from tinyhgvs import ProteinProducedAlternatives, parse_hgvs
+        >>> variant = parse_hgvs("NP_003997.1:p.(Gly23GlufsTer7^Gly23CysfsTer26)")
+        >>> isinstance(variant.description, ProteinProducedAlternatives)
+        True
+        >>> len(variant.description.edits)
+        2
+        >>> variant.description.edits[0].is_frameshift
+        True
+    """
+
+    edits: tuple[ProteinEdit, ...]
+    certainty: OutcomeCertainty
+
+    @property
+    def is_produced(self) -> bool:
+        return True
+
+    @property
+    def is_predicted(self) -> bool:
+        return self.certainty is OutcomeCertainty.PREDICTED
+
+    @property
+    def has_alternatives(self) -> bool:
+        return True
+
+
+@dataclass(frozen=True, slots=True)
+class ProteinNotProduced(ProteinOutcome):
+    """Protein outcome where no protein product is made.
+
+    Examples:
+        >>> from tinyhgvs import ProteinNotProduced, parse_hgvs
+        >>> variant = parse_hgvs("LRG_199p1:p.0")
+        >>> isinstance(variant.description, ProteinNotProduced)
+        True
+        >>> variant.description.is_not_produced
+        True
+    """
+
+    certainty: OutcomeCertainty
+
+    @property
+    def is_not_produced(self) -> bool:
+        return True
+
+    @property
+    def is_predicted(self) -> bool:
+        return self.certainty is OutcomeCertainty.PREDICTED
+
+
+@dataclass(frozen=True, slots=True)
+class ProteinUnknown(ProteinOutcome):
+    """Protein outcome ``p.?`` where the consequence is unknown.
+
+    Examples:
+        >>> from tinyhgvs import ProteinUnknown, parse_hgvs
+        >>> variant = parse_hgvs("NP_003997.1:p.?")
+        >>> isinstance(variant.description, ProteinUnknown)
+        True
+    """
+
+    @property
+    def is_unknown(self) -> bool:
+        return True
+
+
+@dataclass(frozen=True, slots=True)
+class ProteinNoChange(ProteinOutcome):
+    """Protein outcome with no amino-acid change.
+
+    Examples:
+        A site-specific no-change outcome:
+        >>> from tinyhgvs import ProteinNoChange, parse_hgvs
+        >>> variant = parse_hgvs("NP_003997.1:p.Cys188=")
+        >>> isinstance(variant.description, ProteinNoChange)
+        True
+        >>> variant.description.location.start.residue
+        'Cys'
+        >>> variant.description.location.start.ordinal
+        188
+        >>> variant.description.is_no_change
+        True
+
+        A parenthesized site-specific no-change outcome is predicted:
+        >>> predicted = parse_hgvs("NP_003997.1:p.(Cys188=)")
+        >>> predicted.description.is_predicted
+        True
+        >>> predicted.description.location.start.ordinal
+        188
+
+        Whole-protein no-change has no site-specific location:
+        >>> whole = parse_hgvs("NP_003997.1:p.(=)")
+        >>> whole.description.location is None
+        True
+        >>> whole.description.is_predicted
+        True
+    """
+
+    location: Location[ProteinCoordinate] | None
+    certainty: OutcomeCertainty
+
+    @property
+    def is_no_change(self) -> bool:
+        return True
+
+    @property
+    def is_predicted(self) -> bool:
+        return self.certainty is OutcomeCertainty.PREDICTED
 
 
 __all__ = [
+    "KnownProteinFrameshiftStop",
+    "KnownProteinInsertion",
+    "OmittedProteinFrameshiftStop",
     "ProteinCoordinate",
-    "ProteinDeletionInsertionEdit",
     "ProteinEdit",
-    "ProteinEditEffect",
-    "ProteinEffect",
-    "ProteinExtensionEdit",
+    "ProteinExtension",
     "ProteinExtensionTerminal",
-    "ProteinFrameshiftEdit",
+    "ProteinFrameshift",
     "ProteinFrameshiftStop",
-    "ProteinFrameshiftStopKind",
-    "ProteinInsertionEdit",
-    "ProteinNoProteinProducedEffect",
-    "ProteinRepeatEdit",
-    "ProteinSequence",
-    "ProteinSequenceOmittedEdit",
-    "ProteinSubstitutionEdit",
-    "ProteinUnknownEffect",
-    "ProteinVariant",
+    "ProteinRepeat",
+    "ProteinSubstitution",
+    "ProteinDeletion",
+    "ProteinInsertion",
+    "ProteinDeletionInsertion",
+    "ProteinDuplication",
+    "ProteinOutcome",
+    "ProteinNoChange",
+    "ProteinProduced",
+    "ProteinProducedAlternatives",
+    "ProteinNotProduced",
+    "ProteinUnknown",
+    "TerminatingProteinInsertion",
+    "UnknownProteinFrameshiftStop",
+    "UnknownProteinInsertion",
 ]
