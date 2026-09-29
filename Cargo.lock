@@ -52,7 +52,7 @@ dependencies = [
 
 [[package]]
 name = "py-tinyhgvs"
-version = "0.6.2"
+version = "0.7.0"
 dependencies = [
  "pyo3",
  "tinyhgvs",
@@ -143,7 +143,7 @@ checksum = "adb6935a6f5c20170eeceb1a3835a49e12e19d792f6dd344ccc76a985ca5a6ca"
 
 [[package]]
 name = "tinyhgvs"
-version = "0.6.2"
+version = "0.7.0"
 dependencies = [
  "nom",
 ]
